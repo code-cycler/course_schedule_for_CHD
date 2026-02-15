@@ -1,0 +1,3 @@
+http://bkjw.chd.edu.cn/eams/home.action 本科教务管理系统主页
+https://ids.chd.edu.cn/authserver/login?service=http%3A%2F%2Fbkjw.chd.edu.cn%2Feams%2Fhome.action 统一身份认证系统
+http://bkjw.chd.edu.cn/eams/courseTableForStd!courseTable.action 学生课表页面
