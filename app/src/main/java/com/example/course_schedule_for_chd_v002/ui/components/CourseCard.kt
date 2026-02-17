@@ -96,7 +96,7 @@ fun CourseCard(
  * @return 对应的颜色
  */
 @Composable
-fun getCourseColor(courseType: CourseType): Color {
+internal fun getCourseColor(courseType: CourseType): Color {
     return when (courseType) {
         CourseType.REQUIRED -> MaterialTheme.colorScheme.primary
         CourseType.ELECTIVE -> MaterialTheme.colorScheme.secondary

@@ -21,20 +21,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times
 import com.example.course_schedule_for_chd_v002.domain.model.Course
+import com.example.course_schedule_for_chd_v002.domain.model.CourseType
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 
 /**
- * 课程表网格组件 (v38)
+ * 课程表网格组件 (v40)
  * - [v38] 每天节次数从12改为11
  * - [v38] 课程卡片布局确保教室信息始终显示
  * - [v38] 周末折叠功能
  * - [v38] 末尾空节次折叠功能
+ * - [v39] 时间段分隔线（上午1-4节、下午5-8节、晚上9-11节）
+ * - [v40] 教室信息自动换行显示
  */
 @Composable
 fun ScheduleGrid(
@@ -48,6 +53,7 @@ fun ScheduleGrid(
     val cellHeight = 60.dp
     val headerHeight = 32.dp
     val labelWidth = 40.dp
+    val separatorHeight = 4.dp  // [v39] 时间段分隔线高度
 
     // [v38] 周末折叠状态
     var isWeekendExpanded by remember { mutableStateOf(false) }
@@ -74,7 +80,16 @@ fun ScheduleGrid(
         lastNodeWithCourse
     }
 
-    val gridHeight = cellHeight * displayNodes
+    // [v39] 计算网格高度，包含分隔线
+    // 分隔线位置：第4节后（上午/下午）、第8节后（下午/晚上）
+    val separatorAfterMorning = 4  // 上午1-4节
+    val separatorAfterAfternoon = 8  // 下午5-8节
+    val separatorCount = when {
+        displayNodes > separatorAfterAfternoon -> 2  // 包含晚上
+        displayNodes > separatorAfterMorning -> 1    // 包含下午
+        else -> 0
+    }
+    val gridHeight = cellHeight * displayNodes + separatorHeight * separatorCount
 
     Column(modifier = modifier) {
         // 表头行
@@ -213,6 +228,57 @@ fun ScheduleGrid(
                 Column(modifier = Modifier.fillMaxSize()) {
                     repeat(displayNodes) { nodeIndex ->
                         val node = nodeIndex + 1
+
+                        // [v39] 在第4节和第8节后添加时间段分隔线
+                        if (nodeIndex > 0 && nodeIndex == separatorAfterMorning) {
+                            // 上午/下午分隔线
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(separatorHeight)
+                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(labelWidth)
+                                        .height(separatorHeight)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                )
+                                repeat(if (isWeekendExpanded) 7 else 6) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(separatorHeight)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    )
+                                }
+                            }
+                        }
+                        if (nodeIndex > 0 && nodeIndex == separatorAfterAfternoon) {
+                            // 下午/晚上分隔线
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(separatorHeight)
+                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(labelWidth)
+                                        .height(separatorHeight)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                )
+                                repeat(if (isWeekendExpanded) 7 else 6) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(separatorHeight)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    )
+                                }
+                            }
+                        }
+
                         Row(modifier = Modifier.fillMaxWidth().height(cellHeight)) {
                             // 节次标签
                             Box(
@@ -274,6 +340,33 @@ fun ScheduleGrid(
                     val weekendColumnCount = if (isWeekendExpanded) 2 else 1
                     val totalColumnCount = weekdayColumnCount + weekendColumnCount
 
+                    // [v39] 获取 density 用于 Dp 到 Px 的转换
+                    val density = LocalDensity.current
+
+                    // [v39] 计算节次对应的Y偏移量（考虑分隔线）
+                    fun getNodeOffset(node: Int): IntOffset {
+                        var offsetDp = (node - 1) * cellHeight
+                        // 添加分隔线的影响
+                        if (node > separatorAfterMorning) offsetDp += separatorHeight
+                        if (node > separatorAfterAfternoon) offsetDp += separatorHeight
+                        return IntOffset(0, with(density) { offsetDp.roundToPx() })
+                    }
+
+                    // [v39] 计算课程高度（考虑跨分隔线的情况）
+                    fun getCourseHeight(startNode: Int, endNode: Int): Dp {
+                        val baseHeight = (endNode - startNode + 1) * cellHeight
+                        var extraHeight = 0.dp
+                        // 如果跨越上午/下午分隔线
+                        if (startNode <= separatorAfterMorning && endNode > separatorAfterMorning) {
+                            extraHeight += separatorHeight
+                        }
+                        // 如果跨越下午/晚上分隔线
+                        if (startNode <= separatorAfterAfternoon && endNode > separatorAfterAfternoon) {
+                            extraHeight += separatorHeight
+                        }
+                        return baseHeight + extraHeight
+                    }
+
                     // 周一到周五课程
                     days.take(5).forEach { day ->
                         Box(
@@ -283,15 +376,16 @@ fun ScheduleGrid(
                         ) {
                             val dayCourses = courses.filter { it.dayOfWeek == day }
                             dayCourses.forEach { course ->
-                                val topOffset = (course.startNode - 1) * cellHeight
-                                val courseHeight = (course.endNode - course.startNode + 1) * cellHeight
+                                // [v39] 使用新的偏移量计算
+                                val topOffset = getNodeOffset(course.startNode)
+                                val courseHeightDp = getCourseHeight(course.startNode, course.endNode)
 
                                 if (course.startNode <= displayNodes) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(courseHeight)
-                                            .offset { IntOffset(0, topOffset.roundToPx()) }
+                                            .height(courseHeightDp)
+                                            .offset { topOffset }
                                             .padding(1.dp)
                                     ) {
                                         CourseCardInternal(
@@ -316,15 +410,16 @@ fun ScheduleGrid(
                             ) {
                                 val dayCourses = courses.filter { it.dayOfWeek == day }
                                 dayCourses.forEach { course ->
-                                    val topOffset = (course.startNode - 1) * cellHeight
-                                    val courseHeight = (course.endNode - course.startNode + 1) * cellHeight
+                                    // [v39] 使用新的偏移量计算
+                                    val topOffset = getNodeOffset(course.startNode)
+                                    val courseHeightDp = getCourseHeight(course.startNode, course.endNode)
 
                                     if (course.startNode <= displayNodes) {
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(courseHeight)
-                                                .offset { IntOffset(0, topOffset.roundToPx()) }
+                                                .height(courseHeightDp)
+                                                .offset { topOffset }
                                                 .padding(1.dp)
                                         ) {
                                             CourseCardInternal(
@@ -421,13 +516,14 @@ private fun CourseCardInternal(
                 )
             }
 
-            // 教室
+            // 教室 - [v40] 允许自动换行，完整展示教室信息
             if (course.location.isNotBlank()) {
                 Text(
                     text = course.location,
                     style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
+                    maxLines = 2,  // 最多显示2行
                     overflow = TextOverflow.Ellipsis,
+                    softWrap = true,  // 启用自动换行
                     color = Color.White.copy(alpha = 0.8f)
                 )
             }

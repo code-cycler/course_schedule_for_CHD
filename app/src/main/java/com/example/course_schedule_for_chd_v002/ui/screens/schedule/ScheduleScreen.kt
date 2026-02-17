@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.mutableFloatStateOf
@@ -59,7 +60,18 @@ fun ScheduleScreen(
             TopAppBar(
                 title = { Text("Course Schedule") },
                 actions = {
-                    // [v37] 只保留登出按钮，删除加号和刷新按钮
+                    // [v41] 同步/导入按钮（带文字）
+                    TextButton(onClick = onNavigateToLogin) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Sync")
+                    }
+
+                    // 登出按钮
                     IconButton(onClick = { viewModel.logout() }) {
                         Icon(
                             imageVector = Icons.Default.ExitToApp,
