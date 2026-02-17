@@ -21,7 +21,7 @@ data class ScheduleUiState(
 
     // 周次选择
     val currentWeek: Int = 1,
-    val maxWeeks: Int = 16,
+    val maxWeeks: Int = 16,  // [v35] 改为更合理的默认值（通常学期16周），ViewModel会动态更新
 
     // 登出状态
     val isLoggedOut: Boolean = false,
@@ -45,7 +45,15 @@ data class ScheduleUiState(
      * 筛选出当前选中周次内的课程
      */
     fun getDisplayCourses(): List<Course> {
-        return courses.filter { it.isWeekInRange(currentWeek) }
+        val result = courses.filter { it.isWeekInRange(currentWeek) }
+        android.util.Log.d("ScheduleUiState", "[v35] getDisplayCourses: 总课程=${courses.size}, 当前周=$currentWeek, 过滤后=${result.size}")
+        if (result.isEmpty() && courses.isNotEmpty()) {
+            // 调试：打印每门课程的周次范围
+            courses.forEachIndexed { index, course ->
+                android.util.Log.d("ScheduleUiState", "[v35] 课程[$index]: ${course.name}, 周${course.startWeek}-${course.endWeek}")
+            }
+        }
+        return result
     }
 
     /**

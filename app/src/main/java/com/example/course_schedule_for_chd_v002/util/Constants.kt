@@ -34,7 +34,7 @@ object Constants {
 
     // 课表配置
     object Schedule {
-        const val MAX_WEEKS = 16
+        const val MAX_WEEKS = 25  // 学期最多25周
         const val MAX_NODES_PER_DAY = 12
     }
 }

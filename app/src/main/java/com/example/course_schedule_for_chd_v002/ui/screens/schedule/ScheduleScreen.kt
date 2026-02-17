@@ -1,13 +1,21 @@
 package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.course_schedule_for_chd_v002.domain.model.Course
@@ -21,6 +29,7 @@ import org.koin.core.parameter.parametersOf
  *
  * @param semester 学期
  * @param onLogout 登出回调
+ * @param onNavigateToLogin 导航到登录页回调（用于同步数据）
  * @param viewModel 课程表ViewModel
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,9 +37,16 @@ import org.koin.core.parameter.parametersOf
 fun ScheduleScreen(
     semester: String,
     onLogout: () -> Unit,
+    onNavigateToLogin: () -> Unit,
     viewModel: ScheduleViewModel = koinViewModel { parametersOf(semester) }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // [v24] 每次进入屏幕时重新加载数据
+    LaunchedEffect(Unit) {
+        android.util.Log.d("ScheduleScreen", "[v24] LaunchedEffect 触发，调用 reload()")
+        viewModel.reload()
+    }
 
     // 登出后导航
     LaunchedEffect(uiState.isLoggedOut) {
@@ -44,6 +60,13 @@ fun ScheduleScreen(
             TopAppBar(
                 title = { Text("Course Schedule") },
                 actions = {
+                    // Sync button (navigate to login to fetch new data)
+                    IconButton(onClick = onNavigateToLogin) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Sync Data"
+                        )
+                    }
                     // Refresh button
                     IconButton(
                         onClick = { viewModel.refreshSchedule() },
@@ -111,23 +134,110 @@ fun ScheduleScreen(
                             text = "No courses found",
                             style = MaterialTheme.typography.bodyLarge
                         )
-                        Button(onClick = { viewModel.refreshSchedule() }) {
-                            Text("Refresh")
+                        Text(
+                            text = "Click 'Sync' to fetch course data",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(onClick = onNavigateToLogin) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sync Data")
                         }
                     }
                 }
             }
             // Schedule grid
             else {
-                ScheduleGrid(
-                    courses = uiState.getDisplayCourses(),
-                    conflictingCourseIds = uiState.conflictingCourseIds,
-                    onCourseClick = { course -> viewModel.onCourseSelected(course) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 8.dp)
-                )
+                // [v35] 获取当前周的课程
+                val displayCourses = uiState.getDisplayCourses()
+
+                // [v35] 如果当前周没有课程，显示提示
+                if (displayCourses.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "No courses in week ${uiState.currentWeek}",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "Try switching to another week",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    // [v36] 记录上一次的周次，用于判断滑动方向
+                    var previousWeek by remember { mutableIntStateOf(uiState.currentWeek) }
+
+                    // [v36] 使用 AnimatedContent 添加切换动画
+                    AnimatedContent(
+                        targetState = uiState.currentWeek to displayCourses,
+                        transitionSpec = {
+                            // 根据周次变化方向确定滑动方向
+                            val isGoingForward = targetState.first > previousWeek
+
+                            (slideInHorizontally { width ->
+                                if (isGoingForward) width else -width
+                            } togetherWith slideOutHorizontally { width ->
+                                if (isGoingForward) -width else width
+                            }).using(SizeTransform(clip = false))
+                        },
+                        label = "WeekAnimation"
+                    ) { (currentWeek, courses) ->
+                        // [v36] 更新 previousWeek 用于下次动画方向判断
+                        SideEffect {
+                            previousWeek = currentWeek
+                        }
+
+                        // [v35] 添加水平滑动手势检测，左右滑动切换周次
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp)
+                                .pointerInput(uiState.maxWeeks) {
+                                    detectHorizontalDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        // 左滑 (dragAmount < 0) = 下一周
+                                        // 右滑 (dragAmount > 0) = 上一周
+                                        val threshold = 50  // 滑动阈值（像素）
+                                        when {
+                                            dragAmount < -threshold -> {
+                                                // 左滑 -> 下一周
+                                                if (uiState.currentWeek < uiState.maxWeeks) {
+                                                    viewModel.onWeekSelected(uiState.currentWeek + 1)
+                                                }
+                                            }
+                                            dragAmount > threshold -> {
+                                                // 右滑 -> 上一周
+                                                if (uiState.currentWeek > 1) {
+                                                    viewModel.onWeekSelected(uiState.currentWeek - 1)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                        ) {
+                            ScheduleGrid(
+                                courses = courses,
+                                conflictingCourseIds = uiState.conflictingCourseIds,
+                                onCourseClick = { course -> viewModel.onCourseSelected(course) },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
             }
 
             // Error message

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.NetworkUtils
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,11 +29,22 @@ class ScheduleViewModel(
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
     init {
+        android.util.Log.d("ScheduleViewModel", "[v24] 初始化，学期: $semester")
+        loadSchedule()
+    }
+
+    /**
+     * 重新加载课程数据
+     * 用于从登录页返回后刷新数据
+     */
+    fun reload() {
+        android.util.Log.d("ScheduleViewModel", "[v24] reload() 被调用")
         loadSchedule()
     }
 
     /**
      * 加载本地课表
+     * [v35] 加载后自动选择第一个有课的周次，动态设置最大周数
      */
     private fun loadSchedule() {
         viewModelScope.launch {
@@ -41,14 +53,68 @@ class ScheduleViewModel(
             val courses = repository.getLocalSchedule(semester)
             val conflicts = TimeUtils.findConflicts(courses)
 
+            // [v35] 计算第一个和最后一个有课的周次
+            val firstWeek = findFirstWeekWithCourse(courses)
+            val maxWeek = findMaxWeekWithCourse(courses)
+
+            android.util.Log.d("ScheduleViewModel", "[v35] loadSchedule 完成，课程数: ${courses.size}, 显示周: $firstWeek, 最大周: $maxWeek")
+
             _uiState.update {
                 it.copy(
                     courses = courses,
                     conflictingCourseIds = conflicts.keys,
+                    currentWeek = firstWeek,
+                    maxWeeks = maxWeek,  // [v35] 动态设置最大周数
                     isLoading = false
                 )
             }
         }
+    }
+
+    /**
+     * [v34] 找到应该显示的周次
+     * 忽略当前日期的影响，自动选择第一个有课的周次
+     * 如果没有任何课程，默认显示第一周
+     */
+    private fun findFirstWeekWithCourse(courses: List<Course>): Int {
+        if (courses.isEmpty()) {
+            android.util.Log.d("ScheduleViewModel", "[v35] 无课程，默认第一周")
+            return 1
+        }
+
+        // [v34] 找到所有课程中最早的开始周次
+        var minStartWeek = Int.MAX_VALUE
+        for (course in courses) {
+            if (course.startWeek < minStartWeek) {
+                minStartWeek = course.startWeek
+            }
+        }
+
+        val firstWeek = if (minStartWeek == Int.MAX_VALUE) 1 else minStartWeek
+        android.util.Log.d("ScheduleViewModel", "[v35] 第一个有课的周次: $firstWeek")
+        return firstWeek
+    }
+
+    /**
+     * [v35] 找到最后一个有课的周次
+     * 用于动态设置周选择器的最大值
+     */
+    private fun findMaxWeekWithCourse(courses: List<Course>): Int {
+        if (courses.isEmpty()) {
+            android.util.Log.d("ScheduleViewModel", "[v35] 无课程，默认最大25周")
+            return Constants.Schedule.MAX_WEEKS
+        }
+
+        var maxEndWeek = 0
+        for (course in courses) {
+            if (course.endWeek > maxEndWeek) {
+                maxEndWeek = course.endWeek
+            }
+        }
+
+        val result = if (maxEndWeek == 0) Constants.Schedule.MAX_WEEKS else maxEndWeek
+        android.util.Log.d("ScheduleViewModel", "[v35] 最大周次: $result")
+        return result
     }
 
     /**

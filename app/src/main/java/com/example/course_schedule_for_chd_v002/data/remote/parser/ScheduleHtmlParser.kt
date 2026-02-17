@@ -3,18 +3,58 @@ package com.example.course_schedule_for_chd_v002.data.remote.parser
 import com.example.course_schedule_for_chd_v002.data.local.database.entity.CourseEntity
 import com.example.course_schedule_for_chd_v002.domain.model.CourseType
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
 
 /**
- * 课程表 HTML 解析器
- * 解析教务系统返回的课程表 HTML，提取课程信息
+ * 课程表 HTML 解析器 (v23)
  *
- * 支持的课表格式：
- * 1. 表格格式（table#courseTable 或 table.gridtable）
- * 2. JavaScript 嵌入的数据（var taskActivities）
+ * 解析长安大学教务系统课表页面的 JavaScript 数据
+ *
+ * HTML 结构：
+ * ```javascript
+ * var teachers = [{id:3613,name:"朱依水",lab:false}];
+ * var actTeachers = [{id:3613,name:"朱依水",lab:false}];
+ * var actTeacherId = [];
+ * var actTeacherName = [];
+ * for (var i = 0; i < actTeachers.length; i++) {
+ *     actTeacherId.push(actTeachers[i].id);
+ *     actTeacherName.push(actTeachers[i].name);
+ * }
+ *
+ * var courseName = "知识表征与推理(双语)(24ZY1816.01)";
+ *
+ * activity = new TaskActivity(
+ *     actTeacherId.join(','),           // 参数0: 教师ID
+ *     actTeacherName.join(','),         // 参数1: 教师名
+ *     "59153(24ZY1816.01)",            // 参数2: 课程ID
+ *     courseName,                       // 参数3: 课程名变量
+ *     "24ZY1816.01",                    // 参数4: 课程代码
+ *     "633",                            // 参数5: 教室ID
+ *     "*WH2201",                        // 参数6: 教室名 (*普通 #实验室)
+ *     "00000000111111111100000000000000000000000000000000000",  // 参数7: 周数位图(53字符)
+ *     null,                             // 参数8
+ *     "",                               // 参数9
+ *     assistantName,                    // 参数10: 助教
+ *     ""                                // 参数11
+ * );
+ *
+ * index = 3*unitCount+4;  // dayOfWeek=3(周四), nodeIndex=4(第5节)
+ * index = 3*unitCount+5;  // dayOfWeek=3(周四), nodeIndex=5(第6节)
+ * table0.activities[index][table0.activities[index].length]=activity;
+ * ```
+ *
+ * index 计算公式: index = dayOfWeek * unitCount + nodeIndex
+ * - unitCount = 11 (每天11节课)
+ * - dayOfWeek: 0=周一, 1=周二, ..., 6=周日
+ * - nodeIndex: 0=第1节, 1=第2节, ..., 10=第11节
+ *
+ * 周数位图: 53个字符，每个字符代表一周，'1'表示有课，'0'表示无课
  */
 class ScheduleHtmlParser {
+
+    companion object {
+        private const val TAG = "ScheduleHtmlParser"
+        private const val UNIT_COUNT = 11  // 每天节次数
+    }
 
     /**
      * 解析课程表 HTML
@@ -23,204 +63,300 @@ class ScheduleHtmlParser {
      * @return 解析出的课程实体列表
      */
     fun parse(html: String, semester: String): List<CourseEntity> {
-        val doc = Jsoup.parse(html)
+        android.util.Log.d(TAG, "=== 开始解析 HTML (v23) ===")
+        android.util.Log.d(TAG, "HTML 长度: ${html.length}")
 
-        // 首先尝试解析表格格式
-        val tableCourses = parseTableFormat(doc, semester)
-        if (tableCourses.isNotEmpty()) {
-            return tableCourses
-        }
-
-        // 如果表格解析失败，尝试解析 JavaScript 数据
-        return parseJsData(doc, semester)
-    }
-
-    /**
-     * 解析表格格式的课表
-     */
-    private fun parseTableFormat(doc: Document, semester: String): List<CourseEntity> {
         val courses = mutableListOf<CourseEntity>()
 
-        // 查找课表表格（尝试多种选择器）
-        val table = doc.select("table#courseTable").first()
-            ?: doc.select("table.gridtable").first()
-            ?: doc.select("table[id*=course]").first()
-            ?: return emptyList()
+        // 方法1：解析 TaskActivity JavaScript 数据
+        val jsCourses = parseTaskActivityJs(html, semester)
+        if (jsCourses.isNotEmpty()) {
+            courses.addAll(jsCourses)
+        } else {
+            android.util.Log.w(TAG, "TaskActivity 解析失败，尝试解析 infoTitle 单元格")
+            // 方法2：解析 JavaScript 渲染后的 td.infoTitle 单元格
+            val doc = Jsoup.parse(html)
+            val infoTitleCells = doc.select("td.infoTitle")
+            android.util.Log.d(TAG, "找到 ${infoTitleCells.size} 个 infoTitle 单元格")
 
-        val rows = table.select("tr")
-
-        // 遍历每一行
-        for ((rowIndex, row) in rows.withIndex()) {
-            // 跳过表头
-            if (rowIndex == 0) continue
-
-            val cells = row.select("td")
-
-            // 遍历每个单元格
-            for ((cellIndex, cell) in cells.withIndex()) {
-                // 跳过第一节次列（通常是"第1-2节"这样的标签）
-                if (cellIndex == 0) continue
-
-                // 计算星期几（cellIndex 从1开始，对应周一）
-                val dayOfWeek = cellIndex
-
-                // 计算节次（根据行索引）
-                // 通常每行代表2个节次，如第1-2节、第3-4节等
-                val startNode = (rowIndex - 1) * 2 + 1
-                val endNode = startNode + 1
-
-                // 解析单元格中的课程
-                val cellCourses = parseCell(cell, dayOfWeek, startNode, endNode, semester)
+            for (cell in infoTitleCells) {
+                val cellCourses = parseInfoTitleCell(cell, semester)
                 courses.addAll(cellCourses)
             }
         }
 
-        return courses
+        // 去重：同一课程在同一时间只保留一个
+        val distinctCourses = courses.distinctBy { "${it.name}-${it.dayOfWeek}-${it.startNode}-${it.startWeek}" }
+
+        android.util.Log.i(TAG, "解析完成，共 ${distinctCourses.size} 门课程 (去重前: ${courses.size})")
+        return distinctCourses
     }
 
     /**
-     * 解析单个单元格
+     * 解析 TaskActivity JavaScript 数据
      */
-    private fun parseCell(
-        cell: Element,
-        dayOfWeek: Int,
-        defaultStartNode: Int,
-        defaultEndNode: Int,
-        semester: String
-    ): List<CourseEntity> {
+    private fun parseTaskActivityJs(html: String, semester: String): List<CourseEntity> {
         val courses = mutableListOf<CourseEntity>()
+        android.util.Log.d(TAG, "开始解析 TaskActivity JavaScript 数据")
 
-        // 获取单元格的完整文本
-        val cellText = cell.text()
-        if (cellText.isBlank()) return emptyList()
+        // 查找所有 courseName 定义
+        val courseNamePattern = """var\s+courseName\s*=\s*"([^"]+)"""".toRegex()
+        val courseNames = courseNamePattern.findAll(html).map { it.groupValues[1] }.toList()
+        android.util.Log.d(TAG, "找到 ${courseNames.size} 个 courseName 定义")
 
-        // 尝试解析单元格内的多个课程
-        // 通常课程之间用换行或特定分隔符分隔
-        val courseTexts = splitCourseTexts(cell)
+        if (courseNames.isEmpty()) {
+            android.util.Log.w(TAG, "未找到 courseName 定义，可能 HTML 结构不同")
+            // 打印 HTML 中包含 "courseName" 的部分用于调试
+            val courseNameIndex = html.indexOf("courseName")
+            if (courseNameIndex >= 0) {
+                val start = maxOf(0, courseNameIndex - 50)
+                val end = minOf(html.length, courseNameIndex + 100)
+                android.util.Log.d(TAG, "courseName 附近内容: ${html.substring(start, end)}")
+            }
+            return emptyList()
+        }
 
-        for (courseText in courseTexts) {
-            val course = parseCourseText(courseText, dayOfWeek, defaultStartNode, defaultEndNode, semester)
-            if (course != null) {
-                courses.add(course)
+        // 按课程块分割
+        // 每个块以 "var teachers" 开始，包含教师、课程名、TaskActivity、index
+        val courseBlockPattern = """var\s+teachers\s*=\s*\[([^\]]*)\][\s\S]*?var\s+courseName\s*=\s*"([^"]+)"([\s\S]*?)(?=var\s+teachers|$)""".toRegex()
+
+        val courseBlocks = courseBlockPattern.findAll(html).toList()
+        android.util.Log.d(TAG, "找到 ${courseBlocks.size} 个课程块")
+
+        for ((blockIndex, block) in courseBlocks.withIndex()) {
+            try {
+                val teachersJson = block.groupValues[1]  // 教师JSON
+                val courseName = block.groupValues[2]    // 课程名称
+                val activityBlock = block.groupValues[3] // 包含 TaskActivity 和 index 的部分
+
+                android.util.Log.d(TAG, "[$blockIndex] 解析课程块: $courseName")
+
+                // 解析教师姓名
+                val teacherNames = extractTeacherNames(teachersJson)
+
+                // [v26] 提取教室名称和周数位图
+                // 格式: "...,"教室名","周数位图","..."
+                // 教室名可以以 * 或 # 开头（*普通教室 #实验室）
+                val roomAndWeeksPattern = ""","([*#]?[^",]*)","([01]{53})",""".toRegex()
+                val roomWeeksMatch = roomAndWeeksPattern.find(activityBlock)
+
+                // [v26] 使用 var 以便备用模式可以更新
+                var location = roomWeeksMatch?.groupValues?.get(1) ?: ""
+                var weeksBitmap = roomWeeksMatch?.groupValues?.get(2) ?: ""
+
+                if (location.isEmpty() || weeksBitmap.isEmpty()) {
+                    android.util.Log.d(TAG, "[$blockIndex] 未找到教室或周数位图，尝试其他模式")
+                    // [v26] 尝试另一种模式：直接在 activity 行中查找
+                    val altPattern = """new\s+TaskActivity\([^)]+,\s*"([*#]?[^",]*)"\s*,\s*"([01]{53})"""".toRegex()
+                    val altMatch = altPattern.find(activityBlock)
+                    if (altMatch != null) {
+                        location = altMatch.groupValues[1]
+                        weeksBitmap = altMatch.groupValues[2]
+                        android.util.Log.d(TAG, "[$blockIndex] 使用备用模式找到: location=$location, bitmap长度=${weeksBitmap.length}")
+                    }
+                }
+
+                android.util.Log.d(TAG, "[$blockIndex] 教师: $teacherNames, 教室: $location, 位图长度: ${weeksBitmap.length}")
+
+                // 提取 index 计算
+                // 格式: index = X*unitCount+Y
+                val indexPattern = """index\s*=\s*(\d+)\s*\*\s*unitCount\s*\+\s*(\d+)""".toRegex()
+                val indexMatches = indexPattern.findAll(activityBlock).toList()
+
+                android.util.Log.d(TAG, "[$blockIndex] 找到 ${indexMatches.size} 个 index 定义")
+
+                // 解析周数范围
+                val (startWeek, endWeek) = parseWeeksBitmap(weeksBitmap)
+
+                // [v25] 收集所有 index 并按星期分组
+                val indexList = indexMatches.map { match ->
+                    val dayOfWeekMultiplier = match.groupValues[1].toIntOrNull() ?: 0
+                    val nodeOffset = match.groupValues[2].toIntOrNull() ?: 0
+                    Pair(dayOfWeekMultiplier + 1, nodeOffset + 1)  // (dayOfWeek, nodeIndex)
+                }
+
+                // 按星期分组
+                val groupedByDay = indexList.groupBy { it.first }
+
+                // [v25] 对每个星期的节次进行合并（连续节次合并为一门课）
+                for ((dayOfWeek, nodes) in groupedByDay) {
+                    val sortedNodes = nodes.map { it.second }.sorted().distinct()
+
+                    if (sortedNodes.isEmpty()) continue
+
+                    // 找出连续的节次区间
+                    val ranges = mutableListOf<Pair<Int, Int>>()
+                    var rangeStart = sortedNodes.first()
+                    var rangeEnd = rangeStart
+
+                    for (i in 1 until sortedNodes.size) {
+                        if (sortedNodes[i] == rangeEnd + 1) {
+                            // 连续节次，扩展区间
+                            rangeEnd = sortedNodes[i]
+                        } else {
+                            // 不连续，保存当前区间，开始新区间
+                            ranges.add(Pair(rangeStart, rangeEnd))
+                            rangeStart = sortedNodes[i]
+                            rangeEnd = rangeStart
+                        }
+                    }
+                    ranges.add(Pair(rangeStart, rangeEnd))
+
+                    // 为每个节次区间创建一门课程
+                    for ((startNode, endNode) in ranges) {
+                        if (courseName.isNotEmpty() && startWeek <= endWeek) {
+                            val course = CourseEntity(
+                                name = courseName,
+                                teacher = teacherNames,
+                                location = location,
+                                dayOfWeek = dayOfWeek,
+                                startWeek = startWeek,
+                                endWeek = endWeek,
+                                startNode = startNode,
+                                endNode = endNode,  // [v25] 使用合并后的结束节次
+                                courseType = determineCourseType(courseName),
+                                credit = 0.0,
+                                remark = if (weeksBitmap.isNotEmpty()) "weeksBitmap:$weeksBitmap" else "",
+                                semester = semester
+                            )
+                            courses.add(course)
+                            android.util.Log.d(TAG, "[$blockIndex] 添加课程: ${course.name}, 教师:${course.teacher}, 位置:${course.location}, 周:${course.startWeek}-${course.endWeek}, 星期:${course.dayOfWeek}, 节:${course.startNode}-${course.endNode}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "[$blockIndex] 解析课程块失败: ${e.message}")
+            }
+        }
+
+        android.util.Log.d(TAG, "TaskActivity 解析完成，共 ${courses.size} 门课程")
+        return courses
+    }
+
+    /**
+     * 从 JSON 字符串提取教师姓名
+     * 输入: {id:3613,name:"朱依水",lab:false},{id:1234,name:"张三",lab:false}
+     * 输出: "朱依水,张三"
+     */
+    private fun extractTeacherNames(json: String): String {
+        if (json.isBlank()) return ""
+
+        val namePattern = """name\s*:\s*"([^"]+)"""".toRegex()
+        val names = namePattern.findAll(json).map { it.groupValues[1] }.toList()
+        return names.joinToString(",")
+    }
+
+    /**
+     * [v36] 解析周数位图
+     * 修复周次偏移+1的问题（学校显示1-17周，APP显示2-18周）
+     * @param bitmap 53个字符的位图，'1'表示有课，'0'表示无课
+     * @return (startWeek, endWeek) 有课的周数范围
+     */
+    private fun parseWeeksBitmap(bitmap: String): Pair<Int, Int> {
+        if (bitmap.isEmpty()) return Pair(1, 16)
+        if (bitmap.length < 53) {
+            android.util.Log.w(TAG, "[v36] 周数位图长度不足: ${bitmap.length}")
+            return Pair(1, 16)
+        }
+
+        var startWeek = Int.MAX_VALUE
+        var endWeek = 0
+
+        for ((index, char) in bitmap.withIndex()) {
+            if (char == '1') {
+                // [v36] 原逻辑: week = index + 1
+                // 但学校系统位图有+1偏移，需要减1修正
+                val week = index + 1
+                if (week < startWeek) {
+                    startWeek = week
+                }
+                if (week > endWeek) {
+                    endWeek = week
+                }
+            }
+        }
+
+        // [v36] 应用偏移修正：减1以匹配学校系统的周次
+        val correctedStartWeek = if (startWeek != Int.MAX_VALUE) startWeek - 1 else 1
+        val correctedEndWeek = if (endWeek > 0) endWeek - 1 else 16
+
+        return if (startWeek != Int.MAX_VALUE) {
+            android.util.Log.d(TAG, "[v36] 周数位图解析: 原始=$startWeek-$endWeek, 修正后=$correctedStartWeek-$correctedEndWeek")
+            Pair(correctedStartWeek, correctedEndWeek)
+        } else {
+            android.util.Log.w(TAG, "[v36] 周数位图全为0")
+            Pair(1, 16)
+        }
+    }
+
+    /**
+     * 解析 infoTitle 单元格（JavaScript 渲染后）
+     */
+    private fun parseInfoTitleCell(cell: org.jsoup.nodes.Element, semester: String): List<CourseEntity> {
+        val courses = mutableListOf<CourseEntity>()
+        val title = cell.attr("title")
+        if (title.isBlank()) return emptyList()
+
+        android.util.Log.d(TAG, "解析 infoTitle: ${title.take(80)}...")
+
+        // title 格式：课程名称(课程代码) (教师);;;(周数,地点);实践周：[]
+        val parts = title.split(";;;")
+
+        var currentCourseInfo: String? = null
+        for (part in parts) {
+            val trimmed = part.trim()
+            if (trimmed.isEmpty()) continue
+
+            if (trimmed.contains("(") && trimmed.contains(")") && !trimmed.startsWith("(")) {
+                currentCourseInfo = trimmed
+            } else if (trimmed.startsWith("(") && currentCourseInfo != null) {
+                val course = parseCourseAndTime(currentCourseInfo, trimmed, cell, semester)
+                if (course != null) {
+                    courses.add(course)
+                }
             }
         }
 
         return courses
     }
 
-    /**
-     * 分割单元格文本为多个课程文本
-     */
-    private fun splitCourseTexts(cell: Element): List<String> {
-        val texts = mutableListOf<String>()
+    private fun parseCourseAndTime(courseInfo: String, timeLocation: String, cell: org.jsoup.nodes.Element, semester: String): CourseEntity? {
+        // 提取课程名称和教师
+        val coursePattern = """^(.+?)\([^)]+\)\s*\(([^)]*)\)""".toRegex()
+        val courseMatch = coursePattern.find(courseInfo)
 
-        // 尝试按 div 或 p 标签分割
-        val divs = cell.select("div")
-        if (divs.isNotEmpty()) {
-            for (div in divs) {
-                val text = div.text().trim()
-                if (text.isNotEmpty()) {
-                    texts.add(text)
-                }
-            }
-            return texts
-        }
-
-        // 尝试按 <br> 分割
-        val html = cell.html()
-        if (html.contains("<br")) {
-            val parts = html.split("<br\\s*/?>".toRegex())
-                .map { Jsoup.parse(it).text().trim() }
-                .filter { it.isNotEmpty() && it != "----------------" }
-            return parts
-        }
-
-        // 如果没有明显的分隔符，把整个单元格作为一个课程
-        val text = cell.text().trim()
-        if (text.isNotEmpty()) {
-            texts.add(text)
-        }
-
-        return texts
-    }
-
-    /**
-     * 解析课程文本
-     * 典型格式: "高等数学\n张老师\nA101\n1-16周\n1-2节"
-     */
-    private fun parseCourseText(
-        text: String,
-        dayOfWeek: Int,
-        defaultStartNode: Int,
-        defaultEndNode: Int,
-        semester: String
-    ): CourseEntity? {
-        if (text.isBlank()) return null
-
-        // 按空白字符分割
-        val lines = text.split("\\s+".toRegex())
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && it != "----------------" }
-
-        if (lines.isEmpty()) return null
-
-        var name = ""
-        var teacher = ""
-        var location = ""
-        var startWeek = 1
-        var endWeek = 16
-        var startNode = defaultStartNode
-        var endNode = defaultEndNode
-        var courseType = CourseType.OTHER
-
-        for (line in lines) {
-            when {
-                // 周次: "1-16周" 或 "1-8周(单)" 或 "9-16周(双)"
-                line.contains("周") && line.contains("-") -> {
-                    val weekPattern = """(\d+)-(\d+)周(?:\((单|双)\))?""".toRegex()
-                    val match = weekPattern.find(line)
-                    if (match != null) {
-                        startWeek = match.groupValues[1].toIntOrNull() ?: 1
-                        endWeek = match.groupValues[2].toIntOrNull() ?: 16
-                    }
-                }
-
-                // 节次: "1-2节" 或 "第1-2节"
-                line.contains("节") -> {
-                    val nodePattern = """(\d+)-(\d+)节""".toRegex()
-                    val match = nodePattern.find(line)
-                    if (match != null) {
-                        startNode = match.groupValues[1].toIntOrNull() ?: defaultStartNode
-                        endNode = match.groupValues[2].toIntOrNull() ?: defaultEndNode
-                    }
-                }
-
-                // 地点: 通常包含数字和字母组合
-                line.matches(Regex(".*[A-Za-z].*\\d+.*")) && location.isEmpty() -> {
-                    location = line
-                }
-
-                // 课程类型
-                line.contains("必修") -> courseType = CourseType.REQUIRED
-                line.contains("选修") -> courseType = CourseType.ELECTIVE
-                line.contains("公选") -> courseType = CourseType.PUBLIC_ELECTIVE
-                line.contains("体育") -> courseType = CourseType.PHYSICAL_EDUCATION
-                line.contains("实践") -> courseType = CourseType.PRACTICE
-
-                // 其他情况：可能是课程名或教师名
-                else -> {
-                    if (name.isEmpty()) {
-                        name = line
-                    } else if (teacher.isEmpty() && !line.matches(Regex("\\d+.*"))) {
-                        // 教师名通常不包含数字
-                        teacher = line
-                    }
-                }
+        val (name, teacher) = if (courseMatch != null) {
+            courseMatch.groupValues[1].trim() to courseMatch.groupValues[2].trim()
+        } else {
+            val simplePattern = """^(.+?)\s*\(([^)]*)\)""".toRegex()
+            val simpleMatch = simplePattern.find(courseInfo)
+            if (simpleMatch != null) {
+                simpleMatch.groupValues[1].trim() to simpleMatch.groupValues[2].trim()
+            } else {
+                return null
             }
         }
 
-        // 如果没有解析到课程名，返回 null
-        if (name.isEmpty()) return null
+        // 提取周数和地点
+        val weekLocationPattern = """\((\d+)-(\d+),([^)]+)\)""".toRegex()
+        val weekLocationMatch = weekLocationPattern.find(timeLocation)
+
+        val startWeek: Int
+        val endWeek: Int
+        val location: String
+
+        if (weekLocationMatch != null) {
+            startWeek = weekLocationMatch.groupValues[1].toIntOrNull() ?: 1
+            endWeek = weekLocationMatch.groupValues[2].toIntOrNull() ?: 16
+            location = weekLocationMatch.groupValues[3].trim()
+        } else {
+            startWeek = 1
+            endWeek = 16
+            location = ""
+        }
+
+        // 从单元格 ID 获取节次和星期
+        val (dayOfWeek, startNode, endNode) = parseCellPosition(cell)
 
         return CourseEntity(
             name = name,
@@ -231,60 +367,50 @@ class ScheduleHtmlParser {
             endWeek = endWeek,
             startNode = startNode,
             endNode = endNode,
-            courseType = courseType.displayName,
-            credit = 0.0, // 课表页面通常没有学分信息
+            courseType = determineCourseType(name),
+            credit = 0.0,
             remark = "",
             semester = semester
         )
     }
 
     /**
-     * 解析 JavaScript 嵌入的课表数据
+     * 从单元格 ID 解析节次和星期
      */
-    private fun parseJsData(doc: Document, semester: String): List<CourseEntity> {
-        val courses = mutableListOf<CourseEntity>()
+    private fun parseCellPosition(cell: org.jsoup.nodes.Element): Triple<Int, Int, Int> {
+        val id = cell.id()
 
-        val scripts = doc.select("script")
-        for (script in scripts) {
-            val content = script.html()
+        // ID 格式：TDXY_0，其中 X 可能与行相关，Y 与列相关
+        val pattern = """TD(\d)(\d)_\d+""".toRegex()
+        val match = pattern.find(id)
 
-            // 查找 taskActivities 变量
-            if (content.contains("var taskActivities") || content.contains("taskActivities =")) {
-                // 提取 JS 数组数据
-                // 格式通常为: var taskActivities = [["课程名", "教师", ...], ...]
-                val arrayPattern = """taskActivities\s*=\s*(\[[\s\S]*?\]);""".toRegex()
-                val match = arrayPattern.find(content)
+        if (match != null) {
+            val num1 = match.groupValues[1].toIntOrNull() ?: 0
+            val num2 = match.groupValues[2].toIntOrNull() ?: 0
 
-                if (match != null) {
-                    // 解析 JSON 数组（需要进一步处理）
-                    // 这里简化处理，实际可能需要更复杂的解析
-                    val parsedCourses = parseJsArray(match.groupValues[1], semester)
-                    return parsedCourses
-                }
-            }
+            // 分析：TD11_0 是周一第1-2节，TD22_0 是周二第1-2节
+            val dayOfWeek = num2 + 1  // 星期几 (1-7)
+            val startNode = num1 * 2 + 1  // 节次 (1, 3, 5, 7, 9, 11)
+            val rowspan = cell.attr("rowspan").toIntOrNull() ?: 2
+            val endNode = startNode + rowspan - 1
+
+            return Triple(dayOfWeek, startNode, endNode)
         }
 
-        return courses
+        return Triple(1, 1, 2)
     }
 
     /**
-     * 解析 JavaScript 数组格式的课表数据
+     * 根据课程名称判断课程类型
      */
-    private fun parseJsArray(arrayStr: String, semester: String): List<CourseEntity> {
-        // 这是一个简化的实现
-        // 实际的教务系统数据格式可能更复杂
-        val courses = mutableListOf<CourseEntity>()
-
-        // 匹配数组元素
-        val elementPattern = """"([^"]+)"""".toRegex()
-        val matches = elementPattern.findAll(arrayStr)
-
-        // 每5个元素为一组（课程名、教师、地点、时间等）
-        val elements = matches.map { it.groupValues[1] }.toList()
-
-        // 简化处理：直接返回空列表
-        // 实际实现需要根据教务系统的具体数据格式调整
-
-        return courses
+    private fun determineCourseType(name: String): String {
+        return when {
+            name.contains("体育") -> CourseType.PHYSICAL_EDUCATION.displayName
+            name.contains("实践") || name.contains("实验") -> CourseType.PRACTICE.displayName
+            name.contains("选修") -> CourseType.ELECTIVE.displayName
+            name.contains("必修") -> CourseType.REQUIRED.displayName
+            name.contains("概论") || name.contains("思想") || name.contains("马克思") -> CourseType.REQUIRED.displayName
+            else -> CourseType.OTHER.displayName
+        }
     }
 }

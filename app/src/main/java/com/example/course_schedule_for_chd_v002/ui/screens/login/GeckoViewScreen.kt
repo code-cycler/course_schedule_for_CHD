@@ -48,15 +48,17 @@ import org.mozilla.geckoview.GeckoView
 import org.mozilla.geckoview.WebRequestError
 
 /**
- * GeckoView 登录界面 (v17)
+ * GeckoView 登录界面 (v23)
  *
  * 使用 Firefox 内核替代系统 WebView，解决 Google WebView 140 兼容性问题
  *
  * @param onFetchCourseTable 用户点击"获取课表"按钮时的回调
+ *        参数1: 当前页面 URL
+ *        参数2: 页面 HTML 内容（通过 JavaScript 获取）
  */
 @Composable
 fun GeckoViewScreen(
-    onFetchCourseTable: () -> Unit
+    onFetchCourseTable: (String, String) -> Unit  // (url, htmlContent)
 ) {
     var isLoading by remember { mutableStateOf(true) }
     var currentUrl by remember { mutableStateOf("") }
@@ -67,6 +69,8 @@ fun GeckoViewScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var isLoggedIn by remember { mutableStateOf(false) }
     var isCourseDataLoaded by remember { mutableStateOf(false) }
+    var isFetchingHtml by remember { mutableStateOf(false) }  // 是否正在获取 HTML
+    var savedUrlForFetching by remember { mutableStateOf("") }  // 保存获取 HTML 时的 URL
 
     // GeckoRuntime 单例
     var geckoRuntime by remember { mutableStateOf<GeckoRuntime?>(null) }
@@ -245,7 +249,8 @@ fun GeckoViewScreen(
                                 session: GeckoSession,
                                 request: GeckoSession.NavigationDelegate.LoadRequest
                             ): GeckoResult<AllowOrDeny>? {
-                                android.util.Log.d("GeckoView", "加载请求: ${request.uri}")
+                                val uri = request.uri
+                                android.util.Log.d("GeckoView", "加载请求: $uri")
                                 return null // 允许加载
                             }
 
@@ -270,16 +275,15 @@ fun GeckoViewScreen(
 
                             override fun onPageStop(session: GeckoSession, success: Boolean) {
                                 isLoading = false
-                                android.util.Log.d("GeckoView", "页面加载完成: success=$success")
+                                android.util.Log.d("GeckoView", "页面加载完成: success=$success, url=$currentUrl")
 
                                 // 如果在课表页面且加载成功，标记数据已加载
                                 if (isOnCourseTablePage && success) {
-                                    // GeckoView 应该能正常渲染 JavaScript
                                     // 给一点延迟让 JS 执行完成
                                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                                         isCourseDataLoaded = true
-                                        android.util.Log.i("GeckoView", "课表页面加载完成，数据已就绪")
-                                    }, 1000)
+                                        android.util.Log.i("GeckoView", "[OK] 课表页面加载完成，数据已就绪")
+                                    }, 1500)
                                 }
                             }
                         }
@@ -288,6 +292,22 @@ fun GeckoViewScreen(
                         session.contentDelegate = object : GeckoSession.ContentDelegate {
                             override fun onTitleChange(session: GeckoSession, title: String?) {
                                 android.util.Log.d("GeckoView", "标题变化: $title")
+
+                                // 处理通过 JavaScript 获取的 HTML 内容
+                                if (isFetchingHtml && title != null && title.isNotEmpty()) {
+                                    try {
+                                        // 解码 URL 编码的 HTML 内容
+                                        val htmlContent = java.net.URLDecoder.decode(title, "UTF-8")
+                                        isFetchingHtml = false
+                                        android.util.Log.d("GeckoView", "获取到 HTML，长度: ${htmlContent.length}")
+                                        // 使用保存的 URL（因为执行 JavaScript 后 currentUrl 会变成 javascript:...）
+                                        android.util.Log.d("GeckoView", "使用保存的 URL: $savedUrlForFetching")
+                                        onFetchCourseTable(savedUrlForFetching, htmlContent)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("GeckoView", "解码 HTML 失败: ${e.message}")
+                                        isFetchingHtml = false
+                                    }
+                                }
                             }
 
                             override fun onCrash(session: GeckoSession) {
@@ -343,26 +363,14 @@ fun GeckoViewScreen(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // 跳转课表按钮
+                // 跳转课表按钮 - 使用直接页面导航而非 AJAX 框架
                 Button(
                     onClick = {
                         geckoSessionRef?.let { session ->
-                            val jsClickCourseTable = """
-                                (function() {
-                                    var links = document.querySelectorAll('a[href*="courseTableForStd"]');
-                                    if (links.length > 0) {
-                                        if (typeof bg !== 'undefined' && bg.Go) {
-                                            bg.Go(links[0], 'main');
-                                        } else {
-                                            links[0].click();
-                                        }
-                                        return true;
-                                    }
-                                    window.location.href = '/eams/courseTableForStd.action';
-                                    return false;
-                                })();
-                            """.trimIndent()
-                            session.loadUri("javascript:$jsClickCourseTable")
+                            // 直接使用页面导航，会触发 URL 变化，GeckoView 能正确检测到
+                            val jsNavigate = "window.location.href = '/eams/courseTableForStd.action';"
+                            session.loadUri("javascript:$jsNavigate")
+                            android.util.Log.d("GeckoView", "执行跳转到课表页面")
                         }
                     },
                     enabled = isLoggedIn && !isLoading,
@@ -384,8 +392,20 @@ fun GeckoViewScreen(
 
                 // 获取课表按钮
                 Button(
-                    onClick = onFetchCourseTable,
-                    enabled = isOnCourseTablePage && isCourseDataLoaded && !isLoading,
+                    onClick = {
+                        android.util.Log.d("GeckoView", "获取课表按钮点击，当前 URL: $currentUrl")
+
+                        // 保存当前 URL（执行 JavaScript 后 currentUrl 会变化）
+                        savedUrlForFetching = currentUrl
+
+                        // 通过 JavaScript 获取页面 HTML 内容
+                        // 将 HTML 编码后存储到 document.title，然后在 onTitleChange 中获取
+                        isFetchingHtml = true
+                        val jsCode = "javascript:document.title = encodeURIComponent(document.documentElement.outerHTML)"
+                        android.util.Log.d("GeckoView", "执行 JavaScript 获取 HTML...")
+                        geckoSessionRef?.loadUri(jsCode)
+                    },
+                    enabled = isOnCourseTablePage && isCourseDataLoaded && !isLoading && !isFetchingHtml,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isOnCourseTablePage && isCourseDataLoaded)
                             MaterialTheme.colorScheme.primary
@@ -394,7 +414,11 @@ fun GeckoViewScreen(
                     )
                 ) {
                     Text(
-                        text = if (isOnCourseTablePage && !isCourseDataLoaded) "加载中..." else "获取课表",
+                        text = when {
+                            isFetchingHtml -> "获取中..."
+                            isOnCourseTablePage && !isCourseDataLoaded -> "加载中..."
+                            else -> "获取课表"
+                        },
                         fontWeight = FontWeight.Medium,
                         fontSize = 13.sp
                     )

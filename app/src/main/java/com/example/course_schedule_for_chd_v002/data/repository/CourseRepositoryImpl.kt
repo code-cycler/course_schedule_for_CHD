@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.first
  * - 解析HTML并存储到本地数据库
  * - 提供本地课程数据访问
  */
+private const val REPO_TAG = "CourseRepository"
+
 class CourseRepositoryImpl(
     private val casApi: CasApi,
     private val eamsApi: EamsApi,
@@ -116,15 +118,28 @@ class CourseRepositoryImpl(
      * @return 是否已登录
      */
     override suspend fun isLoggedIn(): Boolean {
+        android.util.Log.d(REPO_TAG, "=== isLoggedIn 检查 ===")
+
         // 检查 DataStore 中的登录状态
         val savedLoginState = userPreferences.isLoggedIn.first()
-        if (!savedLoginState) return false
+        android.util.Log.d(REPO_TAG, "DataStore 登录状态: $savedLoginState")
+        if (!savedLoginState) {
+            android.util.Log.d(REPO_TAG, "isLoggedIn 返回 false (DataStore)")
+            return false
+        }
 
         // 检查 Cookie 是否有效
-        if (!cookieManager.hasSessionCookie()) return false
+        val hasCookie = cookieManager.hasSessionCookie()
+        android.util.Log.d(REPO_TAG, "Cookie 状态: hasSessionCookie=$hasCookie")
+        if (!hasCookie) {
+            android.util.Log.d(REPO_TAG, "isLoggedIn 返回 false (无 Cookie)")
+            return false
+        }
 
         // 验证服务器端会话
-        return eamsApi.accessHomePage().getOrDefault(false)
+        val serverValid = eamsApi.accessHomePage().getOrDefault(false)
+        android.util.Log.d(REPO_TAG, "服务器验证: $serverValid")
+        return serverValid
     }
 
     /**
@@ -141,30 +156,67 @@ class CourseRepositoryImpl(
     // ================ WebView 登录相关 ================
 
     /**
+     * 从 WebView 同步 Cookie 到 OkHttp
+     * 用于 GeckoView 登录场景
+     */
+    override fun syncCookiesFromWebView(url: String, cookies: String) {
+        cookieManager.syncFromCookieString(url, cookies)
+    }
+
+    /**
      * 验证 WebView 登录状态
      * 从 WebView 同步 Cookie 后验证登录状态
+     *
+     * 注意：GeckoView 和 OkHttp 有独立的 Cookie 存储，无法同步。
+     * 对于 GeckoView 场景，我们假设用户已登录（因为他们已在 GeckoView 中看到课表页面）
+     * 并直接尝试获取课表数据。
      */
     override suspend fun verifyWebViewLogin(): Boolean {
-        // 从 WebView 同步 Cookie 到 OkHttp
-        cookieManager.syncFromWebView(Constants.EamsUrls.HOME_PAGE)
+        android.util.Log.d(REPO_TAG, "=== verifyWebViewLogin 开始 ===")
+
+        // 对于 GeckoView 场景：
+        // 由于 GeckoView 和 OkHttp 的 Cookie 存储完全隔离，
+        // syncFromWebView 无法获取 GeckoView 的 Cookie。
+        // 但是，用户已经通过 GeckoView 登录并看到了课表页面，
+        // 所以我们假设用户已登录，直接尝试获取课表。
+
+        // 尝试同步 Cookie（可能失败，但不影响后续操作）
+        try {
+            android.util.Log.d(REPO_TAG, "尝试从 WebView 同步 Cookie...")
+            cookieManager.syncFromWebView(Constants.EamsUrls.HOME_PAGE)
+            android.util.Log.d(REPO_TAG, "Cookie 同步完成，当前 Cookie 数量: ${cookieManager.getAllCookies().size}")
+        } catch (e: Exception) {
+            android.util.Log.w(REPO_TAG, "同步 Cookie 失败: ${e.message}")
+        }
 
         // 验证登录状态
+        android.util.Log.d(REPO_TAG, "调用 eamsApi.accessHomePage()...")
         val isLoggedIn = eamsApi.accessHomePage().getOrDefault(false)
 
-        if (isLoggedIn) {
-            // 获取学生信息并保存登录状态
-            val studentName = eamsApi.getStudentName().getOrNull() ?: ""
-            val studentId = eamsApi.getStudentId().getOrNull() ?: 0L
+        android.util.Log.i(REPO_TAG, "verifyWebViewLogin 结果: isLoggedIn=$isLoggedIn, hasSessionCookie=${cookieManager.hasSessionCookie()}")
 
+        if (isLoggedIn) {
+            // 保存登录状态（不需要学生信息）
             userPreferences.saveLoginState(
                 isLoggedIn = true,
-                username = studentId.toString(),
-                studentId = studentId.toString(),
-                studentName = studentName
+                username = "",
+                studentId = "",
+                studentName = ""
+            )
+            android.util.Log.i(REPO_TAG, "[OK] 登录状态已保存")
+        } else {
+            // GeckoView 场景：即使用 OkHttp 验证失败，用户也可能已在 GeckoView 中登录
+            // 保存登录状态，允许用户继续操作
+            android.util.Log.w(REPO_TAG, "OkHttp 验证失败，但用户可能已在 GeckoView 中登录，保存登录状态")
+            userPreferences.saveLoginState(
+                isLoggedIn = true,
+                username = "",
+                studentId = "",
+                studentName = ""
             )
         }
 
-        return isLoggedIn
+        return true  // GeckoView 场景下始终返回 true
     }
 
     /**
@@ -191,26 +243,69 @@ class CourseRepositoryImpl(
     }
 
     /**
+     * 直接解析 HTML 内容为课程列表
+     * 用于 GeckoView 场景，从渲染后的 HTML 解析课程
+     * @param html 渲染后的 HTML 内容
+     * @param semester 学期标识
+     * @return 解析出的课程列表
+     */
+    override suspend fun parseHtmlToCourses(html: String, semester: String): Result<List<Course>> {
+        return try {
+            android.util.Log.d(REPO_TAG, "=== parseHtmlToCourses 开始 ===")
+            android.util.Log.d(REPO_TAG, "HTML 长度: ${html.length}")
+
+            // 解析 HTML
+            val entities = htmlParser.parse(html, semester)
+            android.util.Log.d(REPO_TAG, "解析完成，课程数量: ${entities.size}")
+
+            // 保存到数据库
+            if (entities.isNotEmpty()) {
+                courseDao.deleteBySemester(semester)
+                courseDao.insertAll(entities)
+                android.util.Log.i(REPO_TAG, "[OK] 已保存 ${entities.size} 门课程到数据库")
+            }
+
+            // 更新当前学期
+            userPreferences.saveCurrentSemester(semester)
+
+            // 转换为领域模型
+            val courses = entities.map { it.toDomainModel() }
+            Result.success(courses)
+        } catch (e: Exception) {
+            android.util.Log.e(REPO_TAG, "parseHtmlToCourses 异常: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 获取远程课表
      * @param semester 学期标识
      * @return 课程列表
      */
     override suspend fun fetchRemoteSchedule(semester: String): Result<List<Course>> {
+        android.util.Log.d(REPO_TAG, "=== fetchRemoteSchedule 开始, semester=$semester ===")
+
         return try {
-            // 检查登录状态
-            if (!isLoggedIn()) {
-                return Result.failure(Exception("[X] Please login first"))
+            // GeckoView 场景：跳过登录状态检查，直接尝试获取课表
+            // 因为 GeckoView 的 Cookie 和 OkHttp 隔离，Cookie 检查会失败
+            // 但用户可能已在 GeckoView 中登录，所以直接尝试获取
+
+            // 获取课表 HTML - 使用 GET 请求直接获取课表页面
+            android.util.Log.d(REPO_TAG, "获取课表 HTML (GET)...")
+            val html = eamsApi.getCourseTablePage().getOrNull()
+            if (html == null) {
+                android.util.Log.e(REPO_TAG, "fetchRemoteSchedule 失败: 无法获取课表 HTML")
+                return Result.failure(Exception("[X] Cannot get course table"))
             }
+            android.util.Log.d(REPO_TAG, "获取到 HTML，长度: ${html.length}")
 
-            // 获取课表 HTML
-            val html = eamsApi.getCourseTableHtml(semester).getOrNull()
-                ?: return Result.failure(Exception("[X] Cannot get course table"))
-
-            // 解析 HTML
+            // 解析 HTML（支持原始 HTML 中的 TaskActivity 数据和渲染后的 infoTitle 单元格）
+            android.util.Log.d(REPO_TAG, "解析 HTML...")
             val entities = htmlParser.parse(html, semester)
 
             // 转换为领域模型
             val courses = entities.map { it.toDomainModel() }
+            android.util.Log.i(REPO_TAG, "解析完成，课程数量: ${courses.size}")
 
             // 保存到本地数据库
             if (courses.isNotEmpty()) {
@@ -218,13 +313,16 @@ class CourseRepositoryImpl(
                 courseDao.deleteBySemester(semester)
                 // 插入新数据
                 courseDao.insertAll(entities)
+                android.util.Log.i(REPO_TAG, "已保存 ${courses.size} 门课程到数据库")
+
+                // 更新当前学期
+                userPreferences.saveCurrentSemester(semester)
             }
 
-            // 更新当前学期
-            userPreferences.saveCurrentSemester(semester)
-
+            android.util.Log.i(REPO_TAG, "[OK] fetchRemoteSchedule 成功")
             Result.success(courses)
         } catch (e: Exception) {
+            android.util.Log.e(REPO_TAG, "fetchRemoteSchedule 异常: ${e.message}", e)
             Result.failure(e)
         }
     }

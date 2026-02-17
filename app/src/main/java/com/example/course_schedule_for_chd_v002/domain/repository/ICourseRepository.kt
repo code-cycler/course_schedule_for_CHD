@@ -21,6 +21,14 @@ interface ICourseRepository {
     suspend fun verifyWebViewLogin(): Boolean
 
     /**
+     * 从 WebView 同步 Cookie 到 OkHttp
+     * 用于 GeckoView 登录场景
+     * @param url 当前页面 URL
+     * @param cookies Cookie 字符串
+     */
+    fun syncCookiesFromWebView(url: String, cookies: String)
+
+    /**
      * 获取学生姓名
      * @return 学生姓名，失败返回 null
      */
@@ -38,6 +46,15 @@ interface ICourseRepository {
      * @return 当前学期字符串，未设置返回 null
      */
     suspend fun getCurrentSemester(): String?
+
+    /**
+     * 直接解析 HTML 内容为课程列表
+     * 用于 GeckoView 场景，从渲染后的 HTML 解析课程
+     * @param html 渲染后的 HTML 内容
+     * @param semester 学期标识
+     * @return 解析出的课程列表
+     */
+    suspend fun parseHtmlToCourses(html: String, semester: String): Result<List<Course>>
 
     suspend fun fetchRemoteSchedule(semester: String): Result<List<Course>>
     suspend fun getLocalSchedule(semester: String): List<Course>
