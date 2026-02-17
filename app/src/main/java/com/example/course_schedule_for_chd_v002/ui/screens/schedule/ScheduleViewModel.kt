@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.util.Constants
-import com.example.course_schedule_for_chd_v002.util.NetworkUtils
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,9 +27,15 @@ class ScheduleViewModel(
     private val _uiState = MutableStateFlow(ScheduleUiState(semester = semester))
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
+    // [v37] 添加初始化保护，防止启动崩溃
     init {
-        android.util.Log.d("ScheduleViewModel", "[v24] 初始化，学期: $semester")
-        loadSchedule()
+        try {
+            android.util.Log.d("ScheduleViewModel", "[v37] 初始化，学期: $semester")
+            loadSchedule()
+        } catch (e: Exception) {
+            android.util.Log.e("ScheduleViewModel", "[v37] 初始化失败: ${e.message}", e)
+            _uiState.update { it.copy(isLoading = false, errorMessage = "初始化失败: ${e.message}") }
+        }
     }
 
     /**
@@ -130,45 +135,7 @@ class ScheduleViewModel(
         }
     }
 
-    /**
-     * 刷新课表（从服务器获取最新数据）
-     * 使用自动重试机制和友好错误提示
-     */
-    fun refreshSchedule() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshing = true, errorMessage = null) }
-
-            // 使用带重试的网络请求
-            val result = NetworkUtils.retryWith(maxRetries = 3) {
-                repository.fetchRemoteSchedule(semester)
-            }
-
-            result.fold(
-                onSuccess = { courses ->
-                    val conflicts = TimeUtils.findConflicts(courses)
-                    _uiState.update {
-                        it.copy(
-                            courses = courses,
-                            conflictingCourseIds = conflicts.keys,
-                            isRefreshing = false
-                        )
-                    }
-                },
-                onFailure = { error ->
-                    // 使用友好的错误提示
-                    val friendlyMessage = NetworkUtils.getFriendlyErrorMessage(
-                        error.message ?: ""
-                    )
-                    _uiState.update {
-                        it.copy(
-                            isRefreshing = false,
-                            errorMessage = friendlyMessage
-                        )
-                    }
-                }
-            )
-        }
-    }
+    // [v37] 删除 refreshSchedule() 方法，不再需要刷新功能
 
     /**
      * 选择课程（用于显示详情）

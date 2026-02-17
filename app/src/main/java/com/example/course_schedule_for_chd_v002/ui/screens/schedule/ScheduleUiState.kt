@@ -16,7 +16,7 @@ data class ScheduleUiState(
 
     // UI 状态
     val isLoading: Boolean = true,
-    val isRefreshing: Boolean = false,
+    // [v37] 删除 isRefreshing，不再需要刷新功能
     val errorMessage: String? = null,
 
     // 周次选择

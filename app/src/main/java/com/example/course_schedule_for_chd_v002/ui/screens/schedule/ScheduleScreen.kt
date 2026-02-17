@@ -8,11 +8,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -60,31 +59,7 @@ fun ScheduleScreen(
             TopAppBar(
                 title = { Text("Course Schedule") },
                 actions = {
-                    // Sync button (navigate to login to fetch new data)
-                    IconButton(onClick = onNavigateToLogin) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Sync Data"
-                        )
-                    }
-                    // Refresh button
-                    IconButton(
-                        onClick = { viewModel.refreshSchedule() },
-                        enabled = !uiState.isRefreshing
-                    ) {
-                        if (uiState.isRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh"
-                            )
-                        }
-                    }
-                    // Logout button
+                    // [v37] 只保留登出按钮，删除加号和刷新按钮
                     IconButton(onClick = { viewModel.logout() }) {
                         Icon(
                             imageVector = Icons.Default.ExitToApp,
@@ -122,6 +97,7 @@ fun ScheduleScreen(
             }
             // Empty state
             else if (uiState.courses.isEmpty()) {
+                // [v37] 删除 Sync Data 按钮，只显示提示信息
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -135,19 +111,10 @@ fun ScheduleScreen(
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            text = "Click 'Sync' to fetch course data",
+                            text = "Please login to fetch course data",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Button(onClick = onNavigateToLogin) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Sync Data")
-                        }
                     }
                 }
             }
@@ -178,15 +145,31 @@ fun ScheduleScreen(
                         }
                     }
                 } else {
-                    // [v36] 记录上一次的周次，用于判断滑动方向
-                    var previousWeek by remember { mutableIntStateOf(uiState.currentWeek) }
+                    // [v37] 使用更安全的状态初始化，防止启动崩溃
+                    var previousWeek by remember { mutableIntStateOf(1) }
+                    var hasInitialized by remember { mutableStateOf(false) }
+
+                    // [v37] 在 uiState 更新后初始化 previousWeek
+                    LaunchedEffect(uiState.currentWeek) {
+                        if (!hasInitialized && uiState.currentWeek > 0) {
+                            previousWeek = uiState.currentWeek
+                            hasInitialized = true
+                        }
+                    }
+
+                    // [v37] 添加滑动防抖状态
+                    var totalDrag by remember { mutableFloatStateOf(0f) }
 
                     // [v36] 使用 AnimatedContent 添加切换动画
                     AnimatedContent(
                         targetState = uiState.currentWeek to displayCourses,
                         transitionSpec = {
-                            // 根据周次变化方向确定滑动方向
-                            val isGoingForward = targetState.first > previousWeek
+                            // [v37] 添加安全检查，避免未初始化时崩溃
+                            val isGoingForward = if (hasInitialized) {
+                                targetState.first > previousWeek
+                            } else {
+                                true
+                            }
 
                             (slideInHorizontally { width ->
                                 if (isGoingForward) width else -width
@@ -198,34 +181,45 @@ fun ScheduleScreen(
                     ) { (currentWeek, courses) ->
                         // [v36] 更新 previousWeek 用于下次动画方向判断
                         SideEffect {
-                            previousWeek = currentWeek
+                            if (hasInitialized) {
+                                previousWeek = currentWeek
+                            }
                         }
 
-                        // [v35] 添加水平滑动手势检测，左右滑动切换周次
+                        // [v37] 添加水平滑动手势检测，使用防抖机制确保一次只切换一周
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(horizontal = 8.dp)
-                                .pointerInput(uiState.maxWeeks) {
-                                    detectHorizontalDragGestures { change, dragAmount ->
-                                        change.consume()
-                                        // 左滑 (dragAmount < 0) = 下一周
-                                        // 右滑 (dragAmount > 0) = 上一周
-                                        val threshold = 50  // 滑动阈值（像素）
-                                        when {
-                                            dragAmount < -threshold -> {
-                                                // 左滑 -> 下一周
-                                                if (uiState.currentWeek < uiState.maxWeeks) {
-                                                    viewModel.onWeekSelected(uiState.currentWeek + 1)
+                                .pointerInput(uiState.maxWeeks, uiState.currentWeek) {
+                                    detectHorizontalDragGestures(
+                                        onDragStart = {
+                                            // [v37] 手势开始时重置累计滑动距离
+                                            totalDrag = 0f
+                                        },
+                                        onDragEnd = {
+                                            // [v37] 手势结束时检查总滑动距离，确保一次只切换一周
+                                            val threshold = 100f  // 总滑动阈值（像素）
+                                            when {
+                                                totalDrag < -threshold -> {
+                                                    // 左滑 -> 下一周
+                                                    if (uiState.currentWeek < uiState.maxWeeks) {
+                                                        viewModel.onWeekSelected(uiState.currentWeek + 1)
+                                                    }
+                                                }
+                                                totalDrag > threshold -> {
+                                                    // 右滑 -> 上一周
+                                                    if (uiState.currentWeek > 1) {
+                                                        viewModel.onWeekSelected(uiState.currentWeek - 1)
+                                                    }
                                                 }
                                             }
-                                            dragAmount > threshold -> {
-                                                // 右滑 -> 上一周
-                                                if (uiState.currentWeek > 1) {
-                                                    viewModel.onWeekSelected(uiState.currentWeek - 1)
-                                                }
-                                            }
+                                            totalDrag = 0f
                                         }
+                                    ) { change, dragAmount ->
+                                        change.consume()
+                                        // [v37] 累计滑动距离，不在此处切换周次
+                                        totalDrag += dragAmount
                                     }
                                 }
                         ) {
