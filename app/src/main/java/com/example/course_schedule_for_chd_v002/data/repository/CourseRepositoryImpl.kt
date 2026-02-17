@@ -4,7 +4,6 @@ import com.example.course_schedule_for_chd_v002.data.local.database.CourseDao
 import com.example.course_schedule_for_chd_v002.data.local.database.entity.CourseEntity
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
 import com.example.course_schedule_for_chd_v002.data.remote.api.CasApi
-import com.example.course_schedule_for_chd_v002.data.remote.dto.CasLoginPage
 import com.example.course_schedule_for_chd_v002.data.remote.api.EamsApi
 import com.example.course_schedule_for_chd_v002.data.remote.client.CookieManager
 import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
@@ -12,6 +11,7 @@ import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.domain.repository.LoginResult
 import com.example.course_schedule_for_chd_v002.util.Constants
+import com.example.course_schedule_for_chd_v002.util.JsonUtils
 import kotlinx.coroutines.flow.first
 
 /**
@@ -33,25 +33,19 @@ class CourseRepositoryImpl(
     private val courseDao: CourseDao
 ) : ICourseRepository {
 
-    // 缓存登录页面信息
-    private var cachedLoginPage: CasLoginPage? = null
-
     /**
      * 用户登录
      * @param username 用户名（学号）
      * @param password 密码
-     * @param captcha 验证码
      * @return 登录结果
      */
     override suspend fun login(
         username: String,
-        password: String,
-        captcha: String
+        password: String
     ): Result<LoginResult> {
         return try {
             // 1. 获取登录页面信息
-            val loginPage = cachedLoginPage
-                ?: casApi.getLoginPage(Constants.CasUrls.LOGIN_SERVICE).getOrNull()
+            val loginPage = casApi.getLoginPage(Constants.CasUrls.LOGIN_SERVICE).getOrNull()
                 ?: return Result.success(
                     LoginResult(
                         success = false,
@@ -63,7 +57,6 @@ class CourseRepositoryImpl(
             val loginResult = casApi.login(
                 username = username,
                 password = password,
-                captcha = captcha,
                 loginPage = loginPage,
                 serviceUrl = Constants.CasUrls.LOGIN_SERVICE
             )
@@ -101,9 +94,6 @@ class CourseRepositoryImpl(
                 studentName = studentName
             )
 
-            // 清除缓存的登录页面
-            cachedLoginPage = null
-
             Result.success(
                 LoginResult(
                     success = true,
@@ -118,25 +108,6 @@ class CourseRepositoryImpl(
                     errorMessage = e.message ?: "[X] Login error"
                 )
             )
-        }
-    }
-
-    /**
-     * 获取验证码图片
-     * @return 验证码图片的字节数据
-     */
-    override suspend fun getCaptchaImage(): Result<ByteArray> {
-        return try {
-            // 先获取登录页面，缓存信息
-            val loginPage = casApi.getLoginPage(Constants.CasUrls.LOGIN_SERVICE).getOrNull()
-                ?: return Result.failure(Exception("[X] Cannot get login page"))
-
-            cachedLoginPage = loginPage
-
-            // 获取验证码图片
-            casApi.getCaptchaImage(loginPage.captchaUrl)
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 
@@ -165,6 +136,58 @@ class CourseRepositoryImpl(
 
         // 清除保存的登录状态
         userPreferences.clear()
+    }
+
+    // ================ WebView 登录相关 ================
+
+    /**
+     * 验证 WebView 登录状态
+     * 从 WebView 同步 Cookie 后验证登录状态
+     */
+    override suspend fun verifyWebViewLogin(): Boolean {
+        // 从 WebView 同步 Cookie 到 OkHttp
+        cookieManager.syncFromWebView(Constants.EamsUrls.HOME_PAGE)
+
+        // 验证登录状态
+        val isLoggedIn = eamsApi.accessHomePage().getOrDefault(false)
+
+        if (isLoggedIn) {
+            // 获取学生信息并保存登录状态
+            val studentName = eamsApi.getStudentName().getOrNull() ?: ""
+            val studentId = eamsApi.getStudentId().getOrNull() ?: 0L
+
+            userPreferences.saveLoginState(
+                isLoggedIn = true,
+                username = studentId.toString(),
+                studentId = studentId.toString(),
+                studentName = studentName
+            )
+        }
+
+        return isLoggedIn
+    }
+
+    /**
+     * 获取学生姓名
+     */
+    override suspend fun getStudentName(): String? {
+        return eamsApi.getStudentName().getOrNull()
+    }
+
+    /**
+     * 获取学生 ID
+     */
+    override suspend fun getStudentId(): String? {
+        return eamsApi.getStudentId().getOrNull()?.toString()
+    }
+
+    /**
+     * 获取当前学期
+     * @return 当前学期字符串，未设置返回 null
+     */
+    override suspend fun getCurrentSemester(): String? {
+        val semester = userPreferences.currentSemester.first()
+        return semester.ifBlank { null }
     }
 
     /**
@@ -238,5 +261,36 @@ class CourseRepositoryImpl(
      */
     override suspend fun getAllSemesters(): List<String> {
         return courseDao.getAllSemesters()
+    }
+
+    /**
+     * 导出课程为 JSON 字符串
+     * @param semester 学期标识
+     * @return JSON 字符串
+     */
+    override suspend fun exportScheduleToJson(semester: String): String {
+        val courses = getLocalSchedule(semester)
+        return JsonUtils.exportCoursesToJson(courses)
+    }
+
+    /**
+     * 从 JSON 字符串导入课程
+     * @param jsonString JSON 字符串
+     * @param semester 目标学期
+     * @return 导入的课程数量
+     */
+    override suspend fun importScheduleFromJson(jsonString: String, semester: String): Int {
+        val courses = JsonUtils.importCoursesFromJson(jsonString)
+            .map { it.copy(semester = semester) }  // 确保学期一致
+
+        if (courses.isNotEmpty()) {
+            // 先删除旧数据
+            courseDao.deleteBySemester(semester)
+            // 插入新数据
+            val entities = courses.map { CourseEntity.fromDomainModel(it) }
+            courseDao.insertAll(entities)
+        }
+
+        return courses.size
     }
 }

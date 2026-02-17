@@ -4,12 +4,15 @@ import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPrefe
 import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.data.repository.CourseRepositoryImpl
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
+import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleViewModel
 import org.koin.android.ext.koin.androidContext
+import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
 /**
  * 应用级 Koin 模块
- * 提供 Repository、UseCase 等业务逻辑相关的依赖注入配置
+ * 提供 Repository、UseCase、ViewModel 等业务逻辑相关的依赖注入配置
  */
 val appModule = module {
     // 用户偏好设置
@@ -29,4 +32,8 @@ val appModule = module {
             courseDao = get()
         )
     }
+
+    // ViewModels
+    viewModel { LoginViewModel(get()) }
+    viewModel { params -> ScheduleViewModel(get(), params.get()) }
 }

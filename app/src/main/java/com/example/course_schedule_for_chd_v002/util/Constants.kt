@@ -15,7 +15,12 @@ object Constants {
     object CasUrls {
         const val LOGIN_URL = "https://ids.chd.edu.cn/authserver/login"
         const val LOGIN_SERVICE = "http://bkjw.chd.edu.cn/eams/home.action"
-        const val FULL_LOGIN_URL = "https://ids.chd.edu.cn/authserver/login?service=http://bkjw.chd.edu.cn/eams/home.action"
+        // service 参数必须使用 URL 编码格式
+        const val FULL_LOGIN_URL = "https://ids.chd.edu.cn/authserver/login?service=http%3A%2F%2Fbkjw.chd.edu.cn%2Feams%2Fhome.action"
+        // WebView 登录入口 - 直接访问教务系统根路径，系统会自动跳转
+        const val WEBVIEW_ENTRY_URL = "http://bkjw.chd.edu.cn/eams"
+        // 课表页面 URL - 用于检测用户是否进入课表页面
+        const val COURSE_TABLE_URL = "http://bkjw.chd.edu.cn/eams/courseTableForStd!courseTable.action"
     }
 
     // 网络配置

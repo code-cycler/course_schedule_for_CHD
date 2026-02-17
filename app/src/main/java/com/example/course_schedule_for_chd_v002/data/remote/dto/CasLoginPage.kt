@@ -7,6 +7,5 @@ package com.example.course_schedule_for_chd_v002.data.remote.dto
 data class CasLoginPage(
     val lt: String,            // 登录令牌
     val execution: String,     // 执行标识
-    val eventId: String,       // 事件ID，通常是 "submit"
-    val captchaUrl: String     // 验证码图片URL
+    val eventId: String        // 事件ID，通常是 "submit"
 )

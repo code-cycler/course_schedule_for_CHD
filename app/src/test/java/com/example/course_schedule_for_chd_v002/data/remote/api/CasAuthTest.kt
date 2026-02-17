@@ -55,7 +55,6 @@ class CasAuthTest {
                     <input type="hidden" name="lt" value="LT-12345-test" />
                     <input type="hidden" name="execution" value="e1s1" />
                     <input type="hidden" name="_eventId" value="submit" />
-                    <img class="captcha-img" src="/captcha.jpg" />
                 </form>
             </body>
             </html>
@@ -77,37 +76,6 @@ class CasAuthTest {
         assertEquals("LT-12345-test", loginPage?.lt)
         assertEquals("e1s1", loginPage?.execution)
         assertEquals("submit", loginPage?.eventId)
-    }
-
-    @Test
-    fun getLoginPage_extractsCaptchaUrl() = runTest {
-        // Given
-        val loginHtml = """
-            <html>
-            <body>
-                <form>
-                    <input type="hidden" name="lt" value="LT-test" />
-                    <input type="hidden" name="execution" value="e1s1" />
-                    <img class="captcha-img" src="/captcha/abc123.jpg" />
-                </form>
-            </body>
-            </html>
-        """.trimIndent()
-
-        mockServer.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .setBody(loginHtml)
-        )
-
-        // When
-        val result = casApi.getLoginPage(mockServer.url("/login").toString())
-
-        // Then
-        assertTrue(result.isSuccess)
-        val loginPage = result.getOrNull()
-        assertNotNull(loginPage)
-        assertTrue(loginPage?.captchaUrl?.contains("captcha") == true)
     }
 
     @Test
@@ -170,44 +138,6 @@ class CasAuthTest {
         assertTrue(result.isFailure)
     }
 
-    // ================ 获取验证码测试 ================
-
-    @Test
-    fun getCaptchaImage_success_returnsByteArray() = runTest {
-        // Given
-        val captchaData = byteArrayOf(0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte()) // PNG header bytes
-        mockServer.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .setBody(okio.Buffer().write(captchaData))
-                .setHeader("Content-Type", "image/png")
-        )
-
-        // When
-        val result = casApi.getCaptchaImage(mockServer.url("/captcha.jpg").toString())
-
-        // Then
-        assertTrue(result.isSuccess)
-        assertNotNull(result.getOrNull())
-        assertTrue(result.getOrNull()!!.isNotEmpty())
-    }
-
-    @Test
-    fun getCaptchaImage_httpError_returnsFailure() = runTest {
-        // Given
-        mockServer.enqueue(
-            MockResponse()
-                .setResponseCode(404)
-                .setBody("Not Found")
-        )
-
-        // When
-        val result = casApi.getCaptchaImage(mockServer.url("/captcha.jpg").toString())
-
-        // Then
-        assertTrue(result.isFailure)
-    }
-
     // ================ 登录测试 ================
 
     @Test
@@ -222,15 +152,13 @@ class CasAuthTest {
         val loginPage = com.example.course_schedule_for_chd_v002.data.remote.dto.CasLoginPage(
             lt = "LT-test",
             execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
+            eventId = "submit"
         )
 
         // When
         val result = casApi.login(
             username = "20240001",
             password = "password123",
-            captcha = "1234",
             loginPage = loginPage,
             serviceUrl = mockServer.url("/service").toString()
         )
@@ -261,52 +189,13 @@ class CasAuthTest {
         val loginPage = com.example.course_schedule_for_chd_v002.data.remote.dto.CasLoginPage(
             lt = "LT-test",
             execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
+            eventId = "submit"
         )
 
         // When
         val result = casApi.login(
             username = "wrong",
             password = "wrong",
-            captcha = "0000",
-            loginPage = loginPage,
-            serviceUrl = mockServer.url("/service").toString()
-        )
-
-        // Then
-        assertTrue(result.isFailure)
-    }
-
-    @Test
-    fun login_wrongCaptcha_returnsFailure() = runTest {
-        // Given - 模拟验证码错误
-        val errorHtml = """
-            <html>
-            <body>
-                <div class="error">验证码错误</div>
-            </body>
-            </html>
-        """.trimIndent()
-
-        mockServer.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .setBody(errorHtml)
-        )
-
-        val loginPage = com.example.course_schedule_for_chd_v002.data.remote.dto.CasLoginPage(
-            lt = "LT-test",
-            execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
-        )
-
-        // When
-        val result = casApi.login(
-            username = "20240001",
-            password = "password",
-            captcha = "wrong",
             loginPage = loginPage,
             serviceUrl = mockServer.url("/service").toString()
         )
@@ -327,15 +216,13 @@ class CasAuthTest {
         val loginPage = com.example.course_schedule_for_chd_v002.data.remote.dto.CasLoginPage(
             lt = "LT-test",
             execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
+            eventId = "submit"
         )
 
         // When
         val result = casApi.login(
             username = "20240001",
             password = "password",
-            captcha = "1234",
             loginPage = loginPage,
             serviceUrl = mockServer.url("/service").toString()
         )

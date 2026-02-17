@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 允许明文流量（HTTP）访问教务系统 -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- 针对教务系统域名的特定配置 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">bkjw.chd.edu.cn</domain>
+        <domain includeSubdomains="true">ids.chd.edu.cn</domain>
+        <domain includeSubdomains="true">cas.chd.edu.cn</domain>
+    </domain-config>
+</network-security-config>

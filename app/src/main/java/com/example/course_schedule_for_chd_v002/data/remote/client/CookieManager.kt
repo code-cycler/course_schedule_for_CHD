@@ -3,6 +3,7 @@ package com.example.course_schedule_for_chd_v002.data.remote.client
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Cookie 管理器
@@ -82,5 +83,47 @@ class CookieManager : CookieJar {
      */
     fun getCookiesForHost(host: String): List<Cookie> {
         return cookieStore[host] ?: emptyList()
+    }
+
+    /**
+     * 从 Android WebView CookieManager 同步 Cookie 到 OkHttp
+     * 在 WebView 登录成功后调用
+     *
+     * @param url 登录成功后的 URL（通常是教务系统首页）
+     */
+    fun syncFromWebView(url: String) {
+        try {
+            val webViewCookieManager = android.webkit.CookieManager.getInstance()
+            val cookiesString = webViewCookieManager.getCookie(url) ?: return
+
+            // 解析 URL
+            val httpUrl = url.toHttpUrlOrNull() ?: return
+
+            // 解析 Cookie 字符串并保存
+            cookiesString.split(";").forEach { cookiePair ->
+                val parts = cookiePair.trim().split("=", limit = 2)
+                if (parts.size == 2) {
+                    val name = parts[0].trim()
+                    val value = parts[1].trim()
+
+                    // 构建 OkHttp Cookie
+                    val cookie = Cookie.Builder()
+                        .name(name)
+                        .value(value)
+                        .domain(httpUrl.host)
+                        .path("/")
+                        .build()
+
+                    // 保存到 store
+                    val host = httpUrl.host
+                    val existingCookies = cookieStore.getOrPut(host) { mutableListOf() }
+                    existingCookies.removeAll { it.name == name }
+                    existingCookies.add(cookie)
+                }
+            }
+        } catch (e: Exception) {
+            // 忽略解析错误
+            e.printStackTrace()
+        }
     }
 }

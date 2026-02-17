@@ -14,10 +14,8 @@ import org.jsoup.Jsoup
  *
  * 登录流程：
  * 1. 获取登录页面，解析隐藏字段（lt, execution, _eventId）
- * 2. 获取验证码图片
- * 3. 用户输入验证码
- * 4. 提交登录表单
- * 5. 处理重定向到教务系统
+ * 2. 提交登录表单
+ * 3. 处理重定向到教务系统
  *
  * @param client OkHttp 客户端
  * @param baseUrl CAS 服务器基础 URL（用于测试时注入 MockWebServer URL）
@@ -35,7 +33,7 @@ class CasApi(
     /**
      * 获取登录页面信息
      * @param serviceUrl 回调服务地址（登录成功后跳转的目标）
-     * @return 登录页面信息，包含隐藏字段和验证码URL
+     * @return 登录页面信息，包含隐藏字段
      */
     suspend fun getLoginPage(serviceUrl: String): Result<CasLoginPage> = withContext(Dispatchers.IO) {
         try {
@@ -62,9 +60,6 @@ class CasApi(
             val execution = doc.select("input[name=execution]").attr("value")
             val eventId = doc.select("input[name=_eventId]").attr("value")
 
-            // 查找验证码图片 URL
-            val captchaUrl = findCaptchaUrl(doc)
-
             if (lt.isEmpty() || execution.isEmpty()) {
                 return@withContext Result.failure(Exception("[X] Cannot extract hidden fields from login page"))
             }
@@ -73,65 +68,9 @@ class CasApi(
                 CasLoginPage(
                     lt = lt,
                     execution = execution,
-                    eventId = eventId.ifEmpty { "submit" },
-                    captchaUrl = captchaUrl
+                    eventId = eventId.ifEmpty { "submit" }
                 )
             )
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * 从页面中查找验证码URL
-     */
-    private fun findCaptchaUrl(doc: org.jsoup.nodes.Document): String {
-        // 尝试多种选择器查找验证码图片
-        val selectors = listOf(
-            "img.captcha-img",
-            "img[id*=captcha]",
-            "img[src*=captcha]",
-            "#captchaImg",
-            ".captcha img"
-        )
-
-        for (selector in selectors) {
-            val src = doc.select(selector).attr("src")
-            if (src.isNotEmpty()) {
-                return if (src.startsWith("http")) {
-                    src
-                } else {
-                    "$baseUrl$src"
-                }
-            }
-        }
-
-        // 默认验证码URL
-        return "$baseUrl/captcha"
-    }
-
-    /**
-     * 获取验证码图片
-     * @param captchaUrl 验证码图片URL
-     * @return 验证码图片的字节数据
-     */
-    suspend fun getCaptchaImage(captchaUrl: String): Result<ByteArray> = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url(captchaUrl)
-                .get()
-                .build()
-
-            val response = client.newCall(request).execute()
-
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("[X] HTTP ${response.code}"))
-            }
-
-            val bytes = response.body?.bytes()
-                ?: return@withContext Result.failure(Exception("[X] Empty captcha data"))
-
-            Result.success(bytes)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -141,7 +80,6 @@ class CasApi(
      * 提交登录表单
      * @param username 用户名（学号）
      * @param password 密码
-     * @param captcha 验证码
      * @param loginPage 登录页面信息（包含隐藏字段）
      * @param serviceUrl 回调服务地址
      * @return 登录结果
@@ -149,7 +87,6 @@ class CasApi(
     suspend fun login(
         username: String,
         password: String,
-        captcha: String,
         loginPage: CasLoginPage,
         serviceUrl: String
     ): Result<Boolean> = withContext(Dispatchers.IO) {
@@ -157,7 +94,6 @@ class CasApi(
             val formBody = FormBody.Builder()
                 .add("username", username)
                 .add("password", password)
-                .add("captcha", captcha)
                 .add("lt", loginPage.lt)
                 .add("execution", loginPage.execution)
                 .add("_eventId", loginPage.eventId)

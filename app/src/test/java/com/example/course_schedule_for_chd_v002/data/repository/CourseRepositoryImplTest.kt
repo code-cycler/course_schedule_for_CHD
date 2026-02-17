@@ -70,19 +70,18 @@ class CourseRepositoryImplTest {
         val loginPage = CasLoginPage(
             lt = "LT-test",
             execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
+            eventId = "submit"
         )
 
         coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.login(any(), any(), any(), any(), any()) } returns Result.success(true)
+        coEvery { mockCasApi.login(any(), any(), any(), any()) } returns Result.success(true)
         coEvery { mockEamsApi.accessHomePage() } returns Result.success(true)
         coEvery { mockEamsApi.getStudentName() } returns Result.success("张三")
         coEvery { mockEamsApi.getStudentId() } returns Result.success(20240001L)
         coEvery { mockUserPreferences.saveLoginState(any(), any(), any(), any()) } just Runs
 
         // When
-        val result = repository.login("20240001", "password", "1234")
+        val result = repository.login("20240001", "password")
 
         // Then
         assertTrue(result.isSuccess)
@@ -98,7 +97,7 @@ class CourseRepositoryImplTest {
         coEvery { mockCasApi.getLoginPage(any()) } returns Result.failure(Exception("Network error"))
 
         // When
-        val result = repository.login("20240001", "password", "1234")
+        val result = repository.login("20240001", "password")
 
         // Then
         assertTrue(result.isSuccess)
@@ -112,15 +111,14 @@ class CourseRepositoryImplTest {
         val loginPage = CasLoginPage(
             lt = "LT-test",
             execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
+            eventId = "submit"
         )
 
         coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.login(any(), any(), any(), any(), any()) } returns Result.failure(Exception("Wrong password"))
+        coEvery { mockCasApi.login(any(), any(), any(), any()) } returns Result.failure(Exception("Wrong password"))
 
         // When
-        val result = repository.login("20240001", "wrong", "1234")
+        val result = repository.login("20240001", "wrong")
 
         // Then
         assertTrue(result.isSuccess)
@@ -133,16 +131,15 @@ class CourseRepositoryImplTest {
         val loginPage = CasLoginPage(
             lt = "LT-test",
             execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
+            eventId = "submit"
         )
 
         coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.login(any(), any(), any(), any(), any()) } returns Result.success(true)
+        coEvery { mockCasApi.login(any(), any(), any(), any()) } returns Result.success(true)
         coEvery { mockEamsApi.accessHomePage() } returns Result.success(false)
 
         // When
-        val result = repository.login("20240001", "password", "1234")
+        val result = repository.login("20240001", "password")
 
         // Then
         assertTrue(result.isSuccess)
@@ -156,58 +153,21 @@ class CourseRepositoryImplTest {
         val loginPage = CasLoginPage(
             lt = "LT-test",
             execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
+            eventId = "submit"
         )
 
         coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.login(any(), any(), any(), any(), any()) } returns Result.success(true)
+        coEvery { mockCasApi.login(any(), any(), any(), any()) } returns Result.success(true)
         coEvery { mockEamsApi.accessHomePage() } returns Result.success(true)
         coEvery { mockEamsApi.getStudentName() } returns Result.success("张三")
         coEvery { mockEamsApi.getStudentId() } returns Result.success(20240001L)
         coEvery { mockUserPreferences.saveLoginState(any(), any(), any(), any()) } just Runs
 
         // When
-        repository.login("20240001", "password", "1234")
+        repository.login("20240001", "password")
 
         // Then
         coVerify { mockUserPreferences.saveLoginState(true, "20240001", "20240001", "张三") }
-    }
-
-    // ================ 验证码测试 ================
-
-    @Test
-    fun getCaptchaImage_success_returnsByteArray() = runTest {
-        // Given
-        val loginPage = CasLoginPage(
-            lt = "LT-test",
-            execution = "e1s1",
-            eventId = "submit",
-            captchaUrl = "/captcha.jpg"
-        )
-        val captchaData = byteArrayOf(0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte())
-
-        coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.getCaptchaImage(any()) } returns Result.success(captchaData)
-
-        // When
-        val result = repository.getCaptchaImage()
-
-        // Then
-        assertTrue(result.isSuccess)
-        assertArrayEquals(captchaData, result.getOrNull())
-    }
-
-    @Test
-    fun getCaptchaImage_getLoginPageFailure_returnsFailure() = runTest {
-        // Given
-        coEvery { mockCasApi.getLoginPage(any()) } returns Result.failure(Exception("Network error"))
-
-        // When
-        val result = repository.getCaptchaImage()
-
-        // Then
-        assertTrue(result.isFailure)
     }
 
     // ================ 登录状态检查测试 ================

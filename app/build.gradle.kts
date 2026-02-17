@@ -30,8 +30,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         compose = true
@@ -76,6 +76,9 @@ dependencies {
     // Koin DI
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
+
+    // GeckoView (Firefox 内核 WebView)
+    implementation(libs.geckoview)
 
     // 测试依赖
     testImplementation(libs.junit)

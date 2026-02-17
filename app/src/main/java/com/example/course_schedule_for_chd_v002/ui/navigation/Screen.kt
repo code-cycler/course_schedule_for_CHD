@@ -2,8 +2,24 @@ package com.example.course_schedule_for_chd_v002.ui.navigation
 
 /**
  * 导航目的地定义
- * 阶段三实现：定义应用的各个屏幕路由
+ * 定义应用的各个屏幕路由
  */
 sealed class Screen(val route: String) {
-    // TODO: 阶段三实现
+    /**
+     * 登录界面 - 起始屏幕
+     */
+    object Login : Screen("login")
+
+    /**
+     * 课程表界面 - 登录成功后跳转
+     * @param semester 学期参数，格式如 "2024-2025-1"
+     */
+    object Schedule : Screen("schedule/{semester}") {
+        const val SEMESTER_ARG = "semester"
+
+        /**
+         * 创建带参数的路由
+         */
+        fun createRoute(semester: String): String = "schedule/$semester"
+    }
 }

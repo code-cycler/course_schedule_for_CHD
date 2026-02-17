@@ -16,6 +16,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // GeckoView Maven 仓库
+        maven {
+            url = uri("https://maven.mozilla.org/maven2/")
+        }
     }
 }
 
