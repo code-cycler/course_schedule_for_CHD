@@ -1,5 +1,9 @@
 package com.example.course_schedule_for_chd_v002.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -7,6 +11,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -22,14 +30,11 @@ import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 
 /**
- * 课程表网格组件 (v25)
- * 使用 Box + 绝对定位修复跨节课程超出表格的问题
- * [v25] 增加单元格高度，添加滚动支持
- *
- * @param courses 课程列表
- * @param conflictingCourseIds 冲突课程ID集合
- * @param onCourseClick 课程点击回调
- * @param modifier 修饰符
+ * 课程表网格组件 (v38)
+ * - [v38] 每天节次数从12改为11
+ * - [v38] 课程卡片布局确保教室信息始终显示
+ * - [v38] 周末折叠功能
+ * - [v38] 末尾空节次折叠功能
  */
 @Composable
 fun ScheduleGrid(
@@ -39,18 +44,42 @@ fun ScheduleGrid(
     modifier: Modifier = Modifier
 ) {
     val days = DayOfWeek.entries
-    val totalNodes = 12
-    val cellHeight = 60.dp  // [v25] 增加单元格高度 (48dp -> 60dp)
+    val totalNodes = 11
+    val cellHeight = 60.dp
     val headerHeight = 32.dp
     val labelWidth = 40.dp
 
-    // 计算网格总高度
-    val gridHeight = cellHeight * totalNodes
+    // [v38] 周末折叠状态
+    var isWeekendExpanded by remember { mutableStateOf(false) }
+
+    // [v38] 判断周末是否有课
+    val hasWeekendCourses = courses.any {
+        it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY
+    }
+
+    // [v38] 如果周末有课，默认展开
+    LaunchedEffect(hasWeekendCourses) {
+        if (hasWeekendCourses) isWeekendExpanded = true
+    }
+
+    // [v38] 计算最后有课的节次（用于末尾空节次折叠）
+    val lastNodeWithCourse = courses.maxOfOrNull { it.endNode } ?: totalNodes
+    var isTailExpanded by remember { mutableStateOf(false) }
+    val hasTailEmptyNodes = lastNodeWithCourse < totalNodes
+
+    // [v38] 显示的节次数
+    val displayNodes = if (isTailExpanded || !hasTailEmptyNodes) {
+        totalNodes
+    } else {
+        lastNodeWithCourse
+    }
+
+    val gridHeight = cellHeight * displayNodes
 
     Column(modifier = modifier) {
-        // 表头行 (星期)
+        // 表头行
         Row(modifier = Modifier.fillMaxWidth()) {
-            // 左上角空白单元格
+            // 左上角空白
             Box(
                 modifier = Modifier
                     .width(labelWidth)
@@ -58,14 +87,11 @@ fun ScheduleGrid(
                     .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "#",
-                    style = MaterialTheme.typography.labelSmall
-                )
+                Text(text = "#", style = MaterialTheme.typography.labelSmall)
             }
 
-            // 星期标题
-            days.forEach { day ->
+            // 周一到周五
+            days.take(5).forEach { day ->
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -79,9 +105,97 @@ fun ScheduleGrid(
                     )
                 }
             }
+
+            // [v38] 周末折叠按钮
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(headerHeight)
+                    .background(
+                        if (hasWeekendCourses) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    .clickable { isWeekendExpanded = !isWeekendExpanded },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (isWeekendExpanded) Icons.Default.KeyboardArrowDown
+                                     else Icons.Default.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (hasWeekendCourses) MaterialTheme.colorScheme.primary
+                               else MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text(
+                        text = "Weekend",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (hasWeekendCourses) MaterialTheme.colorScheme.onPrimaryContainer
+                               else MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
         }
 
-        // [v25] 课程表内容区域 - 添加滚动支持
+        // [v38] 周末展开后的第二行表头（周六、周日）
+        AnimatedVisibility(
+            visible = isWeekendExpanded,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                // 左侧空白
+                Box(
+                    modifier = Modifier
+                        .width(labelWidth)
+                        .height(headerHeight)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                )
+
+                // 周一到周五空白
+                repeat(5) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(headerHeight)
+                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                    )
+                }
+
+                // 周末区域显示周六、周日
+                Row(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(headerHeight)
+                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            .clickable { isWeekendExpanded = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Sat",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(headerHeight)
+                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            .clickable { isWeekendExpanded = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Sun",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+        }
+
+        // 课程表内容区域
         val scrollState = rememberScrollState()
 
         Box(
@@ -95,84 +209,160 @@ fun ScheduleGrid(
                     .fillMaxWidth()
                     .height(gridHeight)
             ) {
-            // 底层：绘制网格背景
-            Column(modifier = Modifier.fillMaxSize()) {
-                repeat(totalNodes) { nodeIndex ->
-                    val node = nodeIndex + 1
-                    Row(modifier = Modifier.fillMaxWidth().height(cellHeight)) {
-                        // 节次标签
-                        Box(
-                            modifier = Modifier
-                                .width(labelWidth)
-                                .height(cellHeight)
-                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = node.toString(),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-
-                        // 每天的单元格
-                        days.forEach { _ ->
+                // 底层：网格背景
+                Column(modifier = Modifier.fillMaxSize()) {
+                    repeat(displayNodes) { nodeIndex ->
+                        val node = nodeIndex + 1
+                        Row(modifier = Modifier.fillMaxWidth().height(cellHeight)) {
+                            // 节次标签
                             Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                            )
+                                    .width(labelWidth)
+                                    .height(cellHeight)
+                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = node.toString(),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+
+                            // 周一到周五单元格
+                            repeat(5) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                )
+                            }
+
+                            // 周末单元格
+                            if (isWeekendExpanded) {
+                                // 展开时显示两列
+                                repeat(2) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    )
+                                }
+                            } else {
+                                // 折叠时显示一列
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            // 顶层：课程卡片区域
-            Row(modifier = Modifier.matchParentSize()) {
-                // 左侧留空（节次标签区域）
-                Spacer(modifier = Modifier.width(labelWidth))
+                // 顶层：课程卡片
+                Row(modifier = Modifier.matchParentSize()) {
+                    // 左侧留空
+                    Spacer(modifier = Modifier.width(labelWidth))
 
-                // 课程区域 - 7列布局
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                ) {
-                    days.forEachIndexed { dayIndex, day ->
-                        // 每一列的课程
+                    // [v38] 计算每列宽度
+                    // 折叠时：5列工作日 + 1列折叠区 = 6列
+                    // 展开时：5列工作日 + 2列周末 = 7列
+                    val weekdayColumnCount = 5
+                    val weekendColumnCount = if (isWeekendExpanded) 2 else 1
+                    val totalColumnCount = weekdayColumnCount + weekendColumnCount
+
+                    // 周一到周五课程
+                    days.take(5).forEach { day ->
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                         ) {
-                            // 该列的所有课程
                             val dayCourses = courses.filter { it.dayOfWeek == day }
-
                             dayCourses.forEach { course ->
                                 val topOffset = (course.startNode - 1) * cellHeight
                                 val courseHeight = (course.endNode - course.startNode + 1) * cellHeight
 
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(courseHeight)
-                                        .offset { IntOffset(0, topOffset.roundToPx()) }
-                                        .padding(1.dp)
-                                ) {
-                                    CourseCardInternal(
-                                        course = course,
-                                        hasConflict = course.id in conflictingCourseIds,
-                                        onClick = onCourseClick
-                                    )
+                                if (course.startNode <= displayNodes) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(courseHeight)
+                                            .offset { IntOffset(0, topOffset.roundToPx()) }
+                                            .padding(1.dp)
+                                    ) {
+                                        CourseCardInternal(
+                                            course = course,
+                                            hasConflict = course.id in conflictingCourseIds,
+                                            onClick = onCourseClick
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+
+                    // 周末课程区域
+                    if (isWeekendExpanded) {
+                        // 展开时：周六、周日各占一列
+                        listOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY).forEach { day ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                            ) {
+                                val dayCourses = courses.filter { it.dayOfWeek == day }
+                                dayCourses.forEach { course ->
+                                    val topOffset = (course.startNode - 1) * cellHeight
+                                    val courseHeight = (course.endNode - course.startNode + 1) * cellHeight
+
+                                    if (course.startNode <= displayNodes) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(courseHeight)
+                                                .offset { IntOffset(0, topOffset.roundToPx()) }
+                                                .padding(1.dp)
+                                        ) {
+                                            CourseCardInternal(
+                                                course = course,
+                                                hasConflict = course.id in conflictingCourseIds,
+                                                onClick = onCourseClick
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // 折叠时：显示空白列
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
-            }  // 关闭内层 Box (gridHeight)
-        }      // 关闭外层 Box (滚动容器)
-    }          // 关闭 Column
+        }
+
+        // [v38] 末尾空节次按钮
+        if (hasTailEmptyNodes) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                TextButton(onClick = { isTailExpanded = !isTailExpanded }) {
+                    Text(
+                        text = if (isTailExpanded) "Collapse empty slots"
+                        else "Expand all (${totalNodes - lastNodeWithCourse} slots)",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -206,15 +396,17 @@ private fun CourseCardInternal(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(4.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .padding(4.dp)
         ) {
             // 课程名称
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 if (hasConflict) {
                     Icon(
                         imageVector = Icons.Default.Warning,
-                        contentDescription = "Time Conflict",
+                        contentDescription = "Conflict",
                         tint = Color.White,
                         modifier = Modifier.size(12.dp)
                     )
@@ -229,11 +421,13 @@ private fun CourseCardInternal(
                 )
             }
 
-            // 教室 - [v35] 移除行数限制，显示完整教室名
+            // 教室
             if (course.location.isNotBlank()) {
                 Text(
                     text = course.location,
                     style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = Color.White.copy(alpha = 0.8f)
                 )
             }
@@ -241,9 +435,6 @@ private fun CourseCardInternal(
     }
 }
 
-/**
- * 获取星期的缩写
- */
 @Composable
 private fun getDayAbbreviation(day: DayOfWeek): String {
     return when (day) {

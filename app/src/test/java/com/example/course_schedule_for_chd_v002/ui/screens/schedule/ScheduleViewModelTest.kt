@@ -167,7 +167,7 @@ class ScheduleViewModelTest {
         advanceUntilIdle()
 
         // When
-        viewModel.refreshSchedule()
+        viewModel.  1   refreshSchedule()
         advanceUntilIdle()
 
         // Then
