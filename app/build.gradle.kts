@@ -49,6 +49,100 @@ android {
         jniLibs {
             excludes += setOf("lib/armeabi-v7a/**", "lib/x86/**", "lib/x86_64/**")
         }
+
+        // 排除 GeckoView 中不必要的资源文件以减小 APK 体积
+        resources {
+            excludes += setOf(
+                // 排除多语言支持（只保留中文和英文）
+                "values-af/**",
+                "values-am/**",
+                "values-ar/**",
+                "values-as/**",
+                "values-az/**",
+                "values-be/**",
+                "values-bg/**",
+                "values-bn/**",
+                "values-bs/**",
+                "values-ca/**",
+                "values-cs/**",
+                "values-da/**",
+                "values-de/**",  // 德语
+                "values-el/**",
+                "values-en-rAU/**",
+                "values-en-rCA/**",
+                "values-en-rGB/**",
+                "values-en-rIN/**",
+                "values-en-rXC/**",
+                "values-eo/**",
+                "values-es/**",  // 西班牙语
+                "values-et/**",
+                "values-eu/**",
+                "values-fa/**",
+                "values-fi/**",
+                "values-fr/**",  // 法语
+                "values-gl/**",
+                "values-gu/**",
+                "values-hi/**",
+                "values-hr/**",
+                "values-hu/**",
+                "values-hy/**",
+                "values-in/**",
+                "values-is/**",
+                "values-it/**",  // 意大利语
+                "values-iw/**",
+                "values-ja/**",  // 日语
+                "values-ka/**",
+                "values-kk/**",
+                "values-km/**",
+                "values-kn/**",
+                "values-ko/**",  // 韩语
+                "values-ky/**",
+                "values-lo/**",
+                "values-lt/**",
+                "values-lv/**",
+                "values-mk/**",
+                "values-ml/**",
+                "values-mn/**",
+                "values-mr/**",
+                "values-ms/**",
+                "values-my/**",
+                "values-nb/**",
+                "values-ne/**",
+                "values-nl/**",  // 荷兰语
+                "values-or/**",
+                "values-pa/**",
+                "values-pl/**",  // 波兰语
+                "values-pt/**",  // 葡萄牙语
+                "values-ro/**",
+                "values-ru/**",  // 俄语
+                "values-si/**",
+                "values-sk/**",
+                "values-sl/**",
+                "values-sq/**",
+                "values-sr/**",
+                "values-sv/**",
+                "values-sw/**",
+                "values-ta/**",
+                "values-te/**",
+                "values-th/**",
+                "values-tl/**",
+                "values-tr/**",  // 土耳其语
+                "values-uk/**",
+                "values-ur/**",
+                "values-uz/**",
+                "values-vi/**",
+                "values-zh-rCN/**",  // 保留简体中文
+                "values-zh-rHK/**",
+                "values-zh-rTW/**",
+                // GeckoView 特定资源排除
+                "assets/gmp-clearkey/**",  // DRM 相关
+                "assets/allowed_drm_interfaces.txt",
+                // 排除一些不必要的元数据文件
+                "**/mozilla/geckoview/BuildConfig.class",
+                "**/mozilla/geckoview/Manifest.class",
+                "**/mozilla/geckoview/R.class"
+            )
+        }
     }
 }
 
