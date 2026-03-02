@@ -52,12 +52,22 @@ fun WeekSelector(
         }
 
         // [v39] Week text - 可点击以跳转
-        Text(
-            text = "Week $currentWeek / $maxWeeks",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.clickable { showJumpDialog = true },
-            color = MaterialTheme.colorScheme.primary
-        )
+        // [v58] 添加点击提示
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.clickable { showJumpDialog = true }
+        ) {
+            Text(
+                text = "Week $currentWeek / $maxWeeks",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "Tap to jump",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
 
         // Next week button
         IconButton(

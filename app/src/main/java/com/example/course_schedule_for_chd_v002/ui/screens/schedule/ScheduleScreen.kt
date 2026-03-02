@@ -236,10 +236,18 @@ fun ScheduleScreen(
                 }
 
                 // [v57] 同步 ViewModel -> pagerState (周选择器点击时)
+                // [v58] 优化跳转逻辑：大距离跳转使用瞬间切换，小距离使用动画
                 LaunchedEffect(uiState.currentWeek) {
                     val targetPage = uiState.currentWeek - 1
                     if (pagerState.currentPage != targetPage && !pagerState.isScrollInProgress) {
-                        pagerState.animateScrollToPage(targetPage)
+                        val distance = kotlin.math.abs(pagerState.currentPage - targetPage)
+                        if (distance >= 3) {
+                            // [v58] 大距离跳转：瞬间切换，避免停在两页之间
+                            pagerState.scrollToPage(targetPage)
+                        } else {
+                            // [v58] 小距离跳转：平滑动画
+                            pagerState.animateScrollToPage(targetPage)
+                        }
                     }
                 }
 
