@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp  // [v59] 添加 sp 单位
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 
@@ -49,8 +50,23 @@ fun ScheduleGrid(
     val totalNodes = 11
     val cellHeight = 60.dp
     val headerHeight = 32.dp
-    val labelWidth = 40.dp
+    val labelWidth = 52.dp  // [v59] 增大宽度以容纳时间
     val separatorHeight = 4.dp
+
+    // [v59] 每节课的时间范围
+    val timeSlots = listOf(
+        "8:30-9:15",    // 第1节
+        "9:20-10:05",   // 第2节
+        "10:25-11:10",  // 第3节
+        "11:15-12:00",  // 第4节
+        "14:00-14:45",  // 第5节
+        "14:50-15:35",  // 第6节
+        "15:55-16:40",  // 第7节
+        "16:45-17:30",  // 第8节
+        "19:00-19:45",  // 第9节
+        "19:50-20:35",  // 第10节
+        "20:40-21:25"   // 第11节
+    )
 
     // [v45] 计算周末是否有课（用于表头样式）
     val hasWeekendCourses = courses.any {
@@ -228,17 +244,24 @@ fun ScheduleGrid(
 
                         // [v45] 网格行 - 与表头完全同步的布局
                         Row(modifier = Modifier.fillMaxWidth().height(cellHeight)) {
-                            // 节次标签
-                            Box(
+                            // [v59] 节次标签 - 显示节次和时间
+                            Column(
                                 modifier = Modifier
                                     .width(labelWidth)
                                     .height(cellHeight)
                                     .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
-                                contentAlignment = Alignment.Center
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
                                 Text(
                                     text = node.toString(),
                                     style = MaterialTheme.typography.labelSmall
+                                )
+                                Text(
+                                    text = timeSlots[nodeIndex],
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 8.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
 
