@@ -6,9 +6,12 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,8 +22,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.course_schedule_for_chd_v002.domain.model.Course
+import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
 import com.example.course_schedule_for_chd_v002.ui.components.WeekSelector
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -55,13 +62,29 @@ fun ScheduleScreen(
         }
     }
 
+    // [v42] 导航防抖状态
+    var isNavigating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Course Schedule") },
                 actions = {
-                    // [v41] 同步/导入按钮（带文字）
-                    TextButton(onClick = onNavigateToLogin) {
+                    // [v42] 同步按钮（带文字），添加防抖
+                    TextButton(
+                        onClick = {
+                            if (!isNavigating) {
+                                isNavigating = true
+                                onNavigateToLogin()
+                                // 延迟重置防抖状态
+                                scope.launch(Dispatchers.Main) {
+                                    delay(500)
+                                    isNavigating = false
+                                }
+                            }
+                        }
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = null,
@@ -69,14 +92,6 @@ fun ScheduleScreen(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Sync")
-                    }
-
-                    // 登出按钮
-                    IconButton(onClick = { viewModel.logout() }) {
-                        Icon(
-                            imageVector = Icons.Default.ExitToApp,
-                            contentDescription = "Logout"
-                        )
                     }
                 }
             )
@@ -87,16 +102,96 @@ fun ScheduleScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Week selector
-            WeekSelector(
-                currentWeek = uiState.currentWeek,
-                maxWeeks = uiState.maxWeeks,
-                onWeekSelected = viewModel::onWeekSelected,
+            // [v44] 周末折叠状态 - 在 ScheduleScreen 管理
+            var isWeekendExpanded by remember { mutableStateOf(false) }
+
+            // [v46] 获取当前周的课程，并分别检测周六和周日是否有课
+            val displayCourses = uiState.getDisplayCourses()
+            val hasSaturdayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SATURDAY }
+            val hasSundayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SUNDAY }
+            val hasWeekendCourses = hasSaturdayCourses || hasSundayCourses
+
+            // [v47] 当周次变化时，根据当前周是否有周末课程自动切换折叠状态
+            LaunchedEffect(uiState.currentWeek, hasWeekendCourses) {
+                isWeekendExpanded = hasWeekendCourses
+            }
+
+            // [v44] Week selector row - 添加周末折叠按钮
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-                    .wrapContentWidth(Alignment.CenterHorizontally)
-            )
+                    .padding(vertical = 8.dp, horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // 左侧占位（保持 WeekSelector 居中）
+                Box(modifier = Modifier.width(80.dp))
+
+                // 中间：周数选择器
+                WeekSelector(
+                    currentWeek = uiState.currentWeek,
+                    maxWeeks = uiState.maxWeeks,
+                    onWeekSelected = viewModel::onWeekSelected,
+                    modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally)
+                )
+
+                // [v45] 右侧：周末折叠按钮 - 带周六/周日指示器
+                FilterChip(
+                    selected = isWeekendExpanded,
+                    onClick = { isWeekendExpanded = !isWeekendExpanded },
+                    modifier = Modifier.width(110.dp),  // [v45] 增加宽度以容纳指示器
+                    label = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Weekend",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                            // [v45] 周六指示器
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(
+                                        color = if (hasSaturdayCourses)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.outlineVariant,
+                                        shape = CircleShape
+                                    )
+                            )
+                            // [v45] 周日指示器
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(
+                                        color = if (hasSundayCourses)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.outlineVariant,
+                                        shape = CircleShape
+                                    )
+                            )
+                        }
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (isWeekendExpanded)
+                                Icons.Default.KeyboardArrowDown
+                            else
+                                Icons.Default.KeyboardArrowRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                )
+            }
 
             // Loading state
             if (uiState.isLoading) {
@@ -239,6 +334,7 @@ fun ScheduleScreen(
                                 courses = courses,
                                 conflictingCourseIds = uiState.conflictingCourseIds,
                                 onCourseClick = { course -> viewModel.onCourseSelected(course) },
+                                isWeekendExpanded = isWeekendExpanded,  // [v44] 传递折叠状态
                                 modifier = Modifier.fillMaxSize()
                             )
                         }

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.course_schedule_for_chd_v002.util.Constants
+import com.example.course_schedule_for_chd_v002.util.GeckoRuntimeSingleton  // [v43] GeckoRuntime 全局单例
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoRuntime
@@ -72,8 +73,8 @@ fun GeckoViewScreen(
     var isFetchingHtml by remember { mutableStateOf(false) }  // 是否正在获取 HTML
     var savedUrlForFetching by remember { mutableStateOf("") }  // 保存获取 HTML 时的 URL
 
-    // GeckoRuntime 单例
-    var geckoRuntime by remember { mutableStateOf<GeckoRuntime?>(null) }
+    // [v43] 移除 remember 状态，改用 GeckoRuntimeSingleton 全局单例
+    // 原因：remember 状态在页面销毁后丢失，再次进入时尝试创建 GeckoRuntime 会崩溃
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -196,10 +197,9 @@ fun GeckoViewScreen(
                     GeckoView(context).apply {
                         geckoViewRef = this
 
-                        // 创建 GeckoRuntime（单例）
-                        if (geckoRuntime == null) {
-                            geckoRuntime = GeckoRuntime.create(context)
-                        }
+                        // [v43] 使用全局单例，避免重复创建导致崩溃
+                        // GeckoRuntime 只允许一个实例存在
+                        val geckoRuntime = GeckoRuntimeSingleton.getOrCreate(context)
 
                         // 创建 GeckoSession
                         val session = GeckoSession()
@@ -317,7 +317,7 @@ fun GeckoViewScreen(
                         }
 
                         // 打开 Session
-                        session.open(geckoRuntime!!)
+                        session.open(geckoRuntime)  // [v43] geckoRuntime 现在是非空的局部变量
                         setSession(session)
                         geckoSessionRef = session
 

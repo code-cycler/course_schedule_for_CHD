@@ -124,9 +124,16 @@ fun AppNavigation(
                     }
                 },
                 onNavigateToLogin = {
-                    // 导航到登录页（不清除返回栈，允许返回）
-                    android.util.Log.i(TAG, "[NAV] Schedule -> Login (同步数据)")
-                    navController.navigate(Screen.Login.route)
+                    // [v42] 添加导航保护，防止重复导航
+                    val currentRoute = navController.currentDestination?.route
+                    if (currentRoute != Screen.Login.route) {
+                        android.util.Log.i(TAG, "[NAV] Schedule -> Login (同步数据)")
+                        navController.navigate(Screen.Login.route) {
+                            launchSingleTop = true  // 防止重复实例
+                        }
+                    } else {
+                        android.util.Log.w(TAG, "[NAV] 已在 Login 页面，跳过导航")
+                    }
                 }
             )
         }

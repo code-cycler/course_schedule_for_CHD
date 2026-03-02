@@ -1,8 +1,5 @@
 package com.example.course_schedule_for_chd_v002.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,7 +10,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,30 +18,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.times
 import com.example.course_schedule_for_chd_v002.domain.model.Course
-import com.example.course_schedule_for_chd_v002.domain.model.CourseType
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 
 /**
- * 课程表网格组件 (v40)
+ * 课程表网格组件 (v44)
  * - [v38] 每天节次数从12改为11
  * - [v38] 课程卡片布局确保教室信息始终显示
- * - [v38] 周末折叠功能
  * - [v38] 末尾空节次折叠功能
  * - [v39] 时间段分隔线（上午1-4节、下午5-8节、晚上9-11节）
  * - [v40] 教室信息自动换行显示
+ * - [v42] 重构周末折叠功能，移除 AnimatedVisibility，修复对齐问题
+ * - [v44] 周末折叠状态由外部控制，通过参数传入
+ *
+ * @param isWeekendExpanded 周末是否展开（由外部控制）
  */
 @Composable
 fun ScheduleGrid(
     courses: List<Course>,
     conflictingCourseIds: Set<Long> = emptySet(),
     onCourseClick: ((Course) -> Unit)? = null,
+    isWeekendExpanded: Boolean = false,  // [v44] 外部控制折叠状态
     modifier: Modifier = Modifier
 ) {
     val days = DayOfWeek.entries
@@ -53,19 +50,11 @@ fun ScheduleGrid(
     val cellHeight = 60.dp
     val headerHeight = 32.dp
     val labelWidth = 40.dp
-    val separatorHeight = 4.dp  // [v39] 时间段分隔线高度
+    val separatorHeight = 4.dp
 
-    // [v38] 周末折叠状态
-    var isWeekendExpanded by remember { mutableStateOf(false) }
-
-    // [v38] 判断周末是否有课
+    // [v45] 计算周末是否有课（用于表头样式）
     val hasWeekendCourses = courses.any {
         it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY
-    }
-
-    // [v38] 如果周末有课，默认展开
-    LaunchedEffect(hasWeekendCourses) {
-        if (hasWeekendCourses) isWeekendExpanded = true
     }
 
     // [v38] 计算最后有课的节次（用于末尾空节次折叠）
@@ -81,18 +70,17 @@ fun ScheduleGrid(
     }
 
     // [v39] 计算网格高度，包含分隔线
-    // 分隔线位置：第4节后（上午/下午）、第8节后（下午/晚上）
-    val separatorAfterMorning = 4  // 上午1-4节
-    val separatorAfterAfternoon = 8  // 下午5-8节
+    val separatorAfterMorning = 4
+    val separatorAfterAfternoon = 8
     val separatorCount = when {
-        displayNodes > separatorAfterAfternoon -> 2  // 包含晚上
-        displayNodes > separatorAfterMorning -> 1    // 包含下午
+        displayNodes > separatorAfterAfternoon -> 2
+        displayNodes > separatorAfterMorning -> 1
         else -> 0
     }
     val gridHeight = cellHeight * displayNodes + separatorHeight * separatorCount
 
     Column(modifier = modifier) {
-        // 表头行
+        // [v42] 表头行 - 不使用 AnimatedVisibility，直接渲染
         Row(modifier = Modifier.fillMaxWidth()) {
             // 左上角空白
             Box(
@@ -121,93 +109,29 @@ fun ScheduleGrid(
                 }
             }
 
-            // [v38] 周末折叠按钮
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(headerHeight)
-                    .background(
-                        if (hasWeekendCourses) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant
-                    )
-                    .clickable { isWeekendExpanded = !isWeekendExpanded },
-                contentAlignment = Alignment.Center
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (isWeekendExpanded) Icons.Default.KeyboardArrowDown
-                                     else Icons.Default.KeyboardArrowRight,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = if (hasWeekendCourses) MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text(
-                        text = "Weekend",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (hasWeekendCourses) MaterialTheme.colorScheme.onPrimaryContainer
-                               else MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-        }
-
-        // [v38] 周末展开后的第二行表头（周六、周日）
-        AnimatedVisibility(
-            visible = isWeekendExpanded,
-            enter = expandVertically(),
-            exit = shrinkVertically()
-        ) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                // 左侧空白
+            // [v45] 周末区域 - 折叠时完全隐藏
+            if (isWeekendExpanded) {
+                // 展开时：显示周六、周日两列
                 Box(
                     modifier = Modifier
-                        .width(labelWidth)
+                        .weight(1f)
                         .height(headerHeight)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                )
-
-                // 周一到周五空白
-                repeat(5) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(headerHeight)
-                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                    )
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "Sat", style = MaterialTheme.typography.labelSmall)
                 }
-
-                // 周末区域显示周六、周日
-                Row(modifier = Modifier.weight(1f)) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(headerHeight)
-                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                            .clickable { isWeekendExpanded = false },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Sat",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(headerHeight)
-                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                            .clickable { isWeekendExpanded = false },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Sun",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(headerHeight)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "Sun", style = MaterialTheme.typography.labelSmall)
                 }
             }
+            // [v45] 折叠时：完全不显示周末区域
         }
 
         // 课程表内容区域
@@ -225,13 +149,13 @@ fun ScheduleGrid(
                     .height(gridHeight)
             ) {
                 // 底层：网格背景
+                // [v42] 使用与表头完全相同的列布局逻辑
                 Column(modifier = Modifier.fillMaxSize()) {
                     repeat(displayNodes) { nodeIndex ->
                         val node = nodeIndex + 1
 
                         // [v39] 在第4节和第8节后添加时间段分隔线
                         if (nodeIndex > 0 && nodeIndex == separatorAfterMorning) {
-                            // 上午/下午分隔线
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -244,18 +168,29 @@ fun ScheduleGrid(
                                         .height(separatorHeight)
                                         .background(MaterialTheme.colorScheme.surfaceVariant)
                                 )
-                                repeat(if (isWeekendExpanded) 7 else 6) {
+                                // [v42] 周一到周五
+                                repeat(5) {
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(separatorHeight)
                                             .background(MaterialTheme.colorScheme.surfaceVariant)
                                     )
+                                }
+                                // [v45] 周末区域 - 与表头同步
+                                if (isWeekendExpanded) {
+                                    repeat(2) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(separatorHeight)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        )
+                                    }
                                 }
                             }
                         }
                         if (nodeIndex > 0 && nodeIndex == separatorAfterAfternoon) {
-                            // 下午/晚上分隔线
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -268,7 +203,8 @@ fun ScheduleGrid(
                                         .height(separatorHeight)
                                         .background(MaterialTheme.colorScheme.surfaceVariant)
                                 )
-                                repeat(if (isWeekendExpanded) 7 else 6) {
+                                // [v42] 周一到周五
+                                repeat(5) {
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
@@ -276,9 +212,21 @@ fun ScheduleGrid(
                                             .background(MaterialTheme.colorScheme.surfaceVariant)
                                     )
                                 }
+                                // [v45] 周末区域 - 与表头同步
+                                if (isWeekendExpanded) {
+                                    repeat(2) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(separatorHeight)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        )
+                                    }
+                                }
                             }
                         }
 
+                        // [v45] 网格行 - 与表头完全同步的布局
                         Row(modifier = Modifier.fillMaxWidth().height(cellHeight)) {
                             // 节次标签
                             Box(
@@ -304,7 +252,7 @@ fun ScheduleGrid(
                                 )
                             }
 
-                            // 周末单元格
+                            // [v45] 周末单元格 - 与表头同步
                             if (isWeekendExpanded) {
                                 // 展开时显示两列
                                 repeat(2) {
@@ -315,38 +263,24 @@ fun ScheduleGrid(
                                             .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
                                     )
                                 }
-                            } else {
-                                // 折叠时显示一列
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                                )
                             }
+                            // [v45] 折叠时：完全不显示周末区域
                         }
                     }
                 }
 
                 // 顶层：课程卡片
+                // [v42] 使用与网格背景完全同步的布局
                 Row(modifier = Modifier.matchParentSize()) {
                     // 左侧留空
                     Spacer(modifier = Modifier.width(labelWidth))
-
-                    // [v38] 计算每列宽度
-                    // 折叠时：5列工作日 + 1列折叠区 = 6列
-                    // 展开时：5列工作日 + 2列周末 = 7列
-                    val weekdayColumnCount = 5
-                    val weekendColumnCount = if (isWeekendExpanded) 2 else 1
-                    val totalColumnCount = weekdayColumnCount + weekendColumnCount
 
                     // [v39] 获取 density 用于 Dp 到 Px 的转换
                     val density = LocalDensity.current
 
                     // [v39] 计算节次对应的Y偏移量（考虑分隔线）
                     fun getNodeOffset(node: Int): IntOffset {
-                        var offsetDp = (node - 1) * cellHeight
-                        // 添加分隔线的影响
+                        var offsetDp = cellHeight * (node - 1)
                         if (node > separatorAfterMorning) offsetDp += separatorHeight
                         if (node > separatorAfterAfternoon) offsetDp += separatorHeight
                         return IntOffset(0, with(density) { offsetDp.roundToPx() })
@@ -354,13 +288,11 @@ fun ScheduleGrid(
 
                     // [v39] 计算课程高度（考虑跨分隔线的情况）
                     fun getCourseHeight(startNode: Int, endNode: Int): Dp {
-                        val baseHeight = (endNode - startNode + 1) * cellHeight
+                        val baseHeight = cellHeight * (endNode - startNode + 1)
                         var extraHeight = 0.dp
-                        // 如果跨越上午/下午分隔线
                         if (startNode <= separatorAfterMorning && endNode > separatorAfterMorning) {
                             extraHeight += separatorHeight
                         }
-                        // 如果跨越下午/晚上分隔线
                         if (startNode <= separatorAfterAfternoon && endNode > separatorAfterAfternoon) {
                             extraHeight += separatorHeight
                         }
@@ -376,7 +308,6 @@ fun ScheduleGrid(
                         ) {
                             val dayCourses = courses.filter { it.dayOfWeek == day }
                             dayCourses.forEach { course ->
-                                // [v39] 使用新的偏移量计算
                                 val topOffset = getNodeOffset(course.startNode)
                                 val courseHeightDp = getCourseHeight(course.startNode, course.endNode)
 
@@ -399,7 +330,7 @@ fun ScheduleGrid(
                         }
                     }
 
-                    // 周末课程区域
+                    // [v45] 周末课程区域 - 与表头和网格同步
                     if (isWeekendExpanded) {
                         // 展开时：周六、周日各占一列
                         listOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY).forEach { day ->
@@ -410,7 +341,6 @@ fun ScheduleGrid(
                             ) {
                                 val dayCourses = courses.filter { it.dayOfWeek == day }
                                 dayCourses.forEach { course ->
-                                    // [v39] 使用新的偏移量计算
                                     val topOffset = getNodeOffset(course.startNode)
                                     val courseHeightDp = getCourseHeight(course.startNode, course.endNode)
 
@@ -432,10 +362,8 @@ fun ScheduleGrid(
                                 }
                             }
                         }
-                    } else {
-                        // 折叠时：显示空白列
-                        Spacer(modifier = Modifier.weight(1f))
                     }
+                    // [v45] 折叠时：完全不显示周末区域
                 }
             }
         }
@@ -521,9 +449,9 @@ private fun CourseCardInternal(
                 Text(
                     text = course.location,
                     style = MaterialTheme.typography.labelSmall,
-                    maxLines = 2,  // 最多显示2行
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    softWrap = true,  // 启用自动换行
+                    softWrap = true,
                     color = Color.White.copy(alpha = 0.8f)
                 )
             }
