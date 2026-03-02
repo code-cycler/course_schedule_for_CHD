@@ -23,11 +23,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp  // [v59] 添加 sp 单位
+import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
+import kotlin.math.abs  // [v60] 用于课程颜色哈希
 
 /**
- * 课程表网格组件 (v44)
+ * 课程表网格组件 (v61)
  * - [v38] 每天节次数从12改为11
  * - [v38] 课程卡片布局确保教室信息始终显示
  * - [v38] 末尾空节次折叠功能
@@ -35,8 +37,10 @@ import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
  * - [v40] 教室信息自动换行显示
  * - [v42] 重构周末折叠功能，移除 AnimatedVisibility，修复对齐问题
  * - [v44] 周末折叠状态由外部控制，通过参数传入
+ * - [v61] 支持校区切换，不同校区有不同的时间安排
  *
  * @param isWeekendExpanded 周末是否展开（由外部控制）
+ * @param campus 校区选择（影响时间显示）[v61]
  */
 @Composable
 fun ScheduleGrid(
@@ -44,6 +48,7 @@ fun ScheduleGrid(
     conflictingCourseIds: Set<Long> = emptySet(),
     onCourseClick: ((Course) -> Unit)? = null,
     isWeekendExpanded: Boolean = false,  // [v44] 外部控制折叠状态
+    campus: Campus = Campus.WEISHUI,     // [v61] 校区选择
     modifier: Modifier = Modifier
 ) {
     val days = DayOfWeek.entries
@@ -53,20 +58,8 @@ fun ScheduleGrid(
     val labelWidth = 52.dp  // [v59] 增大宽度以容纳时间
     val separatorHeight = 4.dp
 
-    // [v59] 每节课的时间范围
-    val timeSlots = listOf(
-        "8:30-9:15",    // 第1节
-        "9:20-10:05",   // 第2节
-        "10:25-11:10",  // 第3节
-        "11:15-12:00",  // 第4节
-        "14:00-14:45",  // 第5节
-        "14:50-15:35",  // 第6节
-        "15:55-16:40",  // 第7节
-        "16:45-17:30",  // 第8节
-        "19:00-19:45",  // 第9节
-        "19:50-20:35",  // 第10节
-        "20:40-21:25"   // 第11节
-    )
+    // [v61] 使用校区对应的时间表
+    val timeSlots = campus.timeSlots
 
     // [v45] 计算周末是否有课（用于表头样式）
     val hasWeekendCourses = courses.any {
@@ -413,6 +406,7 @@ fun ScheduleGrid(
 
 /**
  * 课程卡片内部组件
+ * [v60] 颜色基于课程名称生成，教室显示3行并使用中间省略
  */
 @Composable
 private fun CourseCardInternal(
@@ -420,7 +414,8 @@ private fun CourseCardInternal(
     hasConflict: Boolean,
     onClick: ((Course) -> Unit)?
 ) {
-    val backgroundColor = getCourseColor(course.courseType)
+    // [v60] 基于课程名称生成颜色
+    val backgroundColor = getCourseColorByName(course.name)
     val borderColor = if (hasConflict) Color.Red else Color.Transparent
     val borderWidth = if (hasConflict) 2.dp else 0.dp
 
@@ -467,12 +462,13 @@ private fun CourseCardInternal(
                 )
             }
 
-            // 教室 - [v40] 允许自动换行，完整展示教室信息
+            // [v62] 教室 - 显示3行，使用中间省略，缩小字体
             if (course.location.isNotBlank()) {
                 Text(
-                    text = course.location,
+                    text = course.location.ellipsisMiddle(10),
                     style = MaterialTheme.typography.labelSmall,
-                    maxLines = 2,
+                    fontSize = 9.sp,  // [v62] 缩小字体
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     softWrap = true,
                     color = Color.White.copy(alpha = 0.8f)

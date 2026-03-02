@@ -35,5 +35,6 @@ val appModule = module {
 
     // ViewModels
     viewModel { LoginViewModel(get()) }
-    viewModel { params -> ScheduleViewModel(get(), params.get()) }
+    // [v61] ScheduleViewModel 需要 userPreferences 参数
+    viewModel { params -> ScheduleViewModel(get(), get(), params.get()) }
 }

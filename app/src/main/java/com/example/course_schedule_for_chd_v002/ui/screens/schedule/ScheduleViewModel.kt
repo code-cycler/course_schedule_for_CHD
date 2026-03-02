@@ -2,6 +2,8 @@ package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
+import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.util.Constants
@@ -17,10 +19,12 @@ import kotlinx.coroutines.launch
  * 管理课程表显示、周次选择、刷新等逻辑
  *
  * @param repository 课程仓库接口
+ * @param userPreferences 用户偏好设置 [v61]
  * @param semester 当前学期
  */
 class ScheduleViewModel(
     private val repository: ICourseRepository,
+    private val userPreferences: UserPreferences,  // [v61] 新增
     private val semester: String
 ) : ViewModel() {
 
@@ -31,6 +35,7 @@ class ScheduleViewModel(
     init {
         try {
             android.util.Log.d("ScheduleViewModel", "[v37] 初始化，学期: $semester")
+            loadCampus()  // [v61] 先加载校区设置
             loadSchedule()
         } catch (e: Exception) {
             android.util.Log.e("ScheduleViewModel", "[v37] 初始化失败: ${e.message}", e)
@@ -45,6 +50,30 @@ class ScheduleViewModel(
     fun reload() {
         android.util.Log.d("ScheduleViewModel", "[v24] reload() 被调用")
         loadSchedule()
+    }
+
+    /**
+     * [v61] 加载保存的校区设置
+     */
+    private fun loadCampus() {
+        viewModelScope.launch {
+            val campusName = userPreferences.getCampusOnce()
+            val campus = Campus.fromName(campusName)
+            android.util.Log.d("ScheduleViewModel", "[v61] 加载校区: $campusName")
+            _uiState.update { it.copy(campus = campus) }
+        }
+    }
+
+    /**
+     * [v61] 切换校区
+     * @param campus 新的校区
+     */
+    fun onCampusChanged(campus: Campus) {
+        viewModelScope.launch {
+            android.util.Log.d("ScheduleViewModel", "[v61] 切换校区: ${campus.name}")
+            userPreferences.saveCampus(campus.name)
+            _uiState.update { it.copy(campus = campus) }
+        }
     }
 
     /**

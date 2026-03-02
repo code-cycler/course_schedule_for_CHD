@@ -26,6 +26,7 @@ class UserPreferences(private val context: Context) {
         private val KEY_STUDENT_ID = stringPreferencesKey("student_id")
         private val KEY_STUDENT_NAME = stringPreferencesKey("student_name")
         private val KEY_CURRENT_SEMESTER = stringPreferencesKey("current_semester")
+        private val KEY_CAMPUS = stringPreferencesKey("campus")  // [v61] 校区选择
     }
 
     /**
@@ -61,6 +62,13 @@ class UserPreferences(private val context: Context) {
      */
     val currentSemester: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[KEY_CURRENT_SEMESTER] ?: ""
+    }
+
+    /**
+     * [v61] 获取校区选择
+     */
+    val campus: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_CAMPUS] ?: "WEISHUI"
     }
 
     /**
@@ -135,5 +143,21 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[KEY_STUDENT_NAME] = name
         }
+    }
+
+    /**
+     * [v61] 保存校区选择
+     */
+    suspend fun saveCampus(campus: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_CAMPUS] = campus
+        }
+    }
+
+    /**
+     * [v61] 获取校区选择（一次性读取）
+     */
+    suspend fun getCampusOnce(): String {
+        return campus.first()
     }
 }

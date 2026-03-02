@@ -1,5 +1,6 @@
 package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 
+import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 
@@ -30,7 +31,10 @@ data class ScheduleUiState(
     val selectedCourse: Course? = null,
 
     // 冲突课程ID集合（用于UI标记）
-    val conflictingCourseIds: Set<Long> = emptySet()
+    val conflictingCourseIds: Set<Long> = emptySet(),
+
+    // [v61] 校区选择（影响上课时间显示）
+    val campus: Campus = Campus.WEISHUI
 ) {
     /**
      * 检查课程是否存在时间冲突

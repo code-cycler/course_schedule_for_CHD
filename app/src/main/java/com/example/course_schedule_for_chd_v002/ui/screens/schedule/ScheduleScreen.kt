@@ -1,6 +1,7 @@
 package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -15,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
@@ -99,6 +101,9 @@ fun ScheduleScreen(
             // [v44] 周末折叠状态 - 在 ScheduleScreen 管理
             var isWeekendExpanded by remember { mutableStateOf(false) }
 
+            // [v61] 校区切换状态
+            var showCampusDialog by remember { mutableStateOf(false) }
+
             // [v46] 获取当前周的课程，并分别检测周六和周日是否有课
             val displayCourses = uiState.getDisplayCourses()
             val hasSaturdayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SATURDAY }
@@ -110,7 +115,7 @@ fun ScheduleScreen(
                 isWeekendExpanded = hasWeekendCourses
             }
 
-            // [v44] Week selector row - 添加周末折叠按钮
+            // [v44] Week selector row - 添加周末折叠按钮和校区切换
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -118,8 +123,18 @@ fun ScheduleScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // 左侧占位（保持 WeekSelector 居中）
-                Box(modifier = Modifier.width(80.dp))
+                // [v61] 左侧：校区切换按钮
+                FilterChip(
+                    selected = false,
+                    onClick = { showCampusDialog = true },
+                    label = {
+                        Text(
+                            text = uiState.campus.displayName,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1
+                        )
+                    }
+                )
 
                 // 中间：周数选择器
                 WeekSelector(
@@ -133,7 +148,7 @@ fun ScheduleScreen(
                 FilterChip(
                     selected = isWeekendExpanded,
                     onClick = { isWeekendExpanded = !isWeekendExpanded },
-                    modifier = Modifier.width(110.dp),  // [v45] 增加宽度以容纳指示器
+                    modifier = Modifier.width(110.dp),
                     label = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -185,6 +200,45 @@ fun ScheduleScreen(
                         selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
                     )
                 )
+            }
+
+            // [v61] 校区选择对话框
+            if (showCampusDialog) {
+                AlertDialog(
+                onDismissRequest = { showCampusDialog = false },
+                title = { Text("Select Campus") },
+                text = {
+                    Column {
+                        Campus.entries.forEach { campus ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.onCampusChanged(campus)
+                                        showCampusDialog = false
+                                    }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = campus == uiState.campus,
+                                    onClick = {
+                                        viewModel.onCampusChanged(campus)
+                                        showCampusDialog = false
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(campus.displayName)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showCampusDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
             }
 
             // Loading state
@@ -288,6 +342,7 @@ fun ScheduleScreen(
                             conflictingCourseIds = uiState.conflictingCourseIds,
                             onCourseClick = { course -> viewModel.onCourseSelected(course) },
                             isWeekendExpanded = isWeekendExpanded,
+                            campus = uiState.campus,  // [v61] 传递校区参数
                             modifier = Modifier.fillMaxSize()
                         )
                     }
