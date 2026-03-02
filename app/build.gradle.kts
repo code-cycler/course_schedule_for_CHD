@@ -18,11 +18,18 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 只保留arm64-v8a架构
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 启用代码压缩和资源压缩
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -35,6 +42,13 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+
+    // 只保留arm64-v8a架构，排除其他所有架构
+    packaging {
+        jniLibs {
+            excludes += setOf("lib/armeabi-v7a/**", "lib/x86/**", "lib/x86_64/**")
+        }
     }
 }
 
