@@ -1,15 +1,140 @@
+# ================================
+# Android 构建输出
+# ================================
+/build/
+/app/build/
+*/build/
+out/
+
+# APK 文件 (不发布到 GitHub)
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ================================
+# Gradle 文件
+# ================================
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache
+
+# ================================
+# IDE 配置文件
+# ================================
+# Android Studio / IntelliJ IDEA
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
+.idea/
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
+!.idea/vcs.xml
+/.idea/caches/
+/.idea/libraries/
 /.idea/modules.xml
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+/.idea/dictionaries/
+/.idea/shelf/
+
+# Eclipse
+.project
+.classpath
+.settings/
+.metadata/
+bin/
+gen/
+
+# VS Code
+.vscode/
+
+# ================================
+# 本地配置文件
+# ================================
 local.properties
+*.properties.local
+
+# ================================
+# 签名和密钥文件 (敏感信息)
+# ================================
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+*.pem
+*.p12
+*.key
+
+# ================================
+# 原生构建文件
+# ================================
+.externalNativeBuild/
+.cxx/
+*.so
+native-libs/
+
+# ================================
+# 测试和覆盖率
+# ================================
+/captures/
+coverage/
+*.exec
+
+# ================================
+# 日志和临时文件
+# ================================
+*.log
+*.tmp
+*.temp
+*.swp
+*.bak
+*.orig
+*~
+
+# ================================
+# 操作系统文件
+# ================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# ================================
+# 其他不需要版本控制的文件
+# ================================
+# 备份文件
+*.backup
+*.old
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+
+# 文档和资源 (如果不需要)
+# docs/
+# assets/raw/
+
+# 敏感数据
+secrets/
+credentials/
+.env
+.env.local
+
+
+# ================================
+# 其他
+# ================================
+
+CLAUDE.md
