@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -144,6 +148,56 @@ android {
             )
         }
     }
+
+}
+
+// APK 命名规则配置
+// 格式: 课程表_CHD_v{版本名}_{构建类型}_{日期}_{时间}.apk
+// 示例: 课程表_CHD_v1.0_release_20260302_143025.apk
+tasks.register("renameApk") {
+    group = "build"
+    description = "Rename APK with version, build type and timestamp"
+
+    doLast {
+        val dateFormat = SimpleDateFormat("yyyyMMdd")
+        val timeFormat = SimpleDateFormat("HHmmss")
+        val now = Date()
+        val dateStr = dateFormat.format(now)
+        val timeStr = timeFormat.format(now)
+
+        val appName = "课程表_CHD"
+        val version = "v${android.defaultConfig.versionName}"
+
+        // 处理 debug APK
+        val debugApkDir = file("build/outputs/apk/debug")
+        if (debugApkDir.exists()) {
+            debugApkDir.listFiles()?.filter { it.extension == "apk" }?.forEach { apkFile ->
+                val buildType = "debug"
+                val newName = "${appName}_${version}_${buildType}_${dateStr}_${timeStr}.apk"
+                val newFile = File(apkFile.parent, newName)
+                apkFile.renameTo(newFile)
+                println("[OK] Renamed: ${newFile.absolutePath}")
+            }
+        }
+
+        // 处理 release APK
+        val releaseApkDir = file("build/outputs/apk/release")
+        if (releaseApkDir.exists()) {
+            releaseApkDir.listFiles()?.filter { it.extension == "apk" }?.forEach { apkFile ->
+                val buildType = "release"
+                val newName = "${appName}_${version}_${buildType}_${dateStr}_${timeStr}.apk"
+                val newFile = File(apkFile.parent, newName)
+                apkFile.renameTo(newFile)
+                println("[OK] Renamed: ${newFile.absolutePath}")
+            }
+        }
+    }
+}
+
+// 在 assemble 任务完成后自动执行重命名
+afterEvaluate {
+    tasks.findByName("assembleDebug")?.finalizedBy("renameApk")
+    tasks.findByName("assembleRelease")?.finalizedBy("renameApk")
 }
 
 dependencies {
