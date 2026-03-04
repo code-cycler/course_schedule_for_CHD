@@ -12,6 +12,7 @@ import com.example.course_schedule_for_chd_v002.domain.repository.ICourseReposit
 import com.example.course_schedule_for_chd_v002.domain.repository.LoginResult
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.JsonUtils
+import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 import kotlinx.coroutines.flow.first
 
 /**
@@ -243,26 +244,38 @@ class CourseRepositoryImpl(
     }
 
     /**
-     * 直接解析 HTML 内容为课程列表
-     * 用于 GeckoView 场景，从渲染后的 HTML 解析课程
-     * @param html 渲染后的 HTML 内容
+     * 直接解析 HTML 或 JSON 内容为课程列表
+     * [v53] 支持两种格式：
+     * - HTML 格式：直接解析 HTML
+     * - JSON 格式：以 "JSON:" 开头，直接从 table0.activities 提取
+     *
+     * @param html 渲染后的 HTML 内容或 JSON 数据
      * @param semester 学期标识
      * @return 解析出的课程列表
      */
     override suspend fun parseHtmlToCourses(html: String, semester: String): Result<List<Course>> {
         return try {
-            android.util.Log.d(REPO_TAG, "=== parseHtmlToCourses 开始 ===")
-            android.util.Log.d(REPO_TAG, "HTML 长度: ${html.length}")
+            WebViewLogger.logParseDetail("=== parseHtmlToCourses 开始 ===")
 
-            // 解析 HTML
-            val entities = htmlParser.parse(html, semester)
-            android.util.Log.d(REPO_TAG, "解析完成，课程数量: ${entities.size}")
+            // [v53] 检测输入格式
+            val entities = if (html.startsWith("JSON:")) {
+                val json = html.removePrefix("JSON:")
+                WebViewLogger.logParseDetail("[v53] Using JSON parsing method")
+                htmlParser.parseActivitiesJson(json, semester)
+            } else {
+                WebViewLogger.logParseDetail("Using HTML parsing method")
+                htmlParser.parse(html, semester)
+            }
+
+            WebViewLogger.logParseDetail("Parsing complete, course count: ${entities.size}")
 
             // 保存到数据库
             if (entities.isNotEmpty()) {
                 courseDao.deleteBySemester(semester)
                 courseDao.insertAll(entities)
-                android.util.Log.i(REPO_TAG, "[OK] 已保存 ${entities.size} 门课程到数据库")
+                WebViewLogger.logDatabaseSave(entities.size, true)
+            } else {
+                WebViewLogger.logParseDetail("[WARN] Parsing result is empty, not saved to database")
             }
 
             // 更新当前学期
@@ -272,7 +285,7 @@ class CourseRepositoryImpl(
             val courses = entities.map { it.toDomainModel() }
             Result.success(courses)
         } catch (e: Exception) {
-            android.util.Log.e(REPO_TAG, "parseHtmlToCourses 异常: ${e.message}", e)
+            WebViewLogger.logParseDetail("[ERROR] parseHtmlToCourses exception: ${e.message}")
             Result.failure(e)
         }
     }

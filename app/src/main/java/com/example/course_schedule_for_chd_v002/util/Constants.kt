@@ -37,4 +37,18 @@ object Constants {
         const val MAX_WEEKS = 25  // 学期最多25周
         const val MAX_NODES_PER_DAY = 11  // [v38] 从12改为11，学校实际每天11节课
     }
+
+    // beangle 框架配置 [v48]
+    object BeangleConfig {
+        // 数据加载超时设置
+        const val DATA_LOAD_TIMEOUT_MS = 10000L  // 10秒超时
+        const val DATA_CHECK_INTERVAL_MS = 500L  // 每500ms检测一次
+        const val MAX_RETRY_ATTEMPTS = 20  // 最多检测20次 (10秒)
+
+        // 页面类型标识
+        const val PAGE_TYPE_CAS_LOGIN = "cas_login"
+        const val PAGE_TYPE_EAMS_HOME = "eams_home"
+        const val PAGE_TYPE_COURSE_TABLE = "course_table"
+        const val PAGE_TYPE_UNKNOWN = "unknown"
+    }
 }

@@ -2,10 +2,12 @@ package com.example.course_schedule_for_chd_v002.data.remote.parser
 
 import com.example.course_schedule_for_chd_v002.data.local.database.entity.CourseEntity
 import com.example.course_schedule_for_chd_v002.domain.model.CourseType
+import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 import org.jsoup.Jsoup
+import org.json.JSONObject
 
 /**
- * 课程表 HTML 解析器 (v23)
+ * 课程表 HTML 解析器 (v52)
  *
  * 解析长安大学教务系统课表页面的 JavaScript 数据
  *
@@ -63,8 +65,7 @@ class ScheduleHtmlParser {
      * @return 解析出的课程实体列表
      */
     fun parse(html: String, semester: String): List<CourseEntity> {
-        android.util.Log.d(TAG, "=== 开始解析 HTML (v23) ===")
-        android.util.Log.d(TAG, "HTML 长度: ${html.length}")
+        WebViewLogger.logParseStart(html.length)
 
         val courses = mutableListOf<CourseEntity>()
 
@@ -72,23 +73,25 @@ class ScheduleHtmlParser {
         val jsCourses = parseTaskActivityJs(html, semester)
         if (jsCourses.isNotEmpty()) {
             courses.addAll(jsCourses)
+            WebViewLogger.logParseResult(jsCourses.size, "TaskActivity")
         } else {
-            android.util.Log.w(TAG, "TaskActivity 解析失败，尝试解析 infoTitle 单元格")
+            WebViewLogger.logParseDetail("TaskActivity 解析失败，尝试解析 infoTitle 单元格")
             // 方法2：解析 JavaScript 渲染后的 td.infoTitle 单元格
             val doc = Jsoup.parse(html)
             val infoTitleCells = doc.select("td.infoTitle")
-            android.util.Log.d(TAG, "找到 ${infoTitleCells.size} 个 infoTitle 单元格")
+            WebViewLogger.logParseDetail("找到 ${infoTitleCells.size} 个 infoTitle 单元格")
 
             for (cell in infoTitleCells) {
                 val cellCourses = parseInfoTitleCell(cell, semester)
                 courses.addAll(cellCourses)
             }
+            WebViewLogger.logParseResult(courses.size, "infoTitle")
         }
 
         // 去重：同一课程在同一时间只保留一个
         val distinctCourses = courses.distinctBy { "${it.name}-${it.dayOfWeek}-${it.startNode}-${it.startWeek}" }
 
-        android.util.Log.i(TAG, "解析完成，共 ${distinctCourses.size} 门课程 (去重前: ${courses.size})")
+        WebViewLogger.logParseDetail("去重前: ${courses.size}, 去重后: ${distinctCourses.size}")
         return distinctCourses
     }
 
@@ -97,21 +100,21 @@ class ScheduleHtmlParser {
      */
     private fun parseTaskActivityJs(html: String, semester: String): List<CourseEntity> {
         val courses = mutableListOf<CourseEntity>()
-        android.util.Log.d(TAG, "开始解析 TaskActivity JavaScript 数据")
+        WebViewLogger.logParseDetail("开始解析 TaskActivity JavaScript 数据")
 
         // 查找所有 courseName 定义
         val courseNamePattern = """var\s+courseName\s*=\s*"([^"]+)"""".toRegex()
         val courseNames = courseNamePattern.findAll(html).map { it.groupValues[1] }.toList()
-        android.util.Log.d(TAG, "找到 ${courseNames.size} 个 courseName 定义")
+        WebViewLogger.logParseDetail("找到 ${courseNames.size} 个 courseName 定义")
 
         if (courseNames.isEmpty()) {
-            android.util.Log.w(TAG, "未找到 courseName 定义，可能 HTML 结构不同")
+            WebViewLogger.logParseDetail("[WARN] 未找到 courseName 定义，可能 HTML 结构不同")
             // 打印 HTML 中包含 "courseName" 的部分用于调试
             val courseNameIndex = html.indexOf("courseName")
             if (courseNameIndex >= 0) {
                 val start = maxOf(0, courseNameIndex - 50)
                 val end = minOf(html.length, courseNameIndex + 100)
-                android.util.Log.d(TAG, "courseName 附近内容: ${html.substring(start, end)}")
+                WebViewLogger.logParseDetail("courseName 附近内容: ${html.substring(start, end)}")
             }
             return emptyList()
         }
@@ -121,7 +124,7 @@ class ScheduleHtmlParser {
         val courseBlockPattern = """var\s+teachers\s*=\s*\[([^\]]*)\][\s\S]*?var\s+courseName\s*=\s*"([^"]+)"([\s\S]*?)(?=var\s+teachers|$)""".toRegex()
 
         val courseBlocks = courseBlockPattern.findAll(html).toList()
-        android.util.Log.d(TAG, "找到 ${courseBlocks.size} 个课程块")
+        WebViewLogger.logParseDetail("找到 ${courseBlocks.size} 个课程块")
 
         for ((blockIndex, block) in courseBlocks.withIndex()) {
             try {
@@ -129,7 +132,7 @@ class ScheduleHtmlParser {
                 val courseName = block.groupValues[2]    // 课程名称
                 val activityBlock = block.groupValues[3] // 包含 TaskActivity 和 index 的部分
 
-                android.util.Log.d(TAG, "[$blockIndex] 解析课程块: $courseName")
+                WebViewLogger.logParseDetail("[$blockIndex] 解析课程块: $courseName")
 
                 // 解析教师姓名
                 val teacherNames = extractTeacherNames(teachersJson)
@@ -145,25 +148,25 @@ class ScheduleHtmlParser {
                 var weeksBitmap = roomWeeksMatch?.groupValues?.get(2) ?: ""
 
                 if (location.isEmpty() || weeksBitmap.isEmpty()) {
-                    android.util.Log.d(TAG, "[$blockIndex] 未找到教室或周数位图，尝试其他模式")
+                    WebViewLogger.logParseDetail("[$blockIndex] 未找到教室或周数位图，尝试其他模式")
                     // [v26] 尝试另一种模式：直接在 activity 行中查找
                     val altPattern = """new\s+TaskActivity\([^)]+,\s*"([*#]?[^",]*)"\s*,\s*"([01]{53})"""".toRegex()
                     val altMatch = altPattern.find(activityBlock)
                     if (altMatch != null) {
                         location = altMatch.groupValues[1]
                         weeksBitmap = altMatch.groupValues[2]
-                        android.util.Log.d(TAG, "[$blockIndex] 使用备用模式找到: location=$location, bitmap长度=${weeksBitmap.length}")
+                        WebViewLogger.logParseDetail("[$blockIndex] 使用备用模式找到: location=$location, bitmap长度=${weeksBitmap.length}")
                     }
                 }
 
-                android.util.Log.d(TAG, "[$blockIndex] 教师: $teacherNames, 教室: $location, 位图长度: ${weeksBitmap.length}")
+                WebViewLogger.logParseDetail("[$blockIndex] 教师: $teacherNames, 教室: $location, 位图长度: ${weeksBitmap.length}")
 
                 // 提取 index 计算
                 // 格式: index = X*unitCount+Y
                 val indexPattern = """index\s*=\s*(\d+)\s*\*\s*unitCount\s*\+\s*(\d+)""".toRegex()
                 val indexMatches = indexPattern.findAll(activityBlock).toList()
 
-                android.util.Log.d(TAG, "[$blockIndex] 找到 ${indexMatches.size} 个 index 定义")
+                WebViewLogger.logParseDetail("[$blockIndex] 找到 ${indexMatches.size} 个 index 定义")
 
                 // 解析周数范围
                 val (startWeek, endWeek) = parseWeeksBitmap(weeksBitmap)
@@ -220,16 +223,16 @@ class ScheduleHtmlParser {
                                 semester = semester
                             )
                             courses.add(course)
-                            android.util.Log.d(TAG, "[$blockIndex] 添加课程: ${course.name}, 教师:${course.teacher}, 位置:${course.location}, 周:${course.startWeek}-${course.endWeek}, 星期:${course.dayOfWeek}, 节:${course.startNode}-${course.endNode}")
+                            WebViewLogger.logParseDetail("[$blockIndex] 添加课程: ${course.name}, 周:${course.startWeek}-${course.endWeek}, 周${course.dayOfWeek} 第${course.startNode}-${course.endNode}节")
                         }
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e(TAG, "[$blockIndex] 解析课程块失败: ${e.message}")
+                WebViewLogger.logParseDetail("[ERROR][$blockIndex] 解析课程块失败: ${e.message}")
             }
         }
 
-        android.util.Log.d(TAG, "TaskActivity 解析完成，共 ${courses.size} 门课程")
+        WebViewLogger.logParseDetail("TaskActivity 解析完成，共 ${courses.size} 门课程")
         return courses
     }
 
@@ -255,7 +258,7 @@ class ScheduleHtmlParser {
     private fun parseWeeksBitmap(bitmap: String): Pair<Int, Int> {
         if (bitmap.isEmpty()) return Pair(1, 16)
         if (bitmap.length < 53) {
-            android.util.Log.w(TAG, "[v36] 周数位图长度不足: ${bitmap.length}")
+            WebViewLogger.logParseDetail("[WARN] 周数位图长度不足: ${bitmap.length}")
             return Pair(1, 16)
         }
 
@@ -281,12 +284,117 @@ class ScheduleHtmlParser {
         val correctedEndWeek = if (endWeek > 0) endWeek - 1 else 16
 
         return if (startWeek != Int.MAX_VALUE) {
-            android.util.Log.d(TAG, "[v36] 周数位图解析: 原始=$startWeek-$endWeek, 修正后=$correctedStartWeek-$correctedEndWeek")
+            WebViewLogger.logParseDetail("[v36] 周数位图解析: 原始=$startWeek-$endWeek, 修正后=$correctedStartWeek-$correctedEndWeek")
             Pair(correctedStartWeek, correctedEndWeek)
         } else {
-            android.util.Log.w(TAG, "[v36] 周数位图全为0")
+            WebViewLogger.logParseDetail("[WARN] 周数位图全为0")
             Pair(1, 16)
         }
+    }
+
+    /**
+     * [v53] 解析 table0.activities JSON 数据
+     * 直接从 WebView 提取的 JSON 数据解析课程
+     *
+     * @param json JSON 字符串，格式: {"unitCount": 11, "data": [...]}
+     * @param semester 学期标识
+     * @return 解析出的课程实体列表
+     */
+    fun parseActivitiesJson(json: String, semester: String): List<CourseEntity> {
+        WebViewLogger.logParseDetail("Starting activities JSON parsing")
+        val courses = mutableListOf<CourseEntity>()
+
+        try {
+            val jsonObject = JSONObject(json)
+            val unitCount = jsonObject.optInt("unitCount", 11)
+            val dataArray = jsonObject.optJSONArray("data")
+
+            if (dataArray == null || dataArray.length() == 0) {
+                WebViewLogger.logParseDetail("[WARN] JSON data array is empty")
+                return emptyList()
+            }
+
+            WebViewLogger.logParseDetail("JSON contains ${dataArray.length()} activity items")
+
+            // 临时存储：(courseName, dayOfWeek, startNode) -> list of courses
+            val courseMap = mutableMapOf<String, MutableList<CourseEntity>>()
+
+            for (i in 0 until dataArray.length()) {
+                try {
+                    val item = dataArray.getJSONObject(i)
+
+                    val index = item.optInt("index", 0)
+                    val courseName = item.optString("courseName", "")
+                    val teacherName = item.optString("teacherName", "")
+                    val roomName = item.optString("roomName", "")
+                    val vaildWeeks = item.optString("vaildWeeks", "")
+
+                    if (courseName.isEmpty()) continue
+
+                    // 计算 dayOfWeek 和 nodeIndex
+                    // index = dayOfWeek * unitCount + nodeIndex
+                    val dayOfWeek = index / unitCount + 1
+                    val nodeIndex = index % unitCount + 1
+
+                    // 解析周数
+                    val (startWeek, endWeek) = parseWeeksBitmap(vaildWeeks)
+
+                    WebViewLogger.logParseDetail("[$i] $courseName: day=$dayOfWeek, node=$nodeIndex, weeks=$startWeek-$endWeek")
+
+                    val course = CourseEntity(
+                        name = courseName,
+                        teacher = teacherName,
+                        location = roomName,
+                        dayOfWeek = dayOfWeek,
+                        startWeek = startWeek,
+                        endWeek = endWeek,
+                        startNode = nodeIndex,
+                        endNode = nodeIndex,
+                        courseType = determineCourseType(courseName),
+                        credit = 0.0,
+                        remark = if (vaildWeeks.isNotEmpty()) "weeksBitmap:$vaildWeeks" else "",
+                        semester = semester
+                    )
+
+                    // 使用 key 分组以便合并连续节次
+                    val key = "${courseName}_${dayOfWeek}_${startWeek}_${endWeek}"
+                    courseMap.getOrPut(key) { mutableListOf() }.add(course)
+
+                } catch (e: Exception) {
+                    WebViewLogger.logParseDetail("[ERROR] Failed to parse item $i: ${e.message}")
+                }
+            }
+
+            // 合并同一课程的连续节次
+            for ((_, courseList) in courseMap) {
+                if (courseList.isEmpty()) continue
+
+                // 按节次排序
+                val sorted = courseList.sortedBy { it.startNode }
+
+                // 合并连续节次
+                var merged = sorted[0]
+                for (j in 1 until sorted.size) {
+                    val current = sorted[j]
+                    if (current.startNode == merged.endNode + 1) {
+                        // 连续节次，扩展结束节次
+                        merged = merged.copy(endNode = current.endNode)
+                    } else {
+                        // 不连续，保存当前合并结果，开始新的合并
+                        courses.add(merged)
+                        merged = current
+                    }
+                }
+                courses.add(merged)
+            }
+
+            WebViewLogger.logParseDetail("JSON parsing complete: ${courses.size} courses after merge")
+
+        } catch (e: Exception) {
+            WebViewLogger.logParseDetail("[ERROR] JSON parsing failed: ${e.message}")
+        }
+
+        return courses
     }
 
     /**
@@ -297,7 +405,7 @@ class ScheduleHtmlParser {
         val title = cell.attr("title")
         if (title.isBlank()) return emptyList()
 
-        android.util.Log.d(TAG, "解析 infoTitle: ${title.take(80)}...")
+        WebViewLogger.logParseDetail("解析 infoTitle: ${title.take(80)}...")
 
         // title 格式：课程名称(课程代码) (教师);;;(周数,地点);实践周：[]
         val parts = title.split(";;;")

@@ -18,7 +18,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
-import com.example.course_schedule_for_chd_v002.ui.screens.login.GeckoViewScreen
+import com.example.course_schedule_for_chd_v002.ui.screens.login.WebViewScreen  // [v47] 使用系统 WebView
+// import com.example.course_schedule_for_chd_v002.ui.screens.login.GeckoViewScreen  // [v47] GeckoView 备份
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -95,8 +96,8 @@ fun AppNavigation(
                 }
             }
 
-            // 直接显示 WebView 登录
-            GeckoViewScreen(
+            // 直接显示 WebView 登录 [v47] 使用系统 WebView 替代 GeckoView
+            WebViewScreen(
                 onFetchCourseTable = viewModel::onFetchCourseTable
             )
         }

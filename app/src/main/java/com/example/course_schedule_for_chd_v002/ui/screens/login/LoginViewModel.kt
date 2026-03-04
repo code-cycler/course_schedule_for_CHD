@@ -3,6 +3,7 @@ package com.example.course_schedule_for_chd_v002.ui.screens.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -13,7 +14,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * 登录界面 ViewModel
+ * 登录界面 ViewModel (v52)
  * 管理登录流程和UI状态
  *
  * @param repository 课程仓库接口
@@ -196,21 +197,21 @@ class LoginViewModel(
 
     /**
      * 用户点击"获取课表"按钮后的处理
-     * v23: 从 GeckoView 直接获取 HTML 内容并解析
+     * v52: 使用 WebViewLogger 统一日志输出
      *
      * @param url 当前页面 URL
-     * @param htmlContent GeckoView 获取的页面 HTML 内容
+     * @param htmlContent WebView 获取的页面 HTML 内容
      */
     fun onFetchCourseTable(url: String, htmlContent: String) {
-        android.util.Log.i(TAG, "=== onFetchCourseTable 开始 (v23) ===")
-        android.util.Log.d(TAG, "参数: url=$url, htmlContent长度=${htmlContent.length}")
+        WebViewLogger.logParseDetail("=== onFetchCourseTable 开始 ===")
+        WebViewLogger.logParseDetail("URL: $url, HTML长度: ${htmlContent.length}")
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
             // 检查 URL 是否在课表页面
             val isOnCourseTablePage = url.contains("courseTableForStd")
-            android.util.Log.d(TAG, "URL 检查: isOnCourseTablePage=$isOnCourseTablePage")
+            WebViewLogger.logParseDetail("URL 检查: isOnCourseTablePage=$isOnCourseTablePage")
 
             if (!isOnCourseTablePage) {
                 _uiState.update {
@@ -222,20 +223,20 @@ class LoginViewModel(
                 return@launch
             }
 
-            // 直接解析 GeckoView 获取的 HTML
+            // 直接解析 WebView 获取的 HTML
             if (htmlContent.isNotEmpty()) {
-                android.util.Log.d(TAG, "[步骤1] 解析 HTML 内容...")
+                WebViewLogger.logParseDetail("[步骤1] 解析 HTML 内容...")
 
                 val defaultSemester = "2024-2025-1"
                 val result = repository.parseHtmlToCourses(htmlContent, defaultSemester)
 
                 result.fold(
                     onSuccess = { courses ->
-                        android.util.Log.i(TAG, "[OK] 解析成功，共 ${courses.size} 门课程")
+                        WebViewLogger.logParseDetail("[OK] 解析成功，共 ${courses.size} 门课程")
 
                         // [v28] 发射一次性导航事件
-                        android.util.Log.i(TAG, "[v28] 发射导航事件")
-                        _navigateBackEvent.tryEmit(Unit)
+                        val navResult = _navigateBackEvent.tryEmit(Unit)
+                        WebViewLogger.logNavigationEventEmit(navResult)
 
                         _uiState.update {
                             it.copy(
@@ -246,7 +247,7 @@ class LoginViewModel(
                         }
                     },
                     onFailure = { error ->
-                        android.util.Log.e(TAG, "[FAIL] 解析失败: ${error.message}")
+                        WebViewLogger.logParseDetail("[FAIL] 解析失败: ${error.message}")
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
@@ -256,6 +257,7 @@ class LoginViewModel(
                     }
                 )
             } else {
+                WebViewLogger.logParseDetail("[FAIL] HTML 内容为空")
                 _uiState.update {
                     it.copy(
                         isLoading = false,

@@ -143,3 +143,5 @@ credentials/
 # ================================
 
 CLAUDE.md
+playwright_test/
+physical_phone_debug/
