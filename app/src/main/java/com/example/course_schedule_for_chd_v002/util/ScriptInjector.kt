@@ -1,10 +1,14 @@
 package com.example.course_schedule_for_chd_v002.util
 
 /**
- * HTML 脚本注入工具类 (v50)
+ * HTML 脚本注入工具类 (v70)
  *
  * 使用 shouldInterceptRequest 在 HTML 中注入脚本标签
  * 确保脚本在页面解析前执行，解决 evaluateJavascript 异步时序问题
+ *
+ * v70 关键改进：
+ * 1. 添加 underscore.js 支持 (_.filter, _.where, _.reject 等)
+ * 2. 优化 isHtmlRequest() 只拦截主页面
  *
  * v50 关键改进：
  * 1. 使用 HTML 拦截而非 evaluateJavascript
@@ -602,6 +606,194 @@ object ScriptInjector {
             |        console.log('[v50 Inject] beangle (bg) 模拟注入成功 (via HTML interception)');
             |    }
             |
+            |    // ==================== v70 underscore.js 核心模拟 ====================
+            |    if (typeof window._ === 'undefined') {
+            |        window._ = {
+            |            // 数组/集合方法
+            |            each: function(list, callback, context) {
+            |                if (Array.isArray(list)) {
+            |                    for (var i = 0; i < list.length; i++) {
+            |                        callback.call(context || list[i], list[i], i, list);
+            |                    }
+            |                } else {
+            |                    for (var key in list) {
+            |                        if (list.hasOwnProperty(key)) {
+            |                            callback.call(context || list[key], list[key], key, list);
+            |                        }
+            |                    }
+            |                }
+            |                return list;
+            |            },
+            |
+            |            map: function(list, callback, context) {
+            |                var result = [];
+            |                if (Array.isArray(list)) {
+            |                    for (var i = 0; i < list.length; i++) {
+            |                        result.push(callback.call(context, list[i], i, list));
+            |                    }
+            |                }
+            |                return result;
+            |            },
+            |
+            |            filter: function(list, predicate, context) {
+            |                var result = [];
+            |                if (Array.isArray(list)) {
+            |                    for (var i = 0; i < list.length; i++) {
+            |                        if (predicate.call(context, list[i], i, list)) {
+            |                            result.push(list[i]);
+            |                        }
+            |                    }
+            |                }
+            |                return result;
+            |            },
+            |
+            |            reject: function(list, predicate, context) {
+            |                var result = [];
+            |                if (Array.isArray(list)) {
+            |                    for (var i = 0; i < list.length; i++) {
+            |                        if (!predicate.call(context, list[i], i, list)) {
+            |                            result.push(list[i]);
+            |                        }
+            |                    }
+            |                }
+            |                return result;
+            |            },
+            |
+            |            find: function(list, predicate, context) {
+            |                if (Array.isArray(list)) {
+            |                    for (var i = 0; i < list.length; i++) {
+            |                        if (predicate.call(context, list[i], i, list)) {
+            |                            return list[i];
+            |                        }
+            |                    }
+            |                }
+            |                return undefined;
+            |            },
+            |
+            |            where: function(list, properties) {
+            |                return this.filter(list, function(item) {
+            |                    for (var key in properties) {
+            |                        if (properties.hasOwnProperty(key) && item[key] !== properties[key]) {
+            |                            return false;
+            |                        }
+            |                    }
+            |                    return true;
+            |                });
+            |            },
+            |
+            |            findWhere: function(list, properties) {
+            |                return this.find(list, function(item) {
+            |                    for (var key in properties) {
+            |                        if (properties.hasOwnProperty(key) && item[key] !== properties[key]) {
+            |                            return false;
+            |                        }
+            |                    }
+            |                    return true;
+            |                });
+            |            },
+            |
+            |            contains: function(list, value, fromIndex) {
+            |                if (Array.isArray(list)) {
+            |                    var start = fromIndex || 0;
+            |                    for (var i = start; i < list.length; i++) {
+            |                        if (list[i] === value) return true;
+            |                    }
+            |                }
+            |                return false;
+            |            },
+            |
+            |            // 对象方法
+            |            keys: function(obj) {
+            |                var result = [];
+            |                for (var key in obj) {
+            |                    if (obj.hasOwnProperty(key)) result.push(key);
+            |                }
+            |                return result;
+            |            },
+            |
+            |            values: function(obj) {
+            |                var result = [];
+            |                for (var key in obj) {
+            |                    if (obj.hasOwnProperty(key)) result.push(obj[key]);
+            |                }
+            |                return result;
+            |            },
+            |
+            |            extend: function(obj) {
+            |                for (var i = 1; i < arguments.length; i++) {
+            |                    for (var key in arguments[i]) {
+            |                        if (arguments[i].hasOwnProperty(key)) {
+            |                            obj[key] = arguments[i][key];
+            |                        }
+            |                    }
+            |                }
+            |                return obj;
+            |            },
+            |
+            |            pick: function(obj, keys) {
+            |                var result = {};
+            |                var keyList = Array.isArray(keys) ? keys : Array.prototype.slice.call(arguments, 1);
+            |                for (var i = 0; i < keyList.length; i++) {
+            |                    var key = keyList[i];
+            |                    if (obj.hasOwnProperty(key)) {
+            |                        result[key] = obj[key];
+            |                    }
+            |                }
+            |                return result;
+            |            },
+            |
+            |            // 工具方法
+            |            isEmpty: function(obj) {
+            |                if (obj == null) return true;
+            |                if (Array.isArray(obj) || typeof obj === 'string') return obj.length === 0;
+            |                for (var key in obj) {
+            |                    if (obj.hasOwnProperty(key)) return false;
+            |                }
+            |                return true;
+            |            },
+            |
+            |            isArray: function(obj) {
+            |                return Array.isArray(obj);
+            |            },
+            |
+            |            isObject: function(obj) {
+            |                return obj && typeof obj === 'object';
+            |            },
+            |
+            |            isFunction: function(obj) {
+            |                return typeof obj === 'function';
+            |            },
+            |
+            |            isString: function(obj) {
+            |                return typeof obj === 'string';
+            |            },
+            |
+            |            isNumber: function(obj) {
+            |                return typeof obj === 'number';
+            |            },
+            |
+            |            // 链式调用支持
+            |            chain: function(obj) {
+            |                var instance = this;
+            |                var wrapper = {
+            |                    _wrapped: obj,
+            |                    value: function() { return this._wrapped; }
+            |                };
+            |                var methods = ['map', 'filter', 'reject', 'find', 'where', 'sortBy', 'groupBy'];
+            |                methods.forEach(function(method) {
+            |                    wrapper[method] = function() {
+            |                        var args = [this._wrapped].concat(Array.prototype.slice.call(arguments));
+            |                        this._wrapped = instance[method].apply(instance, args);
+            |                        return this;
+            |                    };
+            |                });
+            |                return wrapper;
+            |            }
+            |        };
+            |
+            |        console.log('[v70 Inject] underscore (_) 模拟注入成功 (via HTML interception)');
+            |    }
+            |
             |    // ==================== v50 CourseTable 和 TaskActivity 模拟 ====================
             |    if (typeof window.CourseTable === 'undefined') {
             |        window.CourseTable = function(year, unitCounts) {
@@ -672,17 +864,39 @@ object ScriptInjector {
     }
 
     /**
-     * 判断 URL 是否为 HTML 页面请求
+     * [v70] 判断 URL 是否为 HTML 页面请求
+     * 只拦截主页面请求，不拦截数据请求和静态资源
      */
-    fun isHtmlRequest(url: String): Boolean {
-        val lowerUrl = url.lowercase()
-        // 排除静态资源
-        if (lowerUrl.contains(".js") || lowerUrl.contains(".css") ||
-            lowerUrl.contains(".png") || lowerUrl.contains(".jpg") ||
-            lowerUrl.contains(".gif") || lowerUrl.contains(".ico")) {
-            return false
-        }
-        // 包含 .action 或 /eams/ 的请求
-        return lowerUrl.contains(".action") || lowerUrl.contains("/eams/")
-    }
+    /**
+     * [v70] 判断 URL 是否为 HTML 页面请求
+     * 只拦截主页面请求，            * 不拦截数据请求和静态资源
+     *
+            * @param url 请求的 URL
+            * @return 是否为 HTML 页面请求
+            */
+            fun isHtmlRequest(url: String): Boolean {
+                val lowerUrl = url.lowercase()
+
+                // 排除静态资源
+                if (lowerUrl.contains(".js") || lowerUrl.contains(".css") ||
+                    lowerUrl.contains(".png") || lowerUrl.contains(".jpg") ||
+                    lowerUrl.contains(".gif") || lowerUrl.contains(".ico") ||
+                    lowerUrl.contains(".woff") || lowerUrl.contains(".woff2") ||
+                    lowerUrl.contains(".ttf") || lowerUrl.contains(".eot")) {
+                    return false
+                }
+
+                // 排除数据请求（带感叹号的 action）
+                if (lowerUrl.contains("!courseTable.action") ||
+                    lowerUrl.contains("!dataquery.action") ||
+                    lowerUrl.contains("!search.action") ||
+                    lowerUrl.contains("dataquery.action") ||
+                    lowerUrl.contains(".htm")) {
+                    return false
+                }
+
+                // 只拦截主要的 .action 页面（不带感叹号）
+                // home.action, courseTableForStd.action 等
+                return lowerUrl.contains(".action") && !lowerUrl.contains("!")
+            }
 }

@@ -3,6 +3,7 @@ package com.example.course_schedule_for_chd_v002.ui.screens.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,8 +15,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * 登录界面 ViewModel (v52)
+ * 登录界面 ViewModel (v67)
  * 管理登录流程和UI状态
+ *
+ * v67: WebView 完成整个流程
+ *      - CAS 登录
+ *      - 自动导航到课表页面
+ *      - 提取 HTML 并解析
  *
  * @param repository 课程仓库接口
  */
@@ -138,6 +144,52 @@ class LoginViewModel(
     }
 
     // ================ WebView 登录相关 ================
+
+    /**
+     * [v67] CAS 登录成功后的处理
+     * WebView 完成登录和课表获取，直接解析 HTML
+     *
+     * @param htmlContent 课表页面的 HTML 内容
+     */
+    fun onCasLoginSuccess(htmlContent: String) {
+        WebViewLogger.logSuccess("CAS", "登录成功，开始解析课表...")
+        WebViewLogger.logDebug(TAG, "HTML 长度: ${htmlContent.length}")
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+
+            // 直接解析 HTML
+            val defaultSemester = "2024-2025-1"
+            val result = repository.parseHtmlToCourses(htmlContent, defaultSemester)
+
+            result.fold(
+                onSuccess = { courses ->
+                    WebViewLogger.logSuccess("课表", "解析成功，共 ${courses.size} 门课程")
+
+                    // 发射导航事件
+                    _navigateBackEvent.tryEmit(Unit)
+
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isLoggedIn = true,
+                            showWebView = false,
+                            currentSemester = defaultSemester
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    WebViewLogger.logError("课表", "解析失败: ${error.message}")
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = "Failed to parse course table: ${error.message}"
+                        )
+                    }
+                }
+            )
+        }
+    }
 
     /**
      * 切换到 WebView 登录界面

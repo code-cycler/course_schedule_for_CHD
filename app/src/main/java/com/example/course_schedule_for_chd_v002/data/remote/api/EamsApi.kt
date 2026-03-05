@@ -296,6 +296,85 @@ class EamsApi(private val client: OkHttpClient) {
     }
 
     /**
+     * [v66] 访问课表数据页面并返回 HTML
+     *
+     * 流程：
+     * 1. 先访问 eams 首页建立会话（如果尚未建立）
+     * 2. 访问课表入口页面 courseTableForStd.action
+     * 3. 服务器会重定向到 courseTableForStd!courseTable.action
+     *
+     * eams 系统的课表页面包含：
+     * - 学生 ID: <input name="ids" value="xxx" type="hidden">
+     * - 课程数据: table0.activities JavaScript 变量
+     *
+     * @return 课表数据页面 HTML
+     */
+    suspend fun accessCourseTableEntry(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            android.util.Log.d(TAG, "=== accessCourseTableEntry 开始 (v66) ===")
+
+            // [v66] 步骤1：先访问 eams 首页建立会话
+            android.util.Log.d(TAG, "[v66] 步骤1: 访问 eams 首页建立会话...")
+            val homeRequest = Request.Builder()
+                .url(Constants.EamsUrls.HOME_PAGE)
+                .get()
+                .build()
+
+            val homeResponse = client.newCall(homeRequest).execute()
+            android.util.Log.d(TAG, "首页响应状态: ${homeResponse.code}")
+
+            if (!homeResponse.isSuccessful) {
+                android.util.Log.e(TAG, "[X] 访问首页失败: ${homeResponse.code}")
+                return@withContext Result.failure(Exception("[X] Cannot access eams home: HTTP ${homeResponse.code}"))
+            }
+
+            val homeHtml = homeResponse.body?.string()
+            android.util.Log.d(TAG, "首页 HTML 长度: ${homeHtml?.length ?: "null"}")
+
+            // [v66] 步骤2：访问课表入口页面（不带感叹号，让服务器重定向）
+            android.util.Log.d(TAG, "[v66] 步骤2: 访问课表入口页面...")
+            val entryUrl = "${Constants.EamsUrls.BASE_URL}eams/courseTableForStd.action"
+            android.util.Log.d(TAG, "请求 URL: $entryUrl")
+
+            val courseRequest = Request.Builder()
+                .url(entryUrl)
+                .get()
+                .build()
+
+            val courseResponse = client.newCall(courseRequest).execute()
+            android.util.Log.d(TAG, "课表响应状态: ${courseResponse.code}")
+            android.util.Log.d(TAG, "最终 URL: ${courseResponse.request.url}")
+
+            if (!courseResponse.isSuccessful) {
+                android.util.Log.e(TAG, "[X] HTTP 错误: ${courseResponse.code}")
+                return@withContext Result.failure(Exception("[X] HTTP ${courseResponse.code}"))
+            }
+
+            val html = courseResponse.body?.string()
+            android.util.Log.d(TAG, "响应 HTML 长度: ${html?.length ?: "null"}")
+
+            if (html.isNullOrEmpty()) {
+                android.util.Log.e(TAG, "[X] 响应为空")
+                return@withContext Result.failure(Exception("[X] Empty response"))
+            }
+
+            // 检查是否包含课表相关内容（验证页面有效性）
+            val hasTaskActivity = html.contains("TaskActivity")
+            val hasTable0 = html.contains("table0.activities") || html.contains("table0 = new CourseTable")
+            android.util.Log.d(TAG, "包含课表内容: TaskActivity=$hasTaskActivity, table0=$hasTable0")
+
+            if (!hasTaskActivity && !hasTable0) {
+                android.util.Log.w(TAG, "[!] HTML 可能不包含课表数据")
+            }
+
+            Result.success(html)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "accessCourseTableEntry 异常: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 获取可用学期列表
      * @return 学期ID列表
      */

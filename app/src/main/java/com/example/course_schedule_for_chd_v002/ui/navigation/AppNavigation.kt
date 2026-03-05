@@ -97,8 +97,9 @@ fun AppNavigation(
             }
 
             // 直接显示 WebView 登录 [v47] 使用系统 WebView 替代 GeckoView
+            // [v61] 使用新的回调：CAS 登录成功后同步 Cookie，然后用 OkHttp 获取课表
             WebViewScreen(
-                onFetchCourseTable = viewModel::onFetchCourseTable
+                onLoginSuccess = viewModel::onCasLoginSuccess
             )
         }
 

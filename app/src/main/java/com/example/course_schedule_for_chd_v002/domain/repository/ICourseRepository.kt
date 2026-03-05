@@ -25,8 +25,17 @@ interface ICourseRepository {
      * 用于 GeckoView 登录场景
      * @param url 当前页面 URL
      * @param cookies Cookie 字符串
+     * @return 是否同步成功
      */
-    fun syncCookiesFromWebView(url: String, cookies: String)
+    fun syncCookiesFromWebView(url: String, cookies: String): Boolean
+
+    /**
+     * [v61] 用 OkHttp 获取课表
+     * 在 CAS 登录成功后，用已同步的 Cookie 获取课表数据
+     * @param semester 学期标识
+     * @return 课程列表
+     */
+    suspend fun fetchCourseTableWithOkHttp(semester: String): Result<List<Course>>
 
     /**
      * 获取学生姓名

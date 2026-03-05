@@ -157,11 +157,69 @@ class CourseRepositoryImpl(
     // ================ WebView 登录相关 ================
 
     /**
-     * 从 WebView 同步 Cookie 到 OkHttp
-     * 用于 GeckoView 登录场景
+     * [v61] 从 WebView 同步 Cookie 到 OkHttp
+     * 返回同步结果
      */
-    override fun syncCookiesFromWebView(url: String, cookies: String) {
-        cookieManager.syncFromCookieString(url, cookies)
+    override fun syncCookiesFromWebView(url: String, cookies: String): Boolean {
+        return try {
+            cookieManager.syncFromCookieString(url, cookies)
+            WebViewLogger.logSuccess("Cookie", "同步成功，Cookie 数量: ${cookieManager.getAllCookies().size}")
+            true
+        } catch (e: Exception) {
+            WebViewLogger.logError("Cookie", "同步失败: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * [v61] 用 OkHttp 获取课表
+     * 在 CAS 登录成功后，用已同步的 Cookie 获取课表数据
+     *
+     * [v65] 修改：入口页面包含课表数据 table0.activities，直接解析即可
+     */
+    override suspend fun fetchCourseTableWithOkHttp(semester: String): Result<List<Course>> {
+        WebViewLogger.logDebug(REPO_TAG, "=== fetchCourseTableWithOkHttp 开始 ===")
+
+        return try {
+            // [v65] 访问课表入口页面，直接获取包含课表数据的 HTML
+            // 入口页面包含 table0.activities JavaScript 变量
+            WebViewLogger.logNavigation("OkHttp", "访问课表入口页面...")
+            val html = eamsApi.accessCourseTableEntry().getOrNull()
+            if (html.isNullOrEmpty()) {
+                WebViewLogger.logError("OkHttp", "访问课表入口失败")
+                return Result.failure(Exception("Cannot access course table entry"))
+            }
+            WebViewLogger.logSuccess("OkHttp", "课表入口访问成功，HTML 长度: ${html.length}")
+
+            // 检查 HTML 是否包含课表数据
+            val hasTaskActivity = html.contains("TaskActivity")
+            val hasTable0 = html.contains("table0.activities") || html.contains("table0 = new CourseTable")
+            WebViewLogger.logParseDetail("HTML 包含 TaskActivity: $hasTaskActivity, table0: $hasTable0")
+
+            // 直接解析 HTML（入口页面包含 table0.activities）
+            WebViewLogger.logParseDetail("开始解析 HTML...")
+            val entities = htmlParser.parse(html, semester)
+            WebViewLogger.logParseDetail("解析完成，原始课程数: ${entities.size}")
+
+            // 保存到数据库
+            if (entities.isNotEmpty()) {
+                courseDao.deleteBySemester(semester)
+                courseDao.insertAll(entities)
+                WebViewLogger.logDatabaseSave(entities.size, true)
+            } else {
+                WebViewLogger.logError("OkHttp", "解析结果为空，请检查 HTML 结构")
+            }
+
+            // 更新当前学期
+            userPreferences.saveCurrentSemester(semester)
+
+            // 转换为领域模型
+            val courses = entities.map { it.toDomainModel() }
+            Result.success(courses)
+        } catch (e: Exception) {
+            WebViewLogger.logError("OkHttp", "获取课表异常: ${e.message}")
+            Result.failure(e)
+        }
     }
 
     /**

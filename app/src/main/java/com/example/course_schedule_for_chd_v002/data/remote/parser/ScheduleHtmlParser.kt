@@ -7,9 +7,12 @@ import org.jsoup.Jsoup
 import org.json.JSONObject
 
 /**
- * 课程表 HTML 解析器 (v52)
+ * 课程表 HTML 解析器 (v59)
  *
  * 解析长安大学教务系统课表页面的 JavaScript 数据
+ *
+ * v59: 修复合并逻辑 - 按 课程名+星期 分组，正确合并连续节次
+ *      解决连续节次被分成独立卡片的问题
  *
  * HTML 结构：
  * ```javascript
@@ -356,8 +359,9 @@ class ScheduleHtmlParser {
                         semester = semester
                     )
 
-                    // 使用 key 分组以便合并连续节次
-                    val key = "${courseName}_${dayOfWeek}_${startWeek}_${endWeek}"
+                    // [v59] 使用 key 分组：课程名+星期（不再包含节次）
+                    // 这样同一课程同一天的所有节次会被放在一起
+                    val key = "${courseName}_${dayOfWeek}"
                     courseMap.getOrPut(key) { mutableListOf() }.add(course)
 
                 } catch (e: Exception) {
@@ -365,27 +369,50 @@ class ScheduleHtmlParser {
                 }
             }
 
-            // 合并同一课程的连续节次
+            // [v59] 合并同一课程的连续节次
             for ((_, courseList) in courseMap) {
                 if (courseList.isEmpty()) continue
 
                 // 按节次排序
                 val sorted = courseList.sortedBy { it.startNode }
 
-                // 合并连续节次
-                var merged = sorted[0]
+                // 按节次分组，连续的节次放在一起
+                val groups = mutableListOf<MutableList<CourseEntity>>()
+                var currentGroup = mutableListOf(sorted[0])
+
                 for (j in 1 until sorted.size) {
-                    val current = sorted[j]
-                    if (current.startNode == merged.endNode + 1) {
-                        // 连续节次，扩展结束节次
-                        merged = merged.copy(endNode = current.endNode)
+                    val prev = currentGroup.last()
+                    val curr = sorted[j]
+
+                    // 如果当前节次与前一个连续，加入同一组
+                    if (curr.startNode == prev.endNode + 1) {
+                        currentGroup.add(curr)
                     } else {
-                        // 不连续，保存当前合并结果，开始新的合并
-                        courses.add(merged)
-                        merged = current
+                        // 不连续，保存当前组，开始新组
+                        groups.add(currentGroup)
+                        currentGroup = mutableListOf(curr)
                     }
                 }
-                courses.add(merged)
+                groups.add(currentGroup)
+
+                // 为每组创建合并后的课程
+                for (group in groups) {
+                    val first = group.first()
+                    val last = group.last()
+
+                    // 合并周数：取所有周数的并集
+                    val allWeeks = group.flatMap { (it.startWeek..it.endWeek).toList() }
+                    val minWeek = allWeeks.minOrNull() ?: first.startWeek
+                    val maxWeek = allWeeks.maxOrNull() ?: first.endWeek
+
+                    val merged = first.copy(
+                        startNode = first.startNode,
+                        endNode = last.endNode,
+                        startWeek = minWeek,
+                        endWeek = maxWeek
+                    )
+                    courses.add(merged)
+                }
             }
 
             WebViewLogger.logParseDetail("JSON parsing complete: ${courses.size} courses after merge")
