@@ -157,12 +157,13 @@ class CourseRepositoryImpl(
     // ================ WebView 登录相关 ================
 
     /**
-     * [v61] 从 WebView 同步 Cookie 到 OkHttp
-     * 返回同步结果
+     * [v72] 从 WebView 同步 Cookie 到 OkHttp
+     * 使用系统 WebView，直接从 Android CookieManager 同步
      */
     override fun syncCookiesFromWebView(url: String, cookies: String): Boolean {
         return try {
-            cookieManager.syncFromCookieString(url, cookies)
+            // 使用系统 WebView 的 CookieManager 同步
+            cookieManager.syncFromWebView(url)
             WebViewLogger.logSuccess("Cookie", "同步成功，Cookie 数量: ${cookieManager.getAllCookies().size}")
             true
         } catch (e: Exception) {

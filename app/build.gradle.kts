@@ -137,14 +137,7 @@ android {
                 "values-vi/**",
                 "values-zh-rCN/**",  // 保留简体中文
                 "values-zh-rHK/**",
-                "values-zh-rTW/**",
-                // GeckoView 特定资源排除
-                "assets/gmp-clearkey/**",  // DRM 相关
-                "assets/allowed_drm_interfaces.txt",
-                // 排除一些不必要的元数据文件
-                "**/mozilla/geckoview/BuildConfig.class",
-                "**/mozilla/geckoview/Manifest.class",
-                "**/mozilla/geckoview/R.class"
+                "values-zh-rTW/**"
             )
         }
     }
@@ -238,9 +231,6 @@ dependencies {
     // Koin DI
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
-
-    // GeckoView (Firefox 内核 WebView)
-    implementation(libs.geckoview)
 
     // 测试依赖
     testImplementation(libs.junit)

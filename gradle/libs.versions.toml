@@ -34,8 +34,6 @@ mockk = "1.13.9"
 kotlinxCoroutinesTest = "1.8.0"
 turbine = "1.0.0"
 
-# GeckoView (Firefox 内核 WebView)
-geckoview = "138.0.20250517143237"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -88,8 +86,6 @@ mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 okhttp-mock-webserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 
-# GeckoView (Firefox 内核 WebView)
-geckoview = { group = "org.mozilla.geckoview", name = "geckoview", version.ref = "geckoview" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
