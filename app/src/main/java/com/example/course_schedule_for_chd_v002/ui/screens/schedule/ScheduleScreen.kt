@@ -1,11 +1,13 @@
 package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border  // [v74] 末尾空节次按钮边框
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape  // [v74] 末尾空节次按钮边框
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -14,7 +16,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.example.course_schedule_for_chd_v002.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
@@ -65,7 +69,7 @@ fun ScheduleScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Course Schedule") },
+                title = { Text(stringResource(R.string.schedule_title)) },
                 actions = {
                     // [v42] 同步按钮（带文字），添加防抖
                     TextButton(
@@ -87,7 +91,7 @@ fun ScheduleScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Sync")
+                        Text(stringResource(R.string.sync))
                     }
                 }
             )
@@ -145,21 +149,22 @@ fun ScheduleScreen(
                 )
 
                 // [v45] 右侧：周末折叠按钮 - 带周六/周日指示器
+                // [v75] 固定宽度以更直观显示有课的周末 [v83] 增加宽度并改周六指示器为方形
                 FilterChip(
                     selected = isWeekendExpanded,
                     onClick = { isWeekendExpanded = !isWeekendExpanded },
-                    modifier = Modifier.width(110.dp),
+                    modifier = Modifier.width(96.dp),  // [v83] 增加宽度 80->96
                     label = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "Weekend",
+                                text = stringResource(R.string.weekend),
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1
                             )
-                            // [v45] 周六指示器
+                            // [v45] 周六指示器 [v83] 改为方形
                             Box(
                                 modifier = Modifier
                                     .size(8.dp)
@@ -168,7 +173,7 @@ fun ScheduleScreen(
                                             MaterialTheme.colorScheme.primary
                                         else
                                             MaterialTheme.colorScheme.outlineVariant,
-                                        shape = CircleShape
+                                        shape = RoundedCornerShape(2.dp)  // [v83] 方形
                                     )
                             )
                             // [v45] 周日指示器
@@ -206,7 +211,7 @@ fun ScheduleScreen(
             if (showCampusDialog) {
                 AlertDialog(
                 onDismissRequest = { showCampusDialog = false },
-                title = { Text("Select Campus") },
+                title = { Text(stringResource(R.string.select_campus)) },
                 text = {
                     Column {
                         Campus.entries.forEach { campus ->
@@ -235,7 +240,7 @@ fun ScheduleScreen(
                 },
                 confirmButton = {
                     TextButton(onClick = { showCampusDialog = false }) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.cancel))
                     }
                 }
             )
@@ -262,11 +267,11 @@ fun ScheduleScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "No courses found",
+                            text = stringResource(R.string.no_courses_found),
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            text = "Please login to fetch course data",
+                            text = stringResource(R.string.please_login),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -306,8 +311,10 @@ fun ScheduleScreen(
                 }
 
                 // [v57] HorizontalPager 替代 AnimatedContent
+                // [v73] 添加 pageSpacing 分隔表格
                 HorizontalPager(
                     state = pagerState,
+                    pageSpacing = 16.dp,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 8.dp)
@@ -326,11 +333,11 @@ fun ScheduleScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = "No courses in week $week",
+                                    text = stringResource(R.string.no_courses_in_week, week),
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Text(
-                                    text = "Try switching to another week",
+                                    text = stringResource(R.string.try_another_week),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -355,7 +362,7 @@ fun ScheduleScreen(
                     modifier = Modifier.padding(16.dp),
                     action = {
                         TextButton(onClick = { viewModel.dismissError() }) {
-                            Text("Dismiss")
+                            Text(stringResource(R.string.dismiss))
                         }
                     }
                 ) {
@@ -391,29 +398,29 @@ private fun CourseDetailDialog(
         text = {
             Column {
                 if (course.teacher.isNotBlank()) {
-                    Text("Teacher: ${course.teacher}")
+                    Text(stringResource(R.string.teacher, course.teacher))
                     Spacer(modifier = Modifier.height(8.dp))
                 }
                 if (course.location.isNotBlank()) {
-                    Text("Location: ${course.location}")
+                    Text(stringResource(R.string.location, course.location))
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                Text("Weeks: ${course.startWeek} - ${course.endWeek}")
+                Text(stringResource(R.string.weeks, course.startWeek, course.endWeek))
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Time: Node ${course.startNode} - ${course.endNode}")
+                Text(stringResource(R.string.time, course.startNode, course.endNode))
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Credit: ${course.credit}")
+                Text(stringResource(R.string.credit, course.credit))
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Type: ${course.courseType.displayName}")
+                Text(stringResource(R.string.type, course.courseType.displayName))
                 if (course.remark.isNotBlank()) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Remark: ${course.remark}")
+                    Text(stringResource(R.string.remark, course.remark))
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("OK")
+                Text(stringResource(R.string.ok))
             }
         }
     )

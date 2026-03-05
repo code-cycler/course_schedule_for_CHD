@@ -10,6 +10,15 @@
 -keepattributes *Annotation*
 
 # ============================================================
+# Remove debug logs in release build (v72)
+# ============================================================
+-assumenosideeffects class android.util.Log {
+    public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+}
+
+# ============================================================
 # SnakeYAML (java.beans not fully supported on Android)
 # ============================================================
 -dontwarn java.beans.BeanInfo
@@ -18,13 +27,6 @@
 -dontwarn java.beans.Introspector
 -dontwarn java.beans.PropertyDescriptor
 -dontwarn org.yaml.snakeyaml.**
-
-# ============================================================
-# GeckoView (Firefox WebView)
-# ============================================================
--keep class org.mozilla.geckoview.** { *; }
--keep class org.mozilla.gecko.** { *; }
--keep interface org.mozilla.geckoview.** { *; }
 
 # ============================================================
 # Retrofit

@@ -1,3 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">course_schedule_for_CHD_v0.0.2</string>
+    <string name="app_name">课程表_CHD</string>
+
+    <!-- 课表页面 -->
+    <string name="schedule_title">课程表</string>
+    <string name="sync">同步</string>
+    <string name="select_campus">选择校区</string>
+    <string name="cancel">取消</string>
+    <string name="dismiss">关闭</string>
+    <string name="ok">确定</string>
+
+    <!-- 空状态 -->
+    <string name="no_courses_found">暂无课程数据</string>
+    <string name="please_login">请登录系统获取课程数据</string>
+    <string name="no_courses_in_week">第 %d 周暂无课程</string>
+    <string name="try_another_week">尝试切换到其他周次</string>
+
+    <!-- 课程详情 -->
+    <string name="teacher">教师：%s</string>
+    <string name="location">地点：%s</string>
+    <string name="weeks">周次：%1$d - %2$d</string>
+    <string name="time">节次：%1$d - %2$d</string>
+    <string name="credit">学分：%.1f</string>
+    <string name="type">类型：%s</string>
+    <string name="remark">备注：%s</string>
+
+    <!-- 周选择器 -->
+    <string name="jump_to_week">跳转到周</string>
+    <string name="week_format">第 %1$d 周 / %2$d 周</string>
+    <string name="tap_to_jump">点击跳转</string>
+    <string name="enter_week_number">输入周次 (1-%d)</string>
+    <string name="week">周次</string>
+    <string name="jump">跳转</string>
+
+    <!-- 周末折叠 -->
+    <string name="weekend">周末</string>
+
+    <!-- WebView 登录页面 -->
+    <string name="loading">加载中...</string>
+    <string name="login_success">登录成功，正在获取课表数据...</string>
+    <string name="please_login_system">请在上方页面中登录系统，登录成功后将自动获取课表</string>
+    <string name="please_login_prompt">请登录系统</string>
+
+    <!-- 校区名称 -->
+    <string name="campus_main">主校区</string>
+    <string name="campus_east">东校区</string>
+    <string name="campus_north">北校区</string>
+    <string name="campus_south">南校区</string>
 </resources>

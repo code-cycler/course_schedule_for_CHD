@@ -54,7 +54,13 @@ import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 private const val TAG = "WebViewScreen"
 
 /**
- * CAS 登录界面 (v71)
+ * CAS 登录界面 (v72)
+ *
+ * v72: 优化课表加载等待逻辑
+ *      - 将固定 3 秒等待改为基于状态的动态检测
+ *      - 初始等待 500ms，然后每 200ms 检测一次
+ *      - 最多等待 5 秒，检测 table0.activities 是否存在
+ *      - 平均节省 1-2 秒加载时间
  *
  * v71: 修复 shouldInterceptRequest 的关键问题
  *      - 添加详细调试日志定位问题
@@ -72,7 +78,7 @@ private const val TAG = "WebViewScreen"
  * 1. 用户在 WebView 中登录 CAS
  * 2. 登录成功后，URL 变为 eams home.action
  * 3. 自动加载课表页面 courseTableForStd.action
- * 4. 等待 3 秒让页面完全渲染
+ * 4. 动态等待页面渲染完成（最多 5 秒）
  * 5. 用 JavaScript 提取课表 HTML 并回调
  *
  * @param onLoginSuccess 登录成功回调，参数为课表 HTML 内容
@@ -286,51 +292,19 @@ fun WebViewScreen(
                                         return
                                     }
 
-                                    // 步骤3：课表页面加载完成 -> 等待渲染后提取 HTML 并回调
-                                    // [v69] 移除拦截，让页面正常加载所有资源（jQuery、beangle、underscore.js）
-                                    // 等待 3 秒让 JavaScript 完全执行完成
+                                    // 步骤3：课表页面加载完成 -> 动态等待渲染后提取 HTML 并回调
+                                    // [v72] 优化：基于状态的动态检测，替代固定 3 秒等待
                                     if (it.contains("courseTableForStd")) {
                                         isLoggedIn = true
-                                        WebViewLogger.logSuccess("课表", "课表页面加载完成，等待 3 秒让页面完全渲染...")
+                                        WebViewLogger.logSuccess("课表", "课表页面加载完成，开始动态检测页面状态...")
 
-                                        // [v69] 使用 postDelayed 等待页面渲染完成
-                                        view?.postDelayed({
-                                            WebViewLogger.logDebug("课表", "等待完成，开始提取 HTML...")
-
-                                            // 使用 JavaScript 提取完整的 HTML
-                                            view?.evaluateJavascript(
-                                                "(function() { return document.documentElement.outerHTML; })();"
-                                            ) { htmlResult ->
-                                                // JavaScript 返回的是 JSON 编码的字符串，需要解码
-                                                val html = if (htmlResult.startsWith("\"")) {
-                                                    // 移除首尾引号并处理转义字符
-                                                    htmlResult.substring(1, htmlResult.length - 1)
-                                                        .replace("\\u003C", "<")
-                                                        .replace("\\u003E", ">")
-                                                        .replace("\\u0026", "&")
-                                                        .replace("\\n", "\n")
-                                                        .replace("\\r", "\r")
-                                                        .replace("\\t", "\t")
-                                                        .replace("\\\"", "\"")
-                                                        .replace("\\\\", "\\")
-                                                } else {
-                                                    htmlResult
-                                                }
-
-                                                WebViewLogger.logParseDetail("HTML 提取成功，长度: ${html.length}")
-
-                                                // 检查是否包含课表数据
-                                                val hasTaskActivity = html.contains("TaskActivity")
-                                                val hasTable0 = html.contains("table0")
-                                                val hasCourseName = html.contains("var courseName")
-                                                WebViewLogger.logParseDetail("HTML 包含 TaskActivity: $hasTaskActivity, table0: $hasTable0, courseName: $hasCourseName")
-
-                                                // 调用登录成功回调，传递 HTML
-                                                if (html.isNotEmpty()) {
-                                                    onLoginSuccess(html)
-                                                }
-                                            }
-                                        }, 3000)  // [v69] 等待 3 秒
+                                        // [v72] 动态等待页面渲染完成
+                                        waitForPageReady(view ?: return, onReady = {
+                                            extractHtmlAndCallback(view, onLoginSuccess)
+                                        }, onTimeout = {
+                                            WebViewLogger.logError("课表", "等待超时，尝试提取 HTML...")
+                                            extractHtmlAndCallback(view, onLoginSuccess)
+                                        })
                                     }
                                 }
 
@@ -502,6 +476,100 @@ fun WebViewScreen(
                 loadUrl("about:blank")
             }
             webViewRef = null
+        }
+    }
+}
+
+/**
+ * [v72] 动态等待页面渲染完成
+ * 初始等待 500ms，然后每 200ms 检测一次，最多 5 秒
+ *
+ * @param view WebView 实例
+ * @param onReady 页面准备就绪回调
+ * @param onTimeout 等待超时回调
+ */
+private fun waitForPageReady(view: WebView, onReady: () -> Unit, onTimeout: () -> Unit) {
+    var attempts = 0
+    val maxAttempts = 25  // 500ms + 24*200ms = 5.3秒
+    val checkInterval = 200L
+    val initialDelay = 500L
+
+    val checkRunnable = object : Runnable {
+        override fun run() {
+            // 使用 JavaScript 检测页面是否准备就绪
+            view.evaluateJavascript("""
+                (function() {
+                    try {
+                        const hasTable0 = typeof table0 !== 'undefined';
+                        const hasActivities = hasTable0 && table0.activities && table0.activities.length > 0;
+                        return hasActivities;
+                    } catch(e) {
+                        return false;
+                    }
+                })();
+            """) { result ->
+                val isReady = result == "true"
+
+                if (isReady) {
+                    WebViewLogger.logSuccess("课表", "页面准备就绪 (检测次数: ${attempts + 1})")
+                    onReady()
+                } else if (attempts >= maxAttempts) {
+                    WebViewLogger.logError("课表", "等待超时 (检测次数: ${attempts + 1})")
+                    onTimeout()
+                } else {
+                    attempts++
+                    WebViewLogger.logDebug("课表", "页面未就绪，继续等待... (${attempts}/${maxAttempts})")
+                    view.postDelayed(this, checkInterval)
+                }
+            }
+        }
+    }
+
+    // 初始等待 500ms 后开始检测
+    WebViewLogger.logDebug("课表", "开始动态检测页面状态...")
+    view.postDelayed(checkRunnable, initialDelay)
+}
+
+/**
+ * [v72] 提取 HTML 并回调
+ *
+ * @param view WebView 实例
+ * @param onLoginSuccess 登录成功回调
+ */
+private fun extractHtmlAndCallback(view: WebView, onLoginSuccess: (String) -> Unit) {
+    WebViewLogger.logDebug("课表", "开始提取 HTML...")
+
+    // 使用 JavaScript 提取完整的 HTML
+    view.evaluateJavascript(
+        "(function() { return document.documentElement.outerHTML; })();"
+    ) { htmlResult ->
+        // JavaScript 返回的是 JSON 编码的字符串，需要解码
+        val html = if (htmlResult.startsWith("\"")) {
+            // 移除首尾引号并处理转义字符
+            htmlResult.substring(1, htmlResult.length - 1)
+                .replace("\\u003C", "<")
+                .replace("\\u003E", ">")
+                .replace("\\u0026", "&")
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+        } else {
+            htmlResult
+        }
+
+        WebViewLogger.logParseDetail("HTML 提取成功，长度: ${html.length}")
+
+        // 检查是否包含课表数据
+        val hasTaskActivity = html.contains("TaskActivity")
+        val hasTable0 = html.contains("table0")
+        val hasCourseName = html.contains("var courseName")
+        WebViewLogger.logParseDetail("HTML 包含 TaskActivity: $hasTaskActivity, table0: $hasTable0, courseName: $hasCourseName")
+
+        // 调用登录成功回调，传递 HTML
+        if (html.isNotEmpty()) {
+            onLoginSuccess(html)
         }
     }
 }

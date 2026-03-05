@@ -15,7 +15,7 @@ package com.example.course_schedule_for_chd_v002.domain.model
  * - 晚上：19:00-21:35（课间10分钟）
  */
 enum class Campus(val displayName: String, val timeSlots: List<String>) {
-    WEISHUI("Weishui", listOf(
+    WEISHUI("渭水校区", listOf(
         "8:30-9:15",    // 第1节
         "9:20-10:05",   // 第2节
         "10:25-11:10",  // 第3节
@@ -28,7 +28,7 @@ enum class Campus(val displayName: String, val timeSlots: List<String>) {
         "19:50-20:35",  // 第10节
         "20:40-21:25"   // 第11节
     )),
-    BENBU("Benbu", listOf(
+    BENBU("本部校区", listOf(
         "8:00-8:45",    // 第1节
         "8:55-9:40",    // 第2节
         "10:10-10:55",  // 第3节

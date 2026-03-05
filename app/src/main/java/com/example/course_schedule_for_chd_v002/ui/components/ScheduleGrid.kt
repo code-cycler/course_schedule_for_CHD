@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight  // [v73] 添加 FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -53,9 +55,9 @@ fun ScheduleGrid(
 ) {
     val days = DayOfWeek.entries
     val totalNodes = 11
-    val cellHeight = 60.dp
+    val cellHeight = 70.dp  // [v73] 增加格子高度 60->70dp
     val headerHeight = 32.dp
-    val labelWidth = 52.dp  // [v59] 增大宽度以容纳时间
+    val labelWidth = 40.dp  // [v75] 进一步减小宽度
     val separatorHeight = 4.dp
 
     // [v61] 使用校区对应的时间表
@@ -143,15 +145,54 @@ fun ScheduleGrid(
             // [v45] 折叠时：完全不显示周末区域
         }
 
+        // [v81] 星期行下方分隔线
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f))
+        )
+
         // 课程表内容区域
         val scrollState = rememberScrollState()
+
+        // [v77] 滚动提示状态
+        // [v82] 上箭头触发：第一个课程卡片被上界遮盖80%
+        val density = LocalDensity.current
+        val cellHeightPx = with(density) { cellHeight.roundToPx() }
+
+        // [v82] 计算第一个有课的节次
+        val firstNodeWithCourse = courses.minOfOrNull { it.startNode } ?: 1
+
+        // [v82] 滚动提示触发阈值：卡片被遮盖80%
+        val scrollThreshold = cellHeightPx * 0.8f
+
+        val canScrollUp by remember {
+            derivedStateOf {
+                // [v82] 当第一个课程卡片的顶部被遮盖超过80%时显示向上提示
+                val firstNodeOffset = (firstNodeWithCourse - 1) * cellHeightPx
+                scrollState.value > (firstNodeOffset + scrollThreshold).toInt()
+            }
+        }
+
+        val canScrollDown by remember {
+            derivedStateOf {
+                // 当最后有课节次的底部接近可视区域底部时显示向下提示
+                scrollState.value < scrollState.maxValue - scrollThreshold.toInt()
+            }
+        }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .verticalScroll(scrollState)
         ) {
+            // 滚动内容
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -237,7 +278,12 @@ fun ScheduleGrid(
 
                         // [v45] 网格行 - 与表头完全同步的布局
                         Row(modifier = Modifier.fillMaxWidth().height(cellHeight)) {
-                            // [v59] 节次标签 - 显示节次和时间
+                            // [v74] 节次标签 - 三行显示：节次 + 开始时间 + 结束时间
+                            val timeSlot = timeSlots[nodeIndex]
+                            val timeParts = timeSlot.split("-")
+                            val startTime = timeParts.getOrNull(0) ?: ""
+                            val endTime = timeParts.getOrNull(1) ?: ""
+
                             Column(
                                 modifier = Modifier
                                     .width(labelWidth)
@@ -247,13 +293,19 @@ fun ScheduleGrid(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 Text(
-                                    text = node.toString(),
-                                    style = MaterialTheme.typography.labelSmall
+                                    text = "${node}节",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,  // [v75] 减小字体
+                                    fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = timeSlots[nodeIndex],
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 8.sp,
+                                    text = startTime,
+                                    fontSize = 8.sp,  // [v75] 减小字体
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = endTime,
+                                    fontSize = 8.sp,  // [v75] 减小字体
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -382,20 +434,68 @@ fun ScheduleGrid(
                     // [v45] 折叠时：完全不显示周末区域
                 }
             }
+            }
+
+            // [v77] 向上滚动提示 [v78] 降低不透明度
+            if (canScrollUp) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "上方有课程",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // [v77] 向下滚动提示 [v78] 降低不透明度
+            if (canScrollDown) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "下方有课程",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
 
-        // [v38] 末尾空节次按钮
+        // [v38] 末尾空节次按钮 [v74] 添加边框 [v75] 汉化并降低高度 [v77] 进一步减小高度
         if (hasTailEmptyNodes) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 2.dp),  // [v75] 减小垂直内边距
                 horizontalArrangement = Arrangement.Center
             ) {
-                TextButton(onClick = { isTailExpanded = !isTailExpanded }) {
+                TextButton(
+                    onClick = { isTailExpanded = !isTailExpanded },
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 16.dp)  // [v77] 进一步减小高度 32->16
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                ) {
                     Text(
-                        text = if (isTailExpanded) "Collapse empty slots"
-                        else "Expand all (${totalNodes - lastNodeWithCourse} slots)",
+                        text = if (isTailExpanded) "收起空节次"
+                        else "展开全部 (余${totalNodes - lastNodeWithCourse}节)",
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
@@ -407,6 +507,7 @@ fun ScheduleGrid(
 /**
  * 课程卡片内部组件
  * [v60] 颜色基于课程名称生成，教室显示3行并使用中间省略
+ * [v74] 教室信息置于底部并添加低不透明度背景，课程名称改为三行
  */
 @Composable
 private fun CourseCardInternal(
@@ -434,45 +535,58 @@ private fun CourseCardInternal(
         shape = RoundedCornerShape(4.dp),
         color = if (hasConflict) backgroundColor.copy(alpha = 0.7f) else backgroundColor
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(4.dp)
-        ) {
-            // 课程名称
-            Row(
-                modifier = Modifier.weight(1f, fill = false),
-                verticalAlignment = Alignment.CenterVertically
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 课程名称 - 上方区域
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(4.dp)
             ) {
-                if (hasConflict) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "Conflict",
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp)
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (hasConflict) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Conflict",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                    }
+                    Text(
+                        text = course.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 3,  // [v74] 改为三行
+                        overflow = TextOverflow.Ellipsis,
+                        color = Color.White
                     )
-                    Spacer(modifier = Modifier.width(2.dp))
                 }
-                Text(
-                    text = course.name,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = Color.White
-                )
             }
 
-            // [v62] 教室 - 显示3行，使用中间省略，缩小字体
+            // [v74] 教室信息 - 置于底部，带低不透明度背景
             if (course.location.isNotBlank()) {
-                Text(
-                    text = course.location.ellipsisMiddle(10),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = 9.sp,  // [v62] 缩小字体
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    softWrap = true,
-                    color = Color.White.copy(alpha = 0.8f)
-                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(
+                            color = Color.Black.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(bottomStart = 4.dp, bottomEnd = 4.dp)
+                        )
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = course.location.ellipsisMiddle(10),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 9.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        softWrap = true,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                }
             }
         }
     }
