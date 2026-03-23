@@ -468,4 +468,4 @@ fun syncCookiesFromWebView() {
 
 **开发者**: 缪承浩
 
-**版本**: 1.0
+**版本**: 2.1
