@@ -405,7 +405,7 @@ private fun CourseDetailDialog(
                     Text(stringResource(R.string.location, course.location))
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                Text(stringResource(R.string.weeks, course.startWeek, course.endWeek))
+                Text(course.getWeeksDisplayText())  // [v94] 使用位图精确显示周次
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(stringResource(R.string.time, course.startNode, course.endNode))
                 Spacer(modifier = Modifier.height(8.dp))

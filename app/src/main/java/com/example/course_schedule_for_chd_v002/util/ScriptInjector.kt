@@ -899,4 +899,26 @@ object ScriptInjector {
                 // home.action, courseTableForStd.action 等
                 return lowerUrl.contains(".action") && !lowerUrl.contains("!")
             }
+
+    /**
+     * [v73 fix3] 获取纯 JavaScript 代码（用于 evaluateJavascript）
+     * 用于在 onPageFinished 中直接注入脚本，不依赖 shouldInterceptRequest
+     *
+     * @return 纯 JavaScript 代码字符串
+     */
+    fun getPureJavaScript(): String {
+        // 从 getHeadInjectionScript() 中提取纯 JS 代码（去掉 <script> 标签）
+        val fullScript = getHeadInjectionScript()
+        // 移除 |<script> 和 |</script> 以及每行开头的 |
+        return fullScript
+            .lines()
+            .filter { it.trim().isNotEmpty() }
+            .joinToString("\n") { line ->
+                // 移除行首的 | 和可能的前导空格
+                line.trimStart().removePrefix("|")
+            }
+            .removePrefix("<script>")
+            .removeSuffix("</script>")
+            .trim()
+    }
 }

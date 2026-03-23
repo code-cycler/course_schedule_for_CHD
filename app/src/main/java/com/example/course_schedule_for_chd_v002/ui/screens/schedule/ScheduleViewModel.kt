@@ -79,25 +79,50 @@ class ScheduleViewModel(
     /**
      * 加载本地课表
      * [v35] 加载后自动选择第一个有课的周次，动态设置最大周数
+     * [v89] 改为按当前周次计算冲突，而非全局冲突
+     * [新增] 优先使用保存的当前教学周
      */
     private fun loadSchedule() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
+            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 开始 ==========")
+
             val courses = repository.getLocalSchedule(semester)
-            val conflicts = TimeUtils.findConflicts(courses)
+            android.util.Log.i("CHD_CurrentWeek", "[Step1] 本地课程数: ${courses.size}")
 
-            // [v35] 计算第一个和最后一个有课的周次
-            val firstWeek = findFirstWeekWithCourse(courses)
+            // [v35] 计算最大周数
             val maxWeek = findMaxWeekWithCourse(courses)
+            android.util.Log.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
 
-            android.util.Log.d("ScheduleViewModel", "[v35] loadSchedule 完成，课程数: ${courses.size}, 显示周: $firstWeek, 最大周: $maxWeek")
+            // [新增] 优先使用保存的当前教学周，否则回退到第一个有课的周次
+            val savedCurrentWeek = userPreferences.getCurrentWeekOnce()
+            android.util.Log.i("CHD_CurrentWeek", "[Step3] 保存的当前教学周: $savedCurrentWeek")
+
+            val initialWeek = if (savedCurrentWeek in 1..maxWeek) {
+                android.util.Log.i("CHD_CurrentWeek", "[Step4] 使用保存的周次: $savedCurrentWeek (有效范围 1-$maxWeek)")
+                savedCurrentWeek
+            } else {
+                val firstWeek = findFirstWeekWithCourse(courses)
+                android.util.Log.w("CHD_CurrentWeek", "[Step4] 保存的周次无效 ($savedCurrentWeek 不在 1-$maxWeek)，回退到第一个有课周次: $firstWeek")
+                firstWeek
+            }
+
+            // [v89] 按当前周次计算冲突
+            val conflicts = TimeUtils.findConflictsForWeek(courses, initialWeek)
+            android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 冲突课程数: ${conflicts.size}")
+            conflicts.forEach { (courseId, conflictList) ->
+                android.util.Log.i("CHD_Conflict", "  冲突: courseId=$courseId, 与 ${conflictList.size} 门课程冲突")
+            }
+
+            android.util.Log.i("CHD_CurrentWeek", "[Step6] 最终显示周次: $initialWeek")
+            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
 
             _uiState.update {
                 it.copy(
                     courses = courses,
                     conflictingCourseIds = conflicts.keys,
-                    currentWeek = firstWeek,
+                    currentWeek = initialWeek,
                     maxWeeks = maxWeek,  // [v35] 动态设置最大周数
                     isLoading = false
                 )
@@ -106,9 +131,21 @@ class ScheduleViewModel(
     }
 
     /**
+     * [v89] 根据周次更新冲突课程ID
+     * @param week 周次
+     */
+    private fun updateConflictsForWeek(week: Int) {
+        val courses = _uiState.value.courses
+        val conflicts = TimeUtils.findConflictsForWeek(courses, week)
+        android.util.Log.d("ScheduleViewModel", "[v89] updateConflictsForWeek: 周$week, 冲突数: ${conflicts.size}")
+        _uiState.update { it.copy(conflictingCourseIds = conflicts.keys) }
+    }
+
+    /**
      * [v34] 找到应该显示的周次
      * 忽略当前日期的影响，自动选择第一个有课的周次
      * 如果没有任何课程，默认显示第一周
+     * [v95] 添加边界检查，确保周次至少为1
      */
     private fun findFirstWeekWithCourse(courses: List<Course>): Int {
         if (courses.isEmpty()) {
@@ -124,7 +161,8 @@ class ScheduleViewModel(
             }
         }
 
-        val firstWeek = if (minStartWeek == Int.MAX_VALUE) 1 else minStartWeek
+        // [v95] 确保周次至少为1（防止旧数据中 startWeek=0 的情况）
+        val firstWeek = maxOf(1, if (minStartWeek == Int.MAX_VALUE) 1 else minStartWeek)
         android.util.Log.d("ScheduleViewModel", "[v35] 第一个有课的周次: $firstWeek")
         return firstWeek
     }
@@ -153,15 +191,17 @@ class ScheduleViewModel(
 
     /**
      * 选择周次
+     * [v89] 切换周次时更新冲突标记
      *
      * @param week 周次 (1-16)
      */
     fun onWeekSelected(week: Int) {
+        val newWeek = week.coerceIn(1, _uiState.value.maxWeeks)
         _uiState.update {
-            it.copy(
-                currentWeek = week.coerceIn(1, it.maxWeeks)
-            )
+            it.copy(currentWeek = newWeek)
         }
+        // [v89] 切换周次时更新冲突
+        updateConflictsForWeek(newWeek)
     }
 
     // [v37] 删除 refreshSchedule() 方法，不再需要刷新功能

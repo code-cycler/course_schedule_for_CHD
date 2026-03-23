@@ -68,6 +68,37 @@ class EamsApi(private val client: OkHttpClient) {
     }
 
     /**
+     * 获取教务系统首页 HTML
+     * 用于解析当前教学周信息
+     * @return 首页 HTML
+     */
+    suspend fun getHomePageHtml(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            android.util.Log.d(TAG, "=== getHomePageHtml 开始 ===")
+
+            val request = Request.Builder()
+                .url(Constants.EamsUrls.HOME_PAGE)
+                .get()
+                .build()
+
+            val response = client.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("[X] HTTP ${response.code}"))
+            }
+
+            val html = response.body?.string()
+                ?: return@withContext Result.failure(Exception("[X] Empty response"))
+
+            android.util.Log.d(TAG, "首页 HTML 长度: ${html.length}")
+            Result.success(html)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "getHomePageHtml 异常: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 获取学生 ID（访问课表需要）
      * @return 学生ID，失败返回 null
      */

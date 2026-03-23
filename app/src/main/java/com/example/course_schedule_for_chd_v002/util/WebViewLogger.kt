@@ -1,16 +1,19 @@
 package com.example.course_schedule_for_chd_v002.util
 
 /**
- * WebView 日志工具类 (v54)
+ * WebView 日志工具类 (v90)
  *
  * 提供 WebView 调试日志的统一管理
  * v49: 新增资源加载监控日志
  * v52: 新增解析流程日志（统一输出到 CHD_WebView 标签）
  * v54: 新增页面类型检测日志（基于内容的检测）
+ * v88: 新增单双周识别专用日志
+ * v90: 新增课程合并日志（处理多教学班冲突）
  */
 object WebViewLogger {
 
     private const val TAG = "CHD_WebView"
+    private const val WEEK_TYPE_TAG = "CHD_WeekType"  // [v88] 单双周识别专用标签
 
     /**
      * 记录页面加载状态
@@ -262,5 +265,72 @@ object WebViewLogger {
      */
     fun logPageDetectionDetail(message: String) {
         android.util.Log.d(TAG, "[页面检测] $message")
+    }
+
+    // ==================== v88 单双周识别专用日志 ====================
+
+    /**
+     * [v88] 记录单双周识别过程
+     */
+    fun logWeekTypeParse(courseName: String, bitmap: String, activeWeeks: List<Int>, weekType: String) {
+        android.util.Log.i(WEEK_TYPE_TAG, "=== 单双周识别 ===")
+        android.util.Log.i(WEEK_TYPE_TAG, "课程: $courseName")
+        android.util.Log.i(WEEK_TYPE_TAG, "位图: $bitmap")
+        android.util.Log.i(WEEK_TYPE_TAG, "活跃周: $activeWeeks")
+        android.util.Log.i(WEEK_TYPE_TAG, "识别结果: $weekType")
+    }
+
+    /**
+     * [v88] 记录周数位图详情
+     */
+    fun logWeekBitmapDetail(bitmap: String) {
+        if (bitmap.length >= 53) {
+            // 分段显示位图，便于阅读
+            val chunk1 = bitmap.substring(0, 18)   // 第1-18周
+            val chunk2 = bitmap.substring(18, 36)  // 第19-36周
+            val chunk3 = bitmap.substring(36, 53)  // 第37-53周
+            android.util.Log.d(WEEK_TYPE_TAG, "位图分段:")
+            android.util.Log.d(WEEK_TYPE_TAG, "  1-18周:  $chunk1")
+            android.util.Log.d(WEEK_TYPE_TAG, "  19-36周: $chunk2")
+            android.util.Log.d(WEEK_TYPE_TAG, "  37-53周: $chunk3")
+        }
+    }
+
+    /**
+     * [v88] 记录单双周判断详情
+     */
+    fun logWeekTypeCheck(week: Int, isOdd: Boolean) {
+        val type = if (isOdd) "单周" else "双周"
+        android.util.Log.v(WEEK_TYPE_TAG, "  周$week -> $type")
+    }
+
+    /**
+     * [v88] 记录最终的单双周识别结果
+     */
+    fun logWeekTypeResult(courseName: String, startWeek: Int, endWeek: Int, weekType: String, remark: String) {
+        android.util.Log.i(WEEK_TYPE_TAG, "[最终结果] $courseName: 周$startWeek-$endWeek, $weekType, remark=$remark")
+    }
+
+    // ==================== v90 课程合并日志 ====================
+
+    /**
+     * [v90] 记录课程合并信息
+     *
+     * 当同一课程在同一时间位置有多条不同周类型的记录时（如多个教学班），
+     * 会合并这些记录并记录合并日志
+     *
+     * @param courseName 课程名称
+     * @param position 时间位置（如"周2第5-6节"）
+     * @param originalCount 原始记录数量
+     * @param mergedWeeks 合并后的活跃周列表
+     * @param mergedRooms 合并后的教室列表
+     */
+    fun logCourseMerge(courseName: String, position: String, originalCount: Int, mergedWeeks: List<Int>, mergedRooms: List<String>) {
+        android.util.Log.i(WEEK_TYPE_TAG, "========== 课程合并 ==========")
+        android.util.Log.i(WEEK_TYPE_TAG, "[合并] $courseName @ $position")
+        android.util.Log.i(WEEK_TYPE_TAG, "  原始记录数: $originalCount")
+        android.util.Log.i(WEEK_TYPE_TAG, "  合并后周次: $mergedWeeks")
+        android.util.Log.i(WEEK_TYPE_TAG, "  合并后教室: $mergedRooms")
+        android.util.Log.i(WEEK_TYPE_TAG, "===============================")
     }
 }

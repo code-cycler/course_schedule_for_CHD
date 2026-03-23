@@ -54,7 +54,24 @@ import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 private const val TAG = "WebViewScreen"
 
 /**
- * CAS 登录界面 (v72)
+ * [v73] 登录步骤状态机
+ */
+private sealed class LoginStep {
+    object CAS_LOGIN : LoginStep()
+    object EAMS_HOME : LoginStep()
+    object EXTRACT_HOME_HTML : LoginStep()
+    object COURSE_TABLE : LoginStep()
+    object DONE : LoginStep()
+}
+
+/**
+ * CAS 登录界面 (v73)
+ *
+ * v73: 三步获取教学周和课表
+ *      - [新增] 进入 eams 首页后，先提取首页 HTML（获取教学周）
+ *      - 等待 1.5 秒让 jquery/beangle 渲染教学周信息
+ *      - 然后跳转到课表页面，提取课表 HTML
+ *      - 回调传递两个 HTML：courseTableHtml + homePageHtml
  *
  * v72: 优化课表加载等待逻辑
  *      - 将固定 3 秒等待改为基于状态的动态检测
@@ -62,30 +79,19 @@ private const val TAG = "WebViewScreen"
  *      - 最多等待 5 秒，检测 table0.activities 是否存在
  *      - 平均节省 1-2 秒加载时间
  *
- * v71: 修复 shouldInterceptRequest 的关键问题
- *      - 添加详细调试日志定位问题
- *      - 为 URL.openConnection() 添加 Cookie 头（解决原始 HTML 为空的问题）
- *      - 处理空响应和登录页面重定向
- *      - 设置必要的请求头（Accept, User-Agent 等）
- *
- * v70: 使用 shouldInterceptRequest 注入脚本（只拦截 eams）
- *      - 不拦截 CAS 登录页面 (ids.chd.edu.cn)
- *      - 只拦截 eams 页面 (bkjw.chd.edu.cn)
- *      - 注入完整的 jQuery/beangle/underscore.js 脚本
- *      - 等待页面完全渲染后提取 HTML
- *
  * 流程：
  * 1. 用户在 WebView 中登录 CAS
  * 2. 登录成功后，URL 变为 eams home.action
- * 3. 自动加载课表页面 courseTableForStd.action
- * 4. 动态等待页面渲染完成（最多 5 秒）
- * 5. 用 JavaScript 提取课表 HTML 并回调
+ * 3. [v73 新增] 等待首页 JS 渲染，提取首页 HTML（教学周信息）
+ * 4. 自动加载课表页面 courseTableForStd.action
+ * 5. 动态等待页面渲染完成（最多 5 秒）
+ * 6. 用 JavaScript 提取课表 HTML 并回调
  *
- * @param onLoginSuccess 登录成功回调，参数为课表 HTML 内容
+ * @param onLoginSuccess 登录成功回调，参数为 (courseTableHtml, homePageHtml)
  */
 @Composable
 fun WebViewScreen(
-    onLoginSuccess: (String) -> Unit
+    onLoginSuccess: (courseTableHtml: String, homePageHtml: String?) -> Unit  // [v73] 新增 homePageHtml 参数
 ) {
     var isLoading by remember { mutableStateOf(true) }
     var currentUrl by remember { mutableStateOf("") }
@@ -94,6 +100,15 @@ fun WebViewScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var isLoggedIn by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
+
+    // [v73] 新增：存储首页 HTML（包含教学周信息）
+    var homePageHtml by remember { mutableStateOf<String?>(null) }
+
+    // [v73] 新增：登录步骤状态机
+    var currentStep by remember { mutableStateOf<LoginStep>(LoginStep.CAS_LOGIN) }
+
+    // [v73 fix5] 新增：首页是否已重新加载（用于让 shouldInterceptRequest 能拦截到首页）
+    var homePageReloaded by remember { mutableStateOf(false) }
 
     // Edge 浏览器 User-Agent (桌面版)
     val edgeUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
@@ -273,38 +288,79 @@ fun WebViewScreen(
                                 isLoading = false
                                 url?.let {
                                     currentUrl = it
+                                    android.util.Log.i(TAG, "[onPageFinished] URL: $it, currentStep: $currentStep")
 
-                                    // [v67] 新逻辑：三步处理
-                                    // 步骤1：检测 CAS 登录成功 -> 手动跳转到 eams
-                                    if (it.contains("authserver") && !it.contains("login")) {
-                                        WebViewLogger.logSuccess("CAS", "CAS 登录成功，手动跳转到 eams...")
+                                    // [v73 fix] 修复 CAS 自动跳转问题
+                                    // CAS 登录成功后可能自动跳转到首页，也可能停留在 authserver 页面
+                                    // 需要处理两种情况
+
+                                    // 情况1：CAS 登录成功但停留在 authserver 页面 -> 手动跳转
+                                    if (it.contains("authserver") && !it.contains("login") && currentStep == LoginStep.CAS_LOGIN) {
+                                        WebViewLogger.logSuccess("CAS", "CAS 登录成功，跳转到 eams 首页...")
+                                        currentStep = LoginStep.EAMS_HOME
                                         view?.loadUrl(Constants.EamsUrls.HOME_PAGE)
                                         return
                                     }
 
-                                    // 步骤2：进入 eams 首页 -> 继续加载课表页面
-                                    if (it.contains("bkjw.chd.edu.cn/eams/home.action")) {
-                                        WebViewLogger.logSuccess("eams", "进入 eams 首页，继续加载课表页面...")
-                                        // 加载课表页面
-                                        val courseTableUrl = "${Constants.EamsUrls.BASE_URL}eams/courseTableForStd.action"
-                                        WebViewLogger.logNavigation("eams", "加载课表页面: $courseTableUrl")
-                                        view?.loadUrl(courseTableUrl)
+                                    // 情况2：CAS 自动跳转到 eams 首页（正常流程）
+                                    // 或者从 authserver 手动跳转到首页
+                                    if (it.contains("bkjw.chd.edu.cn/eams/home.action") &&
+                                        (currentStep == LoginStep.CAS_LOGIN || currentStep == LoginStep.EAMS_HOME)) {
+
+                                        // [v73 fix6] 如果是第一次加载首页（通过重定向），需要重新加载
+                                        // 让 shouldInterceptRequest 能拦截并注入脚本
+                                        // [v73 fix6] 添加 1.5 秒延迟，避免服务器返回"请不要过快点击"错误
+                                        if (currentStep == LoginStep.CAS_LOGIN && !homePageReloaded) {
+                                            homePageReloaded = true
+                                            WebViewLogger.logDebug("首页", "首次加载（重定向），1.5秒后重新加载以注入脚本...")
+                                            android.util.Log.i("CHD_Reload", "[首页] 首次加载（重定向），1.5秒后重新加载 URL: $it")
+                                            // 延迟 1.5 秒后重新加载，避免服务器返回"请不要过快点击"
+                                            view?.postDelayed({ view?.loadUrl(it) }, 1500L)
+                                            return
+                                        }
+
+                                        // [v73 fix5] 第二次加载（shouldInterceptRequest 已注入脚本）
+                                        WebViewLogger.logSuccess("首页", "eams 首页加载完成，开始动态检测教学周信息...")
+                                        currentStep = LoginStep.EXTRACT_HOME_HTML
+
+                                        // 直接开始动态检测（不需要再注入脚本，shouldInterceptRequest 已注入）
+                                        extractHomePageHtml(view ?: return) { html ->
+                                            homePageHtml = html
+                                            android.util.Log.i("CHD_CurrentWeek", "[WebView] 首页 HTML 提取完成，长度: ${html.length}")
+                                            WebViewLogger.logSuccess("首页", "首页 HTML 提取完成，跳转到课表页面...")
+
+                                            // 跳转到课表页面
+                                            currentStep = LoginStep.COURSE_TABLE
+                                            val courseTableUrl = "${Constants.EamsUrls.BASE_URL}eams/courseTableForStd.action"
+                                            WebViewLogger.logNavigation("课表", "加载课表页面: $courseTableUrl")
+                                            view.loadUrl(courseTableUrl)
+                                        }
                                         return
                                     }
 
-                                    // 步骤3：课表页面加载完成 -> 动态等待渲染后提取 HTML 并回调
-                                    // [v72] 优化：基于状态的动态检测，替代固定 3 秒等待
-                                    if (it.contains("courseTableForStd")) {
-                                        isLoggedIn = true
-                                        WebViewLogger.logSuccess("课表", "课表页面加载完成，开始动态检测页面状态...")
+                                    // [v73] 步骤3：课表页面加载完成 -> 先注入脚本，再动态等待渲染后提取 HTML 并回调
+                                    if (it.contains("courseTableForStd") && currentStep == LoginStep.COURSE_TABLE) {
+                                        WebViewLogger.logSuccess("课表", "课表页面加载完成，注入脚本...")
 
-                                        // [v72] 动态等待页面渲染完成
-                                        waitForPageReady(view ?: return, onReady = {
-                                            extractHtmlAndCallback(view, onLoginSuccess)
-                                        }, onTimeout = {
-                                            WebViewLogger.logError("课表", "等待超时，尝试提取 HTML...")
-                                            extractHtmlAndCallback(view, onLoginSuccess)
-                                        })
+                                        // [v73 fix3] 直接使用 evaluateJavascript 注入脚本
+                                        val injectScript = ScriptInjector.getPureJavaScript()
+                                        android.util.Log.i("CHD_Inject", "[课表] 注入脚本，长度: ${injectScript.length}")
+
+                                        view?.evaluateJavascript(injectScript) { result ->
+                                            android.util.Log.i("CHD_Inject", "[课表] 脚本注入结果: ${result.take(100)}")
+                                            WebViewLogger.logDebug("课表", "脚本注入完成，开始动态检测页面状态...")
+
+                                            isLoggedIn = true
+                                            currentStep = LoginStep.DONE
+
+                                            // [v72] 动态等待页面渲染完成
+                                            waitForPageReady(view ?: return@evaluateJavascript, onReady = {
+                                                extractHtmlAndCallback(view, homePageHtml, onLoginSuccess)
+                                            }, onTimeout = {
+                                                WebViewLogger.logError("课表", "等待超时，尝试提取 HTML...")
+                                                extractHtmlAndCallback(view, homePageHtml, onLoginSuccess)
+                                            })
+                                        }
                                     }
                                 }
 
@@ -326,69 +382,65 @@ fun WebViewScreen(
                                 return false
                             }
 
-                            // [v71] 使用 shouldInterceptRequest 注入脚本（只拦截 eams）
-                            // [!] 不拦截 CAS 登录页面 (ids.chd.edu.cn)，确保 CAS 完全原生渲染
-                            // [v71] 关键改进：
-                            // 1. 添加详细调试日志
-                            // 2. 为网络请求添加 Cookie 头（解决原始 HTML 为空的问题）
-                            // 3. 处理空响应
+                            // [v73 fix] 使用 shouldInterceptRequest 注入脚本
+                            // [!] 不拦截 CAS 登录页面 (ids.chd.edu.cn)
+                            // [v73 fix2] 首页也需要注入 jquery/beangle 支持，确保教学周信息能渲染
+                            // [!] 拦截首页和课表页面
                             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                                 val url = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
                                 val host = request.url.host ?: ""
+                                val method = request.method ?: "GET"
 
-                                // [v71] 添加调试日志 - 记录所有请求
-                                WebViewLogger.logDebug("拦截检查", "URL: $url")
-                                WebViewLogger.logDebug("拦截检查", "Host: $host")
+                                // [v73 fix3] 添加详细诊断日志
+                                if (url.contains("home.action") || url.contains("courseTableForStd")) {
+                                    android.util.Log.i("CHD_Intercept", "========== shouldInterceptRequest ==========")
+                                    android.util.Log.i("CHD_Intercept", "URL: $url")
+                                    android.util.Log.i("CHD_Intercept", "Host: $host")
+                                    android.util.Log.i("CHD_Intercept", "Method: $method")
+                                    android.util.Log.i("CHD_Intercept", "Is EAMS: ${host.contains("bkjw.chd.edu.cn")}")
+                                    android.util.Log.i("CHD_Intercept", "Is Home: ${url.contains("home.action")}")
+                                    android.util.Log.i("CHD_Intercept", "Is CourseTable: ${url.contains("courseTableForStd")}")
+                                    android.util.Log.i("CHD_Intercept", "Is Html: ${ScriptInjector.isHtmlRequest(url)}")
+                                }
 
-                                // [v70 fix] 首先检查是否为 CAS 登录页面（使用字符串匹配，更可靠）
+                                // [v73] 检查是否为 CAS 登录页面 - 不拦截
                                 if (url.contains("ids.chd.edu.cn")) {
-                                    // CAS 登录页面，不拦截
-                                    WebViewLogger.logDebug("拦截检查", "CAS 页面，跳过")
                                     return super.shouldInterceptRequest(view, request)
                                 }
 
-                                // 检查是否为 eams 页面
-                                val isEamsDomain = host.contains("bkjw.chd.edu.cn")
+                                // 检查是否为 eams 页面的 HTML 请求
+                                val isEamsPage = host.contains("bkjw.chd.edu.cn")
+                                val isHomePage = url.contains("home.action")
+                                val isCourseTablePage = url.contains("courseTableForStd")
                                 val isHtml = ScriptInjector.isHtmlRequest(url)
 
-                                // [v71] 添加调试日志 - 记录检查结果
-                                WebViewLogger.logDebug("拦截检查", "isEamsDomain: $isEamsDomain, isHtml: $isHtml")
-
-                                if (isEamsDomain && isHtml) {
+                                // 只拦截首页和课表页面的 HTML 请求
+                                if (isEamsPage && (isHomePage || isCourseTablePage) && isHtml) {
                                     try {
-                                        WebViewLogger.logDebug("拦截", "拦截 eams 页面: $url")
+                                        val pageType = if (isHomePage) "首页" else "课表"
+                                        WebViewLogger.logDebug("拦截", "拦截 $pageType 页面: $url")
 
-                                        // [v71] 获取 WebView 的 Cookie - 关键修复！
+                                        // 获取 WebView 的 Cookie
                                         val cookies = CookieManager.getInstance().getCookie(url)
-                                        WebViewLogger.logDebug("拦截", "Cookie 长度: ${cookies?.length ?: 0}")
 
                                         // 获取原始 HTML
                                         val connection = java.net.URL(url).openConnection()
                                         connection.connectTimeout = 10000
                                         connection.readTimeout = 10000
 
-                                        // [v71] 设置 Cookie 头 - 解决原始 HTML 为空的问题
                                         if (!cookies.isNullOrEmpty()) {
                                             connection.setRequestProperty("Cookie", cookies)
-                                            WebViewLogger.logDebug("拦截", "已设置 Cookie 头")
-                                        } else {
-                                            WebViewLogger.logError("拦截", "Cookie 为空，可能无法获取数据")
                                         }
 
-                                        // 设置其他必要的请求头
                                         connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                                         connection.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                                         connection.setRequestProperty("User-Agent", edgeUserAgent)
 
                                         val html = connection.inputStream.bufferedReader().readText()
 
-                                        // [v71] 处理空响应
                                         if (html.isEmpty()) {
-                                            WebViewLogger.logError("拦截", "原始 HTML 为空，返回 null 让 WebView 正常加载")
                                             return super.shouldInterceptRequest(view, request)
                                         }
-
-                                        WebViewLogger.logDebug("拦截", "原始 HTML 长度: ${html.length}")
 
                                         // 检查是否包含登录页面（可能 Cookie 失效）
                                         if (html.contains("authserver/login") || html.contains("ids.chd.edu.cn")) {
@@ -396,7 +448,7 @@ fun WebViewScreen(
                                             return super.shouldInterceptRequest(view, request)
                                         }
 
-                                        // 注入脚本（v70: 包含 underscore.js 支持）
+                                        // 注入脚本
                                         val modifiedHtml = ScriptInjector.injectIntoHtml(html)
 
                                         WebViewLogger.logDebug("拦截", "注入后 HTML 长度: ${modifiedHtml.length}")
@@ -408,7 +460,6 @@ fun WebViewScreen(
                                         )
                                     } catch (e: Exception) {
                                         WebViewLogger.logError("拦截", "拦截失败: ${e.message}")
-                                        e.printStackTrace()
                                         return super.shouldInterceptRequest(view, request)
                                     }
                                 }
@@ -532,12 +583,14 @@ private fun waitForPageReady(view: WebView, onReady: () -> Unit, onTimeout: () -
 
 /**
  * [v72] 提取 HTML 并回调
+ * [v73] 新增 homePageHtml 参数
  *
  * @param view WebView 实例
- * @param onLoginSuccess 登录成功回调
+ * @param homePageHtml 首页 HTML（包含教学周信息）
+ * @param onLoginSuccess 登录成功回调，参数为 (courseTableHtml, homePageHtml)
  */
-private fun extractHtmlAndCallback(view: WebView, onLoginSuccess: (String) -> Unit) {
-    WebViewLogger.logDebug("课表", "开始提取 HTML...")
+private fun extractHtmlAndCallback(view: WebView, homePageHtml: String?, onLoginSuccess: (String, String?) -> Unit) {
+    WebViewLogger.logDebug("课表", "开始提取课表 HTML...")
 
     // 使用 JavaScript 提取完整的 HTML
     view.evaluateJavascript(
@@ -559,7 +612,7 @@ private fun extractHtmlAndCallback(view: WebView, onLoginSuccess: (String) -> Un
             htmlResult
         }
 
-        WebViewLogger.logParseDetail("HTML 提取成功，长度: ${html.length}")
+        WebViewLogger.logParseDetail("课表 HTML 提取成功，长度: ${html.length}")
 
         // 检查是否包含课表数据
         val hasTaskActivity = html.contains("TaskActivity")
@@ -567,10 +620,125 @@ private fun extractHtmlAndCallback(view: WebView, onLoginSuccess: (String) -> Un
         val hasCourseName = html.contains("var courseName")
         WebViewLogger.logParseDetail("HTML 包含 TaskActivity: $hasTaskActivity, table0: $hasTable0, courseName: $hasCourseName")
 
-        // 调用登录成功回调，传递 HTML
-        if (html.isNotEmpty()) {
-            onLoginSuccess(html)
+        // [v73] 检查首页 HTML 是否包含教学周信息
+        if (homePageHtml != null) {
+            val hasWeekInfo = homePageHtml.contains("本周为") && homePageHtml.contains("教学周")
+            android.util.Log.i("CHD_CurrentWeek", "[WebView] 首页 HTML 包含教学周信息: $hasWeekInfo, 长度: ${homePageHtml.length}")
+        } else {
+            android.util.Log.w("CHD_CurrentWeek", "[WebView] 首页 HTML 为 null")
         }
+
+        // 调用登录成功回调，传递课表 HTML 和首页 HTML
+        if (html.isNotEmpty()) {
+            onLoginSuccess(html, homePageHtml)
+        }
+    }
+}
+
+/**
+ * [v73] 提取首页 HTML（JS 渲染后的，包含教学周信息）
+ * [v73 fix] 使用动态检测，等待教学周信息渲染完成
+ *
+ * @param view WebView 实例
+ * @param onResult 提取结果回调
+ */
+private fun extractHomePageHtml(view: WebView, onResult: (String) -> Unit) {
+    WebViewLogger.logDebug("首页", "开始动态检测教学周信息...")
+
+    var attempts = 0
+    val maxAttempts = 3   // [v73 fix6] 最多检测 3 次
+    val checkInterval = 1000L  // [v73 fix6] 间隔 1 秒
+
+    val checkRunnable = object : Runnable {
+        override fun run() {
+            // 使用 JavaScript 检测教学周信息是否已渲染
+            view.evaluateJavascript("""
+                (function() {
+                    try {
+                        // 检查是否包含教学周信息
+                        var allText = document.body ? document.body.innerText : '';
+                        var hasWeekInfo = allText.indexOf('本周为') !== -1 && allText.indexOf('教学周') !== -1;
+                        if (hasWeekInfo) {
+                            return { ready: true, html: document.documentElement.outerHTML };
+                        }
+
+                        // 检查 jquery 是否加载
+                        var hasJquery = typeof jQuery !== 'undefined' || typeof $ !== 'undefined';
+                        var hasBeangle = typeof beangle !== 'undefined';
+
+                        return {
+                            ready: false,
+                            hasJquery: hasJquery,
+                            hasBeangle: hasBeangle,
+                            bodyLength: document.body ? document.body.innerHTML.length : 0
+                        };
+                    } catch(e) {
+                        return { ready: false, error: e.message };
+                    }
+                })();
+            """) { result ->
+                android.util.Log.d("CHD_CurrentWeek", "[首页检测] 尝试 ${attempts + 1}/$maxAttempts, 结果: ${result.take(200)}")
+
+                // 检查是否已渲染
+                if (result.contains("\"ready\":true")) {
+                    android.util.Log.i("CHD_CurrentWeek", "[首页检测] 教学周信息已渲染")
+                    // 提取 HTML
+                    extractHtmlFromWebView(view, onResult)
+                } else if (attempts >= maxAttempts) {
+                    android.util.Log.w("CHD_CurrentWeek", "[首页检测] 等待超时，尝试提取 HTML...")
+                    extractHtmlFromWebView(view, onResult)
+                } else {
+                    attempts++
+                    view.postDelayed(this, checkInterval)
+                }
+            }
+        }
+    }
+
+    // [v73 fix6] 初始延迟 1.5 秒，确保页面有足够时间渲染
+    view.postDelayed(checkRunnable, 1500L)
+}
+
+/**
+ * 从 WebView 提取 HTML
+ */
+private fun extractHtmlFromWebView(view: WebView, onResult: (String) -> Unit) {
+    view.evaluateJavascript(
+        "(function() { return document.documentElement.outerHTML; })();"
+    ) { htmlResult ->
+        // 解码 JSON 编码的字符串
+        val html = if (htmlResult.startsWith("\"")) {
+            htmlResult.substring(1, htmlResult.length - 1)
+                .replace("\\u003C", "<")
+                .replace("\\u003E", ">")
+                .replace("\\u0026", "&")
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+        } else {
+            htmlResult
+        }
+
+        WebViewLogger.logDebug("首页", "首页 HTML 提取成功，长度: ${html.length}")
+
+        // 检查是否包含教学周信息
+        val hasWeekInfo = html.contains("本周为") && html.contains("教学周")
+        android.util.Log.i("CHD_CurrentWeek", "[WebView] 首页包含教学周信息: $hasWeekInfo, 长度: ${html.length}")
+
+        if (!hasWeekInfo) {
+            android.util.Log.w("CHD_CurrentWeek", "[WebView] 首页未找到教学周信息")
+            // 打印 body 内容用于调试
+            val bodyStart = html.indexOf("<body")
+            val bodyEnd = html.indexOf("</body>")
+            if (bodyStart >= 0 && bodyEnd > bodyStart) {
+                val bodyContent = html.substring(bodyStart, minOf(bodyEnd + 7, bodyStart + 2000))
+                android.util.Log.d("CHD_CurrentWeek", "Body 内容片段: $bodyContent")
+            }
+        }
+
+        onResult(html)
     }
 }
 

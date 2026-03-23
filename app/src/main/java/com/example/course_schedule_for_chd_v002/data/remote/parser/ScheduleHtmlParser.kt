@@ -7,12 +7,47 @@ import org.jsoup.Jsoup
 import org.json.JSONObject
 
 /**
- * 课程表 HTML 解析器 (v59)
+ * 周数类型枚举
+ */
+enum class WeekType {
+    ALL,    // 每周（连续周）
+    ODD,    // 单周
+    EVEN;   // 双周
+
+    fun toDisplayString(): String = when (this) {
+        ALL -> ""
+        ODD -> "单"
+        EVEN -> "双"
+    }
+}
+
+/**
+ * 周数解析结果
+ */
+data class WeekParseResult(
+    val startWeek: Int,
+    val endWeek: Int,
+    val weekType: WeekType
+)
+
+/**
+ * 课程表 HTML 解析器 (v91)
  *
  * 解析长安大学教务系统课表页面的 JavaScript 数据
  *
  * v59: 修复合并逻辑 - 按 课程名+星期 分组，正确合并连续节次
  *      解决连续节次被分成独立卡片的问题
+ *
+ * v87: 新增单双周识别功能
+ *      通过分析周数位图识别单周/双周模式
+ *
+ * v90: 新增同一位置多班合并功能
+ *      当同一课程在同一时间位置有多条不同周类型的记录时（如C语言有多个教学班）
+ *      合并所有活跃周，重新判断周类型，合并教室信息
+ *
+ * v91: 修复多教学班课程缺失问题
+ *      修改 parseActivitiesJson 的分组 key：使用 教室+周次位图 替代 周次范围
+ *      确保同一教学班的连续节次被正确合并，不同教学班分开处理
  *
  * HTML 结构：
  * ```javascript
@@ -91,10 +126,16 @@ class ScheduleHtmlParser {
             WebViewLogger.logParseResult(courses.size, "infoTitle")
         }
 
-        // 去重：同一课程在同一时间只保留一个
-        val distinctCourses = courses.distinctBy { "${it.name}-${it.dayOfWeek}-${it.startNode}-${it.startWeek}" }
+        // [v90] 合并同一位置的同名课程记录（处理多教学班情况）
+        val mergedCourses = mergeSamePositionCourses(courses)
 
-        WebViewLogger.logParseDetail("去重前: ${courses.size}, 去重后: ${distinctCourses.size}")
+        // 去重：同一课程在同一时间只保留一个
+        // [v89] 扩展去重 key，包含 endNode 和 endWeek，避免不同时长的课程被错误去重
+        val distinctCourses = mergedCourses.distinctBy {
+            "${it.name}-${it.dayOfWeek}-${it.startNode}-${it.endNode}-${it.startWeek}-${it.endWeek}"
+        }
+
+        WebViewLogger.logParseDetail("原始: ${courses.size}, 合并后: ${mergedCourses.size}, 去重后: ${distinctCourses.size}")
         return distinctCourses
     }
 
@@ -171,8 +212,11 @@ class ScheduleHtmlParser {
 
                 WebViewLogger.logParseDetail("[$blockIndex] 找到 ${indexMatches.size} 个 index 定义")
 
-                // 解析周数范围
-                val (startWeek, endWeek) = parseWeeksBitmap(weeksBitmap)
+                // 解析周数范围和类型
+                val weekResult = parseWeeksBitmap(weeksBitmap)
+                val startWeek = weekResult.startWeek
+                val endWeek = weekResult.endWeek
+                val weekTypeStr = weekResult.weekType.toDisplayString()
 
                 // [v25] 收集所有 index 并按星期分组
                 val indexList = indexMatches.map { match ->
@@ -211,6 +255,16 @@ class ScheduleHtmlParser {
                     // 为每个节次区间创建一门课程
                     for ((startNode, endNode) in ranges) {
                         if (courseName.isNotEmpty() && startWeek <= endWeek) {
+                            // [v87] 构建备注信息，包含单双周标识
+                            val remarkParts = mutableListOf<String>()
+                            if (weekTypeStr.isNotEmpty()) {
+                                remarkParts.add(weekTypeStr)
+                            }
+                            if (weeksBitmap.isNotEmpty()) {
+                                remarkParts.add("weeksBitmap:$weeksBitmap")
+                            }
+                            val remark = remarkParts.joinToString(";")
+
                             val course = CourseEntity(
                                 name = courseName,
                                 teacher = teacherNames,
@@ -222,11 +276,14 @@ class ScheduleHtmlParser {
                                 endNode = endNode,  // [v25] 使用合并后的结束节次
                                 courseType = determineCourseType(courseName),
                                 credit = 0.0,
-                                remark = if (weeksBitmap.isNotEmpty()) "weeksBitmap:$weeksBitmap" else "",
+                                remark = remark,
                                 semester = semester
                             )
                             courses.add(course)
-                            WebViewLogger.logParseDetail("[$blockIndex] 添加课程: ${course.name}, 周:${course.startWeek}-${course.endWeek}, 周${course.dayOfWeek} 第${course.startNode}-${course.endNode}节")
+                            val weekTypeLog = if (weekTypeStr.isNotEmpty()) " [$weekTypeStr]" else ""
+                            WebViewLogger.logParseDetail("[$blockIndex] 添加课程: ${course.name}, 周:${course.startWeek}-${course.endWeek}$weekTypeLog, 周${course.dayOfWeek} 第${course.startNode}-${course.endNode}节")
+                            // [v88] 使用专用日志方法记录单双周识别结果
+                            WebViewLogger.logWeekTypeResult(courseName, startWeek, endWeek, weekTypeLog.trim(), remark)
                         }
                     }
                 }
@@ -253,46 +310,280 @@ class ScheduleHtmlParser {
     }
 
     /**
-     * [v36] 解析周数位图
-     * 修复周次偏移+1的问题（学校显示1-17周，APP显示2-18周）
+     * [v87] 解析周数位图（支持单双周识别）
+     * [v88] 添加详细 debug log
      * @param bitmap 53个字符的位图，'1'表示有课，'0'表示无课
-     * @return (startWeek, endWeek) 有课的周数范围
+     * @return WeekParseResult 包含起始周、结束周和周类型（单周/双周/每周）
      */
-    private fun parseWeeksBitmap(bitmap: String): Pair<Int, Int> {
-        if (bitmap.isEmpty()) return Pair(1, 16)
+    private fun parseWeeksBitmap(bitmap: String): WeekParseResult {
+        // [v88] 打印原始位图（使用 Log.i 确保可见）
+        android.util.Log.i("CHD_WeekType", "========== 周数解析开始 ==========")
+        android.util.Log.i("CHD_WeekType", "原始位图: $bitmap")
+        android.util.Log.i("CHD_WeekType", "位图长度: ${bitmap.length}")
+        // [v88] 使用专用方法显示分段位图
+        WebViewLogger.logWeekBitmapDetail(bitmap)
+
+        if (bitmap.isEmpty()) {
+            android.util.Log.w("CHD_WeekType", "[WARN] 位图为空，返回默认值")
+            return WeekParseResult(1, 16, WeekType.ALL)
+        }
         if (bitmap.length < 53) {
-            WebViewLogger.logParseDetail("[WARN] 周数位图长度不足: ${bitmap.length}")
-            return Pair(1, 16)
+            android.util.Log.w("CHD_WeekType", "[WARN] 周数位图长度不足: ${bitmap.length}")
+            return WeekParseResult(1, 16, WeekType.ALL)
         }
 
-        var startWeek = Int.MAX_VALUE
-        var endWeek = 0
+        val activeWeeks = mutableListOf<Int>()
 
         for ((index, char) in bitmap.withIndex()) {
             if (char == '1') {
                 // [v36] 原逻辑: week = index + 1
                 // 但学校系统位图有+1偏移，需要减1修正
                 val week = index + 1
-                if (week < startWeek) {
-                    startWeek = week
-                }
-                if (week > endWeek) {
-                    endWeek = week
+                activeWeeks.add(week)
+                // [v88] 打印每个活跃周的提取过程
+                android.util.Log.v("CHD_WeekType", "  index=$index, char='$char' -> week=$week")
+            }
+        }
+
+        // [v88] 打印活跃周列表（使用 Log.i 强制显示）
+        if (activeWeeks.isNotEmpty()) {
+            val weekStr = activeWeeks.joinToString(",")
+            android.util.Log.i("CHD_WeekType", "活跃周列表(index+1): [$weekStr]")
+            android.util.Log.i("CHD_WeekType", "活跃周数量: ${activeWeeks.size}")
+        }
+
+        if (activeWeeks.isEmpty()) {
+            android.util.Log.w("CHD_WeekType", "[WARN] 周数位图全为0")
+            return WeekParseResult(1, 16, WeekType.ALL)
+        }
+
+        val startWeek = activeWeeks.minOrNull()!!
+        val endWeek = activeWeeks.maxOrNull()!!
+        android.util.Log.i("CHD_WeekType", "原始范围(修正前): $startWeek-$endWeek")
+
+        // [v87] 识别单双周模式
+        val weekType = determineWeekType(activeWeeks)
+
+        // [v96] 恢复偏移修正：学校系统位图有+1偏移
+        // 位图结构：bitmap[0]=第0周(预备周), bitmap[1]=第1周, ...
+        // 解析时 week = index + 1，所以 bitmap[1] -> week=2
+        // 需要减1修正为实际的第1周
+        val correctedStartWeek = startWeek - 1
+        val correctedEndWeek = endWeek - 1
+
+        val typeStr = when (weekType) {
+            WeekType.ODD -> "单周"
+            WeekType.EVEN -> "双周"
+            WeekType.ALL -> "每周"
+        }
+        android.util.Log.i("CHD_WeekType", "最终结果: 修正后=$correctedStartWeek-$correctedEndWeek, 类型=$typeStr")
+        android.util.Log.i("CHD_WeekType", "========== 周数解析结束 ==========")
+
+        return WeekParseResult(correctedStartWeek, correctedEndWeek, weekType)
+    }
+
+    /**
+     * [v87] 判断周数类型（单周/双周/每周）
+     * [v88] 添加详细 debug log
+     * @param activeWeeks 有课的周数列表
+     * @return WeekType 单周/双周/每周
+     */
+    private fun determineWeekType(activeWeeks: List<Int>): WeekType {
+        WebViewLogger.logParseDetail("[单双周] ===== 开始判断 =====")
+
+        if (activeWeeks.isEmpty()) {
+            WebViewLogger.logParseDetail("[单双周] activeWeeks 为空，返回 ALL")
+            return WeekType.ALL
+        }
+
+        // [v88] 打印活跃周列表（强制打印，使用 Log.i 确保可见）
+        android.util.Log.i("CHD_WeekType", "[单双周] 活跃周列表: $activeWeeks (共 ${activeWeeks.size} 周)")
+
+        // 检查是否全是奇数周（单周）
+        val allOdd = activeWeeks.all { it % 2 == 1 }
+        // 检查是否全是偶数周（双周）
+        val allEven = activeWeeks.all { it % 2 == 0 }
+
+        // [v88] 逐个打印判断过程
+        activeWeeks.forEach { week ->
+            val isOdd = week % 2 == 1
+            android.util.Log.d("CHD_WeekType", "[单双周]   周$week % 2 = ${week % 2} -> ${if (isOdd) "奇数(单)" else "偶数(双)"}")
+        }
+
+        // [v88] 打印判断结果（使用 Log.i 确保可见）
+        android.util.Log.i("CHD_WeekType", "[单双周] 判断: allOdd=$allOdd, allEven=$allEven")
+
+        val result = when {
+            allOdd -> WeekType.ODD
+            allEven -> WeekType.EVEN
+            else -> WeekType.ALL
+        }
+
+        val resultStr = when (result) {
+            WeekType.ODD -> "单周"
+            WeekType.EVEN -> "双周"
+            WeekType.ALL -> "每周"
+        }
+        android.util.Log.i("CHD_WeekType", "[单双周] 最终结果: $resultStr")
+        WebViewLogger.logParseDetail("[单双周] ===== 判断结束: $resultStr =====")
+
+        return result
+    }
+
+    /**
+     * [v90] 合并同一位置的同名课程记录
+     *
+     * 处理场景：同一课程在同一时间位置有多条不同周类型的记录
+     * 例如：C语言程序设计在周2第5节有"双周机房"和"每周普通教室"两条记录
+     * 这是因为课程有多个教学班，教务系统将所有教学班数据合并显示
+     *
+     * @param courses 原始课程列表
+     * @return 合并后的课程列表
+     */
+    private fun mergeSamePositionCourses(courses: List<CourseEntity>): List<CourseEntity> {
+        if (courses.isEmpty()) return courses
+
+        // 按 课程名+星期+开始节次+结束节次 分组
+        // 这样可以识别同一位置的多条记录
+        val groupedCourses = courses.groupBy {
+            Triple(it.name, it.dayOfWeek, Pair(it.startNode, it.endNode))
+        }
+
+        val mergedList = mutableListOf<CourseEntity>()
+        var mergeCount = 0
+
+        for ((key, group) in groupedCourses) {
+            if (group.size == 1) {
+                // 只有一条记录，直接添加
+                mergedList.add(group.first())
+            } else {
+                // 多条记录，需要合并
+                val merged = mergeCourseGroup(group)
+                mergedList.add(merged)
+                mergeCount++
+
+                // 记录合并日志
+                val (courseName, dayOfWeek, nodes) = key
+                val (startNode, endNode) = nodes
+                val position = "周${dayOfWeek}第${startNode}-${endNode}节"
+
+                // 提取合并后的教室列表
+                val rooms = group.map { it.location }.distinct()
+                // 提取合并后的周次
+                val mergedWeeks = extractActiveWeeksFromRemark(merged.remark)
+
+                WebViewLogger.logCourseMerge(
+                    courseName = courseName,
+                    position = position,
+                    originalCount = group.size,
+                    mergedWeeks = mergedWeeks,
+                    mergedRooms = rooms
+                )
+            }
+        }
+
+        if (mergeCount > 0) {
+            WebViewLogger.logParseDetail("[v90] 共合并 $mergeCount 组课程记录")
+        }
+
+        return mergedList
+    }
+
+    /**
+     * [v90] 合并一组同一位置的课程记录
+     *
+     * @param courses 同一位置的同名课程记录列表
+     * @return 合并后的课程记录
+     */
+    private fun mergeCourseGroup(courses: List<CourseEntity>): CourseEntity {
+        val first = courses.first()
+
+        // 收集所有活跃周（从 remark 中的 weeksBitmap 提取）
+        val allActiveWeeks = mutableSetOf<Int>()
+        val allRooms = mutableSetOf<String>()
+
+        for (course in courses) {
+            allRooms.add(course.location)
+
+            // 从 remark 中提取周数位图
+            val weeks = extractActiveWeeksFromRemark(course.remark)
+            allActiveWeeks.addAll(weeks)
+        }
+
+        // 如果没有提取到位图，使用原有的周范围
+        if (allActiveWeeks.isEmpty()) {
+            // 合并周范围
+            val minWeek = courses.minOf { it.startWeek }
+            val maxWeek = courses.maxOf { it.endWeek }
+            return first.copy(
+                startWeek = minWeek,
+                endWeek = maxWeek,
+                location = allRooms.joinToString(","),
+                remark = "多班合并"
+            )
+        }
+
+        // [v96] 计算合并后的周范围（恢复偏移修正）
+        val sortedWeeks = allActiveWeeks.sorted()
+        val mergedStartWeek = sortedWeeks.first() - 1  // 应用偏移修正
+        val mergedEndWeek = sortedWeeks.last() - 1
+
+        // 重新判断周类型
+        val weekType = determineWeekType(sortedWeeks)
+        val weekTypeStr = when (weekType) {
+            WeekType.ODD -> "单周"
+            WeekType.EVEN -> "双周"
+            WeekType.ALL -> ""
+        }
+
+        // 构建合并后的位图
+        val mergedBitmap = CharArray(53) { '0' }
+        for (week in sortedWeeks) {
+            if (week in 1..53) {
+                mergedBitmap[week - 1] = '1'
+            }
+        }
+
+        // 合并教室信息
+        val mergedLocation = allRooms.joinToString(",")
+
+        // 构建备注
+        val remarkParts = mutableListOf<String>()
+        if (weekTypeStr.isNotEmpty()) {
+            remarkParts.add(weekTypeStr)
+        }
+        remarkParts.add("多班合并")  // 标注这是合并后的记录
+        remarkParts.add("weeksBitmap:${String(mergedBitmap)}")
+
+        return first.copy(
+            startWeek = mergedStartWeek,
+            endWeek = mergedEndWeek,
+            location = mergedLocation,
+            remark = remarkParts.joinToString(";")
+        )
+    }
+
+    /**
+     * [v90] 从 remark 字段中提取活跃周列表
+     *
+     * @param remark 备注字段，格式如 "双周;weeksBitmap:000001010100000..."
+     * @return 活跃周列表（1-indexed，未修正偏移）
+     */
+    private fun extractActiveWeeksFromRemark(remark: String): List<Int> {
+        val activeWeeks = mutableListOf<Int>()
+
+        // 查找 weeksBitmap:后面的位图
+        val bitmapMatch = """weeksBitmap:([01]+)""".toRegex().find(remark)
+        if (bitmapMatch != null) {
+            val bitmap = bitmapMatch.groupValues[1]
+            for ((index, char) in bitmap.withIndex()) {
+                if (char == '1') {
+                    activeWeeks.add(index + 1)  // 1-indexed
                 }
             }
         }
 
-        // [v36] 应用偏移修正：减1以匹配学校系统的周次
-        val correctedStartWeek = if (startWeek != Int.MAX_VALUE) startWeek - 1 else 1
-        val correctedEndWeek = if (endWeek > 0) endWeek - 1 else 16
-
-        return if (startWeek != Int.MAX_VALUE) {
-            WebViewLogger.logParseDetail("[v36] 周数位图解析: 原始=$startWeek-$endWeek, 修正后=$correctedStartWeek-$correctedEndWeek")
-            Pair(correctedStartWeek, correctedEndWeek)
-        } else {
-            WebViewLogger.logParseDetail("[WARN] 周数位图全为0")
-            Pair(1, 16)
-        }
+        return activeWeeks
     }
 
     /**
@@ -339,10 +630,23 @@ class ScheduleHtmlParser {
                     val dayOfWeek = index / unitCount + 1
                     val nodeIndex = index % unitCount + 1
 
-                    // 解析周数
-                    val (startWeek, endWeek) = parseWeeksBitmap(vaildWeeks)
+                    // 解析周数和类型
+                    val weekResult = parseWeeksBitmap(vaildWeeks)
+                    val startWeek = weekResult.startWeek
+                    val endWeek = weekResult.endWeek
+                    val weekTypeStr = weekResult.weekType.toDisplayString()
 
-                    WebViewLogger.logParseDetail("[$i] $courseName: day=$dayOfWeek, node=$nodeIndex, weeks=$startWeek-$endWeek")
+                    // [v87] 构建备注信息，包含单双周标识
+                    val remarkParts = mutableListOf<String>()
+                    if (weekTypeStr.isNotEmpty()) {
+                        remarkParts.add(weekTypeStr)
+                    }
+                    if (vaildWeeks.isNotEmpty()) {
+                        remarkParts.add("weeksBitmap:$vaildWeeks")
+                    }
+                    val remark = remarkParts.joinToString(";")
+
+                    WebViewLogger.logParseDetail("[$i] $courseName: day=$dayOfWeek, node=$nodeIndex, weeks=$startWeek-$endWeek, type=$weekTypeStr")
 
                     val course = CourseEntity(
                         name = courseName,
@@ -355,13 +659,16 @@ class ScheduleHtmlParser {
                         endNode = nodeIndex,
                         courseType = determineCourseType(courseName),
                         credit = 0.0,
-                        remark = if (vaildWeeks.isNotEmpty()) "weeksBitmap:$vaildWeeks" else "",
+                        remark = remark,
                         semester = semester
                     )
 
-                    // [v59] 使用 key 分组：课程名+星期（不再包含节次）
-                    // 这样同一课程同一天的所有节次会被放在一起
-                    val key = "${courseName}_${dayOfWeek}"
+                    // [v91] 修改分组逻辑：不再使用周次范围作为 key
+                    // 问题：当同一位置有多条不同周次的记录（多教学班）时，
+                    // 使用周次范围分组会导致连续节次无法正确合并
+                    // 解决：使用 课程名+星期+教室+周次位图 作为 key
+                    // 这样每个教学班的每段连续节次都能被独立处理
+                    val key = "${courseName}_${dayOfWeek}_${roomName}_${vaildWeeks}"
                     courseMap.getOrPut(key) { mutableListOf() }.add(course)
 
                 } catch (e: Exception) {
@@ -546,6 +853,69 @@ class ScheduleHtmlParser {
             name.contains("必修") -> CourseType.REQUIRED.displayName
             name.contains("概论") || name.contains("思想") || name.contains("马克思") -> CourseType.REQUIRED.displayName
             else -> CourseType.OTHER.displayName
+        }
+    }
+
+    /**
+     * 从首页 HTML 解析当前教学周
+     *
+     * HTML 格式示例:
+     * <td>本周为<font color="blue">2025-2026学年第2学期的</font>第<font color="red" size="5">1</font>教学周</td>
+     *
+     * @param html 首页 HTML
+     * @return Pair<学期字符串, 当前教学周>，如 "2025-2026-2" to 1，解析失败返回 null
+     */
+    fun parseCurrentWeek(html: String): Pair<String, Int>? {
+        android.util.Log.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 开始 ==========")
+        android.util.Log.i("CHD_CurrentWeek", "HTML 长度: ${html.length}")
+
+        try {
+            val doc = Jsoup.parse(html)
+
+            // 查找包含"本周为"的 td 元素
+            val tdElements = doc.select("td")
+            android.util.Log.i("CHD_CurrentWeek", "找到 ${tdElements.size} 个 td 元素")
+
+            for ((index, td) in tdElements.withIndex()) {
+                val text = td.text()
+                if (text.contains("本周为") && text.contains("教学周")) {
+                    android.util.Log.i("CHD_CurrentWeek", "在第 $index 个 td 找到教学周信息: $text")
+
+                    // 提取学期信息（如 "2025-2026学年第2学期"）
+                    val semesterPattern = """(\d{4})-(\d{4})学年第(\d)学期""".toRegex()
+                    val semesterMatch = semesterPattern.find(text)
+
+                    val semester = if (semesterMatch != null) {
+                        val result = "${semesterMatch.groupValues[1]}-${semesterMatch.groupValues[2]}-${semesterMatch.groupValues[3]}"
+                        android.util.Log.i("CHD_CurrentWeek", "学期匹配成功: $result (正则: ${semesterPattern.pattern})")
+                        result
+                    } else {
+                        android.util.Log.w("CHD_CurrentWeek", "学期匹配失败，文本: $text")
+                        null
+                    }
+
+                    // 提取周次（精确匹配 "第X教学周" 格式，避免匹配 "第X学期"）
+                    // [v73 fix4] 修复正则：原来 `第.*?(\d+).*?教学周` 会错误匹配 "第2学期" 的 "2"
+                    // 改为 `第(\d+)\s*教学周` 精确匹配 "第4教学周" 的 "4"
+                    val weekPattern = """第(\d+)\s*教学周""".toRegex()
+                    val weekMatch = weekPattern.find(text)
+                    val week = weekMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
+                    android.util.Log.i("CHD_CurrentWeek", "周次匹配结果: $week (正则: ${weekPattern.pattern}, 匹配文本: ${weekMatch?.value})")
+
+                    if (semester != null) {
+                        android.util.Log.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 成功: 学期=$semester, 周次=$week ==========")
+                        return semester to week
+                    }
+                }
+            }
+
+            android.util.Log.w("CHD_CurrentWeek", "未找到当前教学周信息")
+            android.util.Log.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 失败 ==========")
+            return null
+        } catch (e: Exception) {
+            android.util.Log.e("CHD_CurrentWeek", "解析当前教学周异常: ${e.message}", e)
+            android.util.Log.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 异常 ==========")
+            return null
         }
     }
 }

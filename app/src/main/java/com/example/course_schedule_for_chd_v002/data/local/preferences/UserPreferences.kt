@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +28,7 @@ class UserPreferences(private val context: Context) {
         private val KEY_STUDENT_NAME = stringPreferencesKey("student_name")
         private val KEY_CURRENT_SEMESTER = stringPreferencesKey("current_semester")
         private val KEY_CAMPUS = stringPreferencesKey("campus")  // [v61] 校区选择
+        private val KEY_CURRENT_WEEK = intPreferencesKey("current_week")  // 当前教学周
     }
 
     /**
@@ -69,6 +71,13 @@ class UserPreferences(private val context: Context) {
      */
     val campus: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[KEY_CAMPUS] ?: "WEISHUI"
+    }
+
+    /**
+     * 获取当前教学周
+     */
+    val currentWeek: Flow<Int> = context.dataStore.data.map { preferences ->
+        preferences[KEY_CURRENT_WEEK] ?: 1
     }
 
     /**
@@ -159,5 +168,21 @@ class UserPreferences(private val context: Context) {
      */
     suspend fun getCampusOnce(): String {
         return campus.first()
+    }
+
+    /**
+     * 保存当前教学周
+     */
+    suspend fun saveCurrentWeek(week: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_CURRENT_WEEK] = week
+        }
+    }
+
+    /**
+     * 获取当前教学周（一次性读取）
+     */
+    suspend fun getCurrentWeekOnce(): Int {
+        return currentWeek.first()
     }
 }

@@ -78,9 +78,10 @@ fun CourseCard(
             }
 
             // [v60] Location - 显示3行，使用中间省略
+            // [v92] 增加显示长度到 50 字符，支持多教室合并后的完整显示
             if (course.location.isNotBlank()) {
                 Text(
-                    text = course.location.ellipsisMiddle(30),
+                    text = course.location.ellipsisMiddle(50),
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,

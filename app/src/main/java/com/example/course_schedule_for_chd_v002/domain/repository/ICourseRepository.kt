@@ -86,6 +86,20 @@ interface ICourseRepository {
      * @return 导入的课程数量
      */
     suspend fun importScheduleFromJson(jsonString: String, semester: String): Int
+
+    /**
+     * 从教务系统首页获取当前教学周
+     * @return Pair<学期字符串, 当前教学周>，失败返回 null
+     */
+    suspend fun fetchCurrentWeek(): Pair<String, Int>?
+
+    /**
+     * [v73] 从首页 HTML 解析当前教学周（直接解析，不发起网络请求）
+     * 用于 WebView 场景，从 JS 渲染后的首页 HTML 解析教学周信息
+     * @param html 首页 HTML（WebView 获取的渲染后 HTML）
+     * @return Pair<学期字符串, 当前教学周>，失败返回 null
+     */
+    fun parseCurrentWeekFromHtml(html: String): Pair<String, Int>?
 }
 
 /**

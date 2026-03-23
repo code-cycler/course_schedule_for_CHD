@@ -463,4 +463,56 @@ class CourseRepositoryImpl(
 
         return courses.size
     }
+
+    /**
+     * 从教务系统首页获取当前教学周
+     * @return Pair<学期字符串, 当前教学周>，失败返回 null
+     */
+    override suspend fun fetchCurrentWeek(): Pair<String, Int>? {
+        android.util.Log.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 开始 ==========")
+        return try {
+            android.util.Log.i("CHD_CurrentWeek", "[Step1] 调用 eamsApi.getHomePageHtml()...")
+            val html = eamsApi.getHomePageHtml().getOrNull()
+            if (html == null) {
+                android.util.Log.e("CHD_CurrentWeek", "[Step1.1] 获取失败: eamsApi.getHomePageHtml() 返回 null")
+                android.util.Log.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 失败 ==========")
+                return null
+            }
+            android.util.Log.i("CHD_CurrentWeek", "[Step1.1] 获取成功，HTML 长度: ${html.length}")
+
+            android.util.Log.i("CHD_CurrentWeek", "[Step2] 调用 htmlParser.parseCurrentWeek()...")
+            val result = htmlParser.parseCurrentWeek(html)
+            if (result != null) {
+                android.util.Log.i("CHD_CurrentWeek", "[Step2.1] 解析成功: 学期=${result.first}, 周次=${result.second}")
+            } else {
+                android.util.Log.w("CHD_CurrentWeek", "[Step2.1] 解析失败: parseCurrentWeek 返回 null")
+            }
+            android.util.Log.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 结束 ==========")
+            result
+        } catch (e: Exception) {
+            android.util.Log.e("CHD_CurrentWeek", "[Exception] fetchCurrentWeek 异常: ${e.message}", e)
+            android.util.Log.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 异常结束 ==========")
+            null
+        }
+    }
+
+    /**
+     * [v73] 从首页 HTML 解析当前教学周（直接解析，不发起网络请求）
+     * 用于 WebView 场景，从 JS 渲染后的首页 HTML 解析教学周信息
+     */
+    override fun parseCurrentWeekFromHtml(html: String): Pair<String, Int>? {
+        android.util.Log.i("CHD_CurrentWeek", "========== [Repository] parseCurrentWeekFromHtml 开始 ==========")
+        android.util.Log.i("CHD_CurrentWeek", "HTML 长度: ${html.length}")
+
+        val result = htmlParser.parseCurrentWeek(html)
+
+        if (result != null) {
+            android.util.Log.i("CHD_CurrentWeek", "解析成功: 学期=${result.first}, 周次=${result.second}")
+        } else {
+            android.util.Log.w("CHD_CurrentWeek", "解析失败")
+        }
+
+        android.util.Log.i("CHD_CurrentWeek", "========== [Repository] parseCurrentWeekFromHtml 结束 ==========")
+        return result
+    }
 }
