@@ -7,7 +7,6 @@ import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.util.Constants
-import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -109,23 +108,30 @@ class ScheduleViewModel(
                 firstWeek
             }
 
-            // [v74] 优先从缓存获取冲突，无缓存时实时计算并缓存
+            // [v74] 优先从缓存获取冲突，无缓存或缓存不完整时预计算
+            // [v74 fix] 检查缓存是否完整（需要覆盖最大周次）
+            if (courses.isNotEmpty()) {
+                val cache = repository.getConflictCache(semester)
+                val cachedMaxWeek = cache.keys.maxOrNull() ?: 0
+                val isComplete = cache.isNotEmpty() && cachedMaxWeek >= maxWeek
+
+                if (!isComplete) {
+                    android.util.Log.i("CHD_Conflict", "[v74 fix] 缓存不完整: 缓存覆盖周1-$cachedMaxWeek, 需要1-$maxWeek, 重新预计算...")
+                    repository.precomputeAndCacheConflicts(courses, semester)
+                } else {
+                    android.util.Log.i("CHD_Conflict", "[v74 fix] 缓存完整: 覆盖周1-$cachedMaxWeek")
+                }
+            }
+
+            // 从缓存获取当前周的冲突
             val conflicts = repository.getConflictsForWeek(semester, initialWeek)
             val conflictIds: Set<Long> = if (conflicts != null) {
                 android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 从缓存获取冲突: ${conflicts.size} 门")
                 conflicts
             } else {
-                android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 缓存不存在，实时计算...")
-                val computedConflicts = TimeUtils.findConflictsForWeek(courses, initialWeek)
-                // 无缓存时，检查是否需要预计算（可能是旧数据升级）
-                if (courses.isNotEmpty()) {
-                    val cache = repository.getConflictCache(semester)
-                    if (cache.isEmpty()) {
-                        android.util.Log.i("CHD_Conflict", "[v74] 检测到无冲突缓存，触发预计算...")
-                        repository.precomputeAndCacheConflicts(courses, semester)
-                    }
-                }
-                computedConflicts.keys
+                // 缓存中该周无冲突记录，返回空集
+                android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 缓存中无冲突记录")
+                emptySet()
             }
             android.util.Log.i("CHD_Conflict", "[Step5.1] 周$initialWeek 最终冲突数: ${conflictIds.size}")
 
@@ -147,22 +153,16 @@ class ScheduleViewModel(
     /**
      * [v89] 根据周次更新冲突课程ID
      * [v74] 优先从缓存获取，无缓存时实时计算
+     * [v74 fix] 缓存已在 loadSchedule 中确保完整，直接从缓存读取
      * @param week 周次
      */
     private fun updateConflictsForWeek(week: Int) {
         viewModelScope.launch {
-            val courses = _uiState.value.courses
-
-            // [v74] 优先从缓存获取
+            // [v74 fix] 直接从缓存获取，不再实时计算
             val conflicts = repository.getConflictsForWeek(semester, week)
-            val conflictIds: Set<Long> = if (conflicts != null) {
-                android.util.Log.d("ScheduleViewModel", "[v74] updateConflictsForWeek: 周$week, 从缓存获取 ${conflicts.size} 个冲突")
-                conflicts
-            } else {
-                val computed = TimeUtils.findConflictsForWeek(courses, week)
-                android.util.Log.d("ScheduleViewModel", "[v74] updateConflictsForWeek: 周$week, 实时计算 ${computed.size} 个冲突")
-                computed.keys
-            }
+            val conflictIds: Set<Long> = conflicts ?: emptySet()
+
+            android.util.Log.d("ScheduleViewModel", "[v74 fix] updateConflictsForWeek: 周$week, 缓存获取 ${conflictIds.size} 个冲突")
 
             _uiState.update { it.copy(conflictingCourseIds = conflictIds) }
         }
