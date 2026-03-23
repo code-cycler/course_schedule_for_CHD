@@ -7,6 +7,7 @@ import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.util.Constants
+import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,6 +82,7 @@ class ScheduleViewModel(
      * [v89] 改为按当前周次计算冲突，而非全局冲突
      * [新增] 优先使用保存的当前教学周
      * [v74] 优先从缓存获取冲突，无缓存时实时计算并缓存
+     * [新功能] 计算当前实际教学周，并自动跳转
      */
     private fun loadSchedule() {
         viewModelScope.launch {
@@ -95,17 +97,46 @@ class ScheduleViewModel(
             val maxWeek = findMaxWeekWithCourse(courses)
             android.util.Log.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
 
-            // [新增] 优先使用保存的当前教学周，否则回退到第一个有课的周次
-            val savedCurrentWeek = userPreferences.getCurrentWeekOnce()
-            android.util.Log.i("CHD_CurrentWeek", "[Step3] 保存的当前教学周: $savedCurrentWeek")
+            // [新功能] 计算当前实际教学周
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            val lastParsedWeek = userPreferences.getLastParsedWeekOnce()
+            android.util.Log.i("CHD_CurrentWeek", "[Step3] 学期开始日期: $semesterStartDate, 上次解析周次: $lastParsedWeek")
 
-            val initialWeek = if (savedCurrentWeek in 1..maxWeek) {
-                android.util.Log.i("CHD_CurrentWeek", "[Step4] 使用保存的周次: $savedCurrentWeek (有效范围 1-$maxWeek)")
-                savedCurrentWeek
-            } else {
-                val firstWeek = findFirstWeekWithCourse(courses)
-                android.util.Log.w("CHD_CurrentWeek", "[Step4] 保存的周次无效 ($savedCurrentWeek 不在 1-$maxWeek)，回退到第一个有课周次: $firstWeek")
-                firstWeek
+            // [新功能] 优先使用学期开始日期计算，否则使用上次解析的周次
+            val actualCurrentWeek = when {
+                semesterStartDate != null -> TimeUtils.calculateCurrentWeek(semesterStartDate)
+                lastParsedWeek != null && lastParsedWeek in 1..maxWeek -> lastParsedWeek
+                else -> null
+            }
+            android.util.Log.i("CHD_CurrentWeek", "[Step4] 实际当前教学周: $actualCurrentWeek")
+
+            // [新功能] 获取今天星期几
+            val todayDayOfWeek = TimeUtils.getTodayDayOfWeek()
+            android.util.Log.i("CHD_CurrentWeek", "[Step5] 今天是: $todayDayOfWeek")
+
+            // [新功能] 加载水课列表
+            val waterCourses = userPreferences.getWaterCoursesForSemester(semester)
+            android.util.Log.d("ScheduleViewModel", "[新功能] 水课数量: ${waterCourses.size}")
+
+            // 决定初始显示周次：
+            // 1. 如果有实际当前周且在有效范围内，使用实际当前周
+            // 2. 否则使用保存的当前周
+            // 3. 最后回退到第一个有课的周
+            val savedCurrentWeek = userPreferences.getCurrentWeekOnce()
+            val initialWeek = when {
+                actualCurrentWeek != null && actualCurrentWeek in 1..maxWeek -> {
+                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 使用实际当前周: $actualCurrentWeek")
+                    actualCurrentWeek
+                }
+                savedCurrentWeek in 1..maxWeek -> {
+                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 使用保存的周次: $savedCurrentWeek")
+                    savedCurrentWeek
+                }
+                else -> {
+                    val firstWeek = findFirstWeekWithCourse(courses)
+                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 回退到第一个有课周次: $firstWeek")
+                    firstWeek
+                }
             }
 
             // [v74] 优先从缓存获取冲突，无缓存或缓存不完整时预计算
@@ -126,16 +157,16 @@ class ScheduleViewModel(
             // 从缓存获取当前周的冲突
             val conflicts = repository.getConflictsForWeek(semester, initialWeek)
             val conflictIds: Set<Long> = if (conflicts != null) {
-                android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 从缓存获取冲突: ${conflicts.size} 门")
+                android.util.Log.i("CHD_Conflict", "[Step7] 周$initialWeek 从缓存获取冲突: ${conflicts.size} 门")
                 conflicts
             } else {
                 // 缓存中该周无冲突记录，返回空集
-                android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 缓存中无冲突记录")
+                android.util.Log.i("CHD_Conflict", "[Step7] 周$initialWeek 缓存中无冲突记录")
                 emptySet()
             }
-            android.util.Log.i("CHD_Conflict", "[Step5.1] 周$initialWeek 最终冲突数: ${conflictIds.size}")
+            android.util.Log.i("CHD_Conflict", "[Step7.1] 周$initialWeek 最终冲突数: ${conflictIds.size}")
 
-            android.util.Log.i("CHD_CurrentWeek", "[Step6] 最终显示周次: $initialWeek")
+            android.util.Log.i("CHD_CurrentWeek", "[Step8] 最终显示周次: $initialWeek")
             android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
 
             _uiState.update {
@@ -144,6 +175,9 @@ class ScheduleViewModel(
                     conflictingCourseIds = conflictIds,
                     currentWeek = initialWeek,
                     maxWeeks = maxWeek,  // [v35] 动态设置最大周数
+                    actualCurrentWeek = actualCurrentWeek,  // [新功能]
+                    todayDayOfWeek = todayDayOfWeek,        // [新功能]
+                    waterCourseNames = waterCourses,        // [新功能] 水课列表
                     isLoading = false
                 )
             }
@@ -231,6 +265,17 @@ class ScheduleViewModel(
         updateConflictsForWeek(newWeek)
     }
 
+    /**
+     * [新功能] 跳转到当前教学周
+     */
+    fun goToCurrentWeek() {
+        val targetWeek = _uiState.value.actualCurrentWeek ?: return
+        if (targetWeek in 1.._uiState.value.maxWeeks) {
+            android.util.Log.i("ScheduleViewModel", "[新功能] 跳转到当前教学周: $targetWeek")
+            onWeekSelected(targetWeek)
+        }
+    }
+
     // [v37] 删除 refreshSchedule() 方法，不再需要刷新功能
 
     /**
@@ -247,6 +292,30 @@ class ScheduleViewModel(
      */
     fun dismissError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    /**
+     * [新功能] 切换水课标注状态
+     * @param courseName 课程名称
+     */
+    fun toggleWaterCourse(courseName: String) {
+        viewModelScope.launch {
+            val isWaterCourse = courseName in _uiState.value.waterCourseNames
+
+            if (isWaterCourse) {
+                userPreferences.removeWaterCourse(courseName, semester)
+                _uiState.update {
+                    it.copy(waterCourseNames = it.waterCourseNames - courseName)
+                }
+                android.util.Log.d("ScheduleViewModel", "[新功能] 取消水课标注: $courseName")
+            } else {
+                userPreferences.addWaterCourse(courseName, semester)
+                _uiState.update {
+                    it.copy(waterCourseNames = it.waterCourseNames + courseName)
+                }
+                android.util.Log.d("ScheduleViewModel", "[新功能] 添加水课标注: $courseName")
+            }
+        }
     }
 
     /**

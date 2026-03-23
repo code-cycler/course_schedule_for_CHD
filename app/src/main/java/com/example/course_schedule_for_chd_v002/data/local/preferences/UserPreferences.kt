@@ -30,6 +30,8 @@ class UserPreferences(private val context: Context) {
         private val KEY_CAMPUS = stringPreferencesKey("campus")  // [v61] 校区选择
         private val KEY_CURRENT_WEEK = intPreferencesKey("current_week")  // 当前教学周
         private const val KEY_CONFLICT_CACHE_PREFIX = "conflict_cache_"  // [v74] 冲突缓存前缀
+        private val KEY_SEMESTER_START_DATE = stringPreferencesKey("semester_start_date")  // [新功能] 学期开始日期
+        private val KEY_LAST_PARSED_WEEK = intPreferencesKey("last_parsed_week")  // [新功能] 上次从首页解析的周次
     }
 
     /**
@@ -187,6 +189,57 @@ class UserPreferences(private val context: Context) {
         return currentWeek.first()
     }
 
+    // ================ [新功能] 学期开始日期相关 ================
+
+    /**
+     * [新功能] 保存学期开始日期
+     * @param date 格式: "yyyy-MM-dd" 如 "2026-02-24"
+     */
+    suspend fun saveSemesterStartDate(date: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_SEMESTER_START_DATE] = date
+        }
+        android.util.Log.d("UserPreferences", "[新功能] 保存学期开始日期: $date")
+    }
+
+    /**
+     * [新功能] 获取学期开始日期
+     */
+    val semesterStartDate: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[KEY_SEMESTER_START_DATE]
+    }
+
+    /**
+     * [新功能] 获取学期开始日期（一次性读取）
+     */
+    suspend fun getSemesterStartDateOnce(): String? {
+        return semesterStartDate.first()
+    }
+
+    /**
+     * [新功能] 保存上次从首页解析的周次
+     */
+    suspend fun saveLastParsedWeek(week: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_LAST_PARSED_WEEK] = week
+        }
+        android.util.Log.d("UserPreferences", "[新功能] 保存解析周次: $week")
+    }
+
+    /**
+     * [新功能] 获取上次从首页解析的周次
+     */
+    val lastParsedWeek: Flow<Int?> = context.dataStore.data.map { preferences ->
+        preferences[KEY_LAST_PARSED_WEEK]
+    }
+
+    /**
+     * [新功能] 获取上次从首页解析的周次（一次性读取）
+     */
+    suspend fun getLastParsedWeekOnce(): Int? {
+        return lastParsedWeek.first()
+    }
+
     // ================ [v74] 冲突缓存相关 ================
 
     /**
@@ -296,5 +349,154 @@ class UserPreferences(private val context: Context) {
         }
 
         return result
+    }
+
+    // ================ [新功能] 水课标注相关 ================
+
+    private val KEY_WATER_COURSES = stringPreferencesKey("water_courses")  // JSON 格式
+
+    /**
+     * [新功能] 获取水课名称列表（按学期）
+     */
+    val waterCourseNames: Flow<Map<String, Set<String>>> = context.dataStore.data.map { preferences ->
+        val json = preferences[KEY_WATER_COURSES] ?: "{}"
+        parseWaterCoursesJson(json)
+    }
+
+    /**
+     * [新功能] 获取指定学期的水课列表
+     */
+    suspend fun getWaterCoursesForSemester(semester: String): Set<String> {
+        return waterCourseNames.first()[semester] ?: emptySet()
+    }
+
+    /**
+     * [新功能] 添加水课标注
+     */
+    suspend fun addWaterCourse(courseName: String, semester: String) {
+        context.dataStore.edit { preferences ->
+            val currentMap = parseWaterCoursesJson(preferences[KEY_WATER_COURSES] ?: "{}").toMutableMap()
+            val currentSet = currentMap[semester]?.toMutableSet() ?: mutableSetOf()
+            currentSet.add(courseName)
+            currentMap[semester] = currentSet
+            preferences[KEY_WATER_COURSES] = serializeWaterCoursesJson(currentMap)
+        }
+        android.util.Log.d("UserPreferences", "[新功能] 添加水课标注: $courseName @ $semester")
+    }
+
+    /**
+     * [新功能] 移除水课标注
+     */
+    suspend fun removeWaterCourse(courseName: String, semester: String) {
+        context.dataStore.edit { preferences ->
+            val currentMap = parseWaterCoursesJson(preferences[KEY_WATER_COURSES] ?: "{}").toMutableMap()
+            val currentSet = currentMap[semester]?.toMutableSet() ?: mutableSetOf()
+            currentSet.remove(courseName)
+            if (currentSet.isEmpty()) {
+                currentMap.remove(semester)
+            } else {
+                currentMap[semester] = currentSet
+            }
+            preferences[KEY_WATER_COURSES] = serializeWaterCoursesJson(currentMap)
+        }
+        android.util.Log.d("UserPreferences", "[新功能] 移除水课标注: $courseName @ $semester")
+    }
+
+    /**
+     * [新功能] 序列化水课列表为 JSON
+     * 格式: {"2024-2025-1":["课程A","课程B"],"2024-2025-2":["课程C"]}
+     */
+    private fun serializeWaterCoursesJson(map: Map<String, Set<String>>): String {
+        if (map.isEmpty()) return "{}"
+        val entries = map.entries.map { (semester, names) ->
+            val namesJson = names.joinToString(",") { "\"${it.escapeJson()}\"" }
+            "\"${semester.escapeJson()}\":[$namesJson]"
+        }
+        return "{${entries.joinToString(",")}}"
+    }
+
+    /**
+     * [新功能] 反序列化水课列表
+     */
+    private fun parseWaterCoursesJson(json: String): Map<String, Set<String>> {
+        if (json.isEmpty() || json == "{}") return emptyMap()
+
+        val result = mutableMapOf<String, Set<String>>()
+        try {
+            val content = json.trim().removeSurrounding("{", "}")
+            if (content.isEmpty()) return result
+
+            var i = 0
+            while (i < content.length) {
+                // 查找学期名
+                val semesterStart = content.indexOf('"', i)
+                if (semesterStart == -1) break
+                val semesterEnd = content.indexOf('"', semesterStart + 1)
+                if (semesterEnd == -1) break
+                val semester = content.substring(semesterStart + 1, semesterEnd).unescapeJson()
+
+                // 查找冒号后的数组
+                val colonPos = content.indexOf(':', semesterEnd)
+                if (colonPos == -1) break
+                val arrayStart = content.indexOf('[', colonPos)
+                if (arrayStart == -1) break
+                val arrayEnd = content.indexOf(']', arrayStart)
+                if (arrayEnd == -1) break
+
+                // 解析课程名
+                val arrayContent = content.substring(arrayStart + 1, arrayEnd)
+                if (arrayContent.isNotEmpty()) {
+                    val names = parseJsonStringArray(arrayContent)
+                    if (names.isNotEmpty()) {
+                        result[semester] = names.toSet()
+                    }
+                }
+
+                i = arrayEnd + 1
+                while (i < content.length && content[i] == ',') i++
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("UserPreferences", "[新功能] 反序列化水课列表失败: ${e.message}")
+        }
+
+        return result
+    }
+
+    /**
+     * [新功能] 解析 JSON 字符串数组
+     */
+    private fun parseJsonStringArray(content: String): List<String> {
+        val result = mutableListOf<String>()
+        var i = 0
+        while (i < content.length) {
+            val start = content.indexOf('"', i)
+            if (start == -1) break
+            val end = content.indexOf('"', start + 1)
+            if (end == -1) break
+            result.add(content.substring(start + 1, end).unescapeJson())
+            i = end + 1
+            while (i < content.length && (content[i] == ',' || content[i].isWhitespace())) i++
+        }
+        return result
+    }
+
+    /**
+     * [新功能] JSON 字符串转义
+     */
+    private fun String.escapeJson(): String {
+        return this.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+    }
+
+    /**
+     * [新功能] JSON 字符串反转义
+     */
+    private fun String.unescapeJson(): String {
+        return this.replace("\\r", "\r")
+            .replace("\\n", "\n")
+            .replace("\\\"", "\"")
+            .replace("\\\\", "\\")
     }
 }

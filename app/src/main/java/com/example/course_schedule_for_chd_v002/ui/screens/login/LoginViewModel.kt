@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.util.Constants
+import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -186,10 +187,16 @@ class LoginViewModel(
                             android.util.Log.i("CHD_CurrentWeek", "[Step3.1] 解析成功: 学期=$semester, 周次=$week")
                             WebViewLogger.logSuccess("教学周", "当前: $semester 第${week}周")
 
+                            // [新功能] 反推学期开始日期并保存
+                            val semesterStartDate = TimeUtils.calculateSemesterStartDate(week)
+                            android.util.Log.i("CHD_Semester", "[新功能] 反推学期开始日期: $semesterStartDate (当前周=$week)")
+
                             // 保存到偏好设置
                             userPreferences.saveCurrentWeek(week)
                             userPreferences.saveCurrentSemester(semester)
-                            android.util.Log.i("CHD_CurrentWeek", "[Step3.2] 已保存到 UserPreferences: week=$week, semester=$semester")
+                            userPreferences.saveSemesterStartDate(semesterStartDate)
+                            userPreferences.saveLastParsedWeek(week)
+                            android.util.Log.i("CHD_CurrentWeek", "[Step3.2] 已保存到 UserPreferences: week=$week, semester=$semester, startDate=$semesterStartDate")
                         } else {
                             android.util.Log.w("CHD_CurrentWeek", "[Step3.1] 解析失败，首页 HTML 可能不包含教学周信息")
                             // 打印 HTML 片段用于调试

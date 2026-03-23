@@ -21,11 +21,13 @@ import kotlin.math.abs  // [v60] 用于课程颜色哈希
  * 课程卡片组件
  * 显示单个课程的信息
  * [v60] 颜色基于课程名称生成，教室显示3行并使用中间省略
+ * [新功能] 支持水课标注，降低透明度
  *
  * @param course 课程数据
  * @param modifier 修饰符
  * @param backgroundColor 背景颜色
  * @param hasConflict 是否存在时间冲突
+ * @param isWaterCourse 是否为水课 [新功能]
  * @param onClick 点击回调
  */
 @Composable
@@ -34,11 +36,22 @@ fun CourseCard(
     modifier: Modifier = Modifier,
     backgroundColor: Color = getCourseColorByName(course.name),  // [v60] 改为基于课程名
     hasConflict: Boolean = false,
+    isWaterCourse: Boolean = false,  // [新功能]
     onClick: ((Course) -> Unit)? = null
 ) {
     // 冲突时显示红色边框
     val borderColor = if (hasConflict) Color.Red else Color.Transparent
     val borderWidth = if (hasConflict) 2.dp else 0.dp
+
+    // [新功能] 根据状态计算透明度
+    val cardAlpha = when {
+        isWaterCourse -> 0.5f   // 水课半透明
+        hasConflict -> 0.7f     // 冲突稍透明
+        else -> 1.0f            // 正常
+    }
+
+    // [新功能] 水课文字也降低透明度
+    val textAlpha = if (isWaterCourse) 0.7f else 1.0f
 
     Surface(
         modifier = modifier.then(
@@ -49,7 +62,7 @@ fun CourseCard(
             }
         ).border(borderWidth, borderColor, RoundedCornerShape(4.dp)),
         shape = RoundedCornerShape(4.dp),
-        color = if (hasConflict) backgroundColor.copy(alpha = 0.7f) else backgroundColor
+        color = backgroundColor.copy(alpha = cardAlpha)  // [新功能] 应用透明度
     ) {
         Column(
             modifier = Modifier
@@ -73,7 +86,7 @@ fun CourseCard(
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    color = Color.White
+                    color = Color.White.copy(alpha = textAlpha)  // [新功能]
                 )
             }
 
@@ -86,7 +99,7 @@ fun CourseCard(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     softWrap = true,
-                    color = Color.White.copy(alpha = 0.8f)
+                    color = Color.White.copy(alpha = if (isWaterCourse) 0.5f else 0.8f)  // [新功能]
                 )
             }
         }

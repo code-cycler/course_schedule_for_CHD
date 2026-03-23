@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale  // [视觉优化] 水课缩放效果
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight  // [v73] 添加 FontWeight
@@ -40,17 +41,23 @@ import kotlin.math.abs  // [v60] 用于课程颜色哈希
  * - [v42] 重构周末折叠功能，移除 AnimatedVisibility，修复对齐问题
  * - [v44] 周末折叠状态由外部控制，通过参数传入
  * - [v61] 支持校区切换，不同校区有不同的时间安排
+ * - [新功能] 支持高亮今日列（仅当视图周=当前教学周时）
  *
  * @param isWeekendExpanded 周末是否展开（由外部控制）
  * @param campus 校区选择（影响时间显示）[v61]
+ * @param todayDayOfWeek 今天是星期几，用于高亮今日列 [新功能]
+ * @param isCurrentWeek 当前视图是否为当前教学周 [新功能 fix]
  */
 @Composable
 fun ScheduleGrid(
     courses: List<Course>,
     conflictingCourseIds: Set<Long> = emptySet(),
+    waterCourseNames: Set<String> = emptySet(),  // [新功能] 水课名称集合
     onCourseClick: ((Course) -> Unit)? = null,
     isWeekendExpanded: Boolean = false,  // [v44] 外部控制折叠状态
     campus: Campus = Campus.WEISHUI,     // [v61] 校区选择
+    todayDayOfWeek: DayOfWeek? = null,   // [新功能] 今日星期几
+    isCurrentWeek: Boolean = false,      // [新功能 fix] 是否为当前教学周
     modifier: Modifier = Modifier
 ) {
     val days = DayOfWeek.entries
@@ -106,16 +113,32 @@ fun ScheduleGrid(
 
             // 周一到周五
             days.take(5).forEach { day ->
+                val isToday = isCurrentWeek && todayDayOfWeek == day  // [新功能 fix] 只有当前周才高亮
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(headerHeight)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                        .then(
+                            if (isToday) {
+                                // [视觉优化] 更明显的高亮效果：使用 primary 颜色 + 加粗边框
+                                Modifier
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(0.dp))
+                            } else {
+                                Modifier
+                            }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = getDayAbbreviation(day),
-                        style = MaterialTheme.typography.labelSmall
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,  // [视觉优化] 加粗
+                        color = if (isToday)
+                            MaterialTheme.colorScheme.onPrimary  // [视觉优化] 使用 onPrimary
+                        else
+                            MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
@@ -311,24 +334,42 @@ fun ScheduleGrid(
                             }
 
                             // 周一到周五单元格
-                            repeat(5) {
+                            days.take(5).forEach { day ->
+                                val isToday = isCurrentWeek && todayDayOfWeek == day  // [新功能 fix] 只有当前周才高亮
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxHeight()
                                         .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                        .then(
+                                            if (isToday) {
+                                                // [视觉优化] 更明显的背景高亮
+                                                Modifier.background(
+                                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                                )
+                                            } else Modifier
+                                        )
                                 )
                             }
 
                             // [v45] 周末单元格 - 与表头同步
                             if (isWeekendExpanded) {
                                 // 展开时显示两列
-                                repeat(2) {
+                                listOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY).forEach { day ->
+                                    val isToday = isCurrentWeek && todayDayOfWeek == day  // [新功能 fix] 只有当前周才高亮
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .fillMaxHeight()
                                             .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                            .then(
+                                            if (isToday) {
+                                                    // [视觉优化] 更明显的背景高亮
+                                                    Modifier.background(
+                                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                                    )
+                                                } else Modifier
+                                            )
                                     )
                                 }
                             }
@@ -390,6 +431,7 @@ fun ScheduleGrid(
                                         CourseCardInternal(
                                             course = course,
                                             hasConflict = course.id in conflictingCourseIds,
+                                            isWaterCourse = course.name in waterCourseNames,  // [新功能]
                                             onClick = onCourseClick
                                         )
                                     }
@@ -508,11 +550,13 @@ fun ScheduleGrid(
  * 课程卡片内部组件
  * [v60] 颜色基于课程名称生成，教室显示3行并使用中间省略
  * [v74] 教室信息置于底部并添加低不透明度背景，课程名称改为三行
+ * [新功能] 支持水课标注，缩放为80% + 降低不透明度
  */
 @Composable
 private fun CourseCardInternal(
     course: Course,
     hasConflict: Boolean,
+    isWaterCourse: Boolean = false,  // [新功能]
     onClick: ((Course) -> Unit)?
 ) {
     // [v60] 基于课程名称生成颜色
@@ -520,9 +564,18 @@ private fun CourseCardInternal(
     val borderColor = if (hasConflict) Color.Red else Color.Transparent
     val borderWidth = if (hasConflict) 2.dp else 0.dp
 
+    // [视觉优化] 水课：缩放80% + 降低不透明度
+    val scale = if (isWaterCourse) 0.8f else 1.0f
+    val cardAlpha = when {
+        isWaterCourse -> 0.5f   // 水课半透明
+        hasConflict -> 0.7f     // 冲突稍透明
+        else -> 1.0f            // 正常
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxSize()
+            .scale(scale)  // [视觉优化] 应用缩放
             .clip(RoundedCornerShape(4.dp))
             .then(
                 if (onClick != null) {
@@ -533,8 +586,11 @@ private fun CourseCardInternal(
             )
             .border(borderWidth, borderColor, RoundedCornerShape(4.dp)),
         shape = RoundedCornerShape(4.dp),
-        color = if (hasConflict) backgroundColor.copy(alpha = 0.7f) else backgroundColor
+        color = backgroundColor.copy(alpha = cardAlpha)  // [视觉优化] 应用不透明度
     ) {
+        // [视觉优化] 水课文字也降低透明度
+        val textAlpha = if (isWaterCourse) 0.7f else 1.0f
+
         Box(modifier = Modifier.fillMaxSize()) {
             // 课程名称 - 上方区域
             Column(
@@ -550,7 +606,7 @@ private fun CourseCardInternal(
                         Icon(
                             imageVector = Icons.Default.Warning,
                             contentDescription = "Conflict",
-                            tint = Color.White,
+                            tint = Color.White.copy(alpha = textAlpha),
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(2.dp))
@@ -560,7 +616,7 @@ private fun CourseCardInternal(
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 3,  // [v74] 改为三行
                         overflow = TextOverflow.Ellipsis,
-                        color = Color.White
+                        color = Color.White.copy(alpha = textAlpha)  // [视觉优化]
                     )
                 }
             }
@@ -584,7 +640,7 @@ private fun CourseCardInternal(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         softWrap = true,
-                        color = Color.White.copy(alpha = 0.9f)
+                        color = Color.White.copy(alpha = if (isWaterCourse) 0.5f else 0.9f)  // [视觉优化]
                     )
                 }
             }

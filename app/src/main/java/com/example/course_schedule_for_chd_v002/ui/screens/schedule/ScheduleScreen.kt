@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
+// [新功能] 回到当前周按钮图标 - 不使用 Today 图标
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -69,8 +70,35 @@ fun ScheduleScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.schedule_title)) },
+                title = {
+                    // [新功能] 显示当前教学周（永远显示现实世界的周次）
+                    Column {
+                        Text(
+                            text = uiState.getTitleText(),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        // [新功能] 如果不在当前周，显示副标题
+                        uiState.getSubtitleText()?.let { subtitle ->
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
                 actions = {
+                    // [新功能] "回到当前周"按钮（移到 actions 区域）
+                    if (!uiState.isViewingCurrentWeek() && uiState.actualCurrentWeek != null) {
+                        TextButton(
+                            onClick = { viewModel.goToCurrentWeek() }
+                        ) {
+                            Text(
+                                text = "回到第${uiState.actualCurrentWeek}周",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
                     // [v42] 同步按钮（带文字），添加防抖
                     TextButton(
                         onClick = {
@@ -347,9 +375,12 @@ fun ScheduleScreen(
                         ScheduleGrid(
                             courses = weekCourses,
                             conflictingCourseIds = uiState.conflictingCourseIds,
+                            waterCourseNames = uiState.waterCourseNames,  // [新功能] 传递水课列表
                             onCourseClick = { course -> viewModel.onCourseSelected(course) },
                             isWeekendExpanded = isWeekendExpanded,
                             campus = uiState.campus,  // [v61] 传递校区参数
+                            todayDayOfWeek = uiState.todayDayOfWeek,  // [新功能] 传递今日星期几
+                            isCurrentWeek = week == uiState.actualCurrentWeek,  // [新功能 fix] 只有当前周才高亮
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -376,6 +407,8 @@ fun ScheduleScreen(
     uiState.selectedCourse?.let { course ->
         CourseDetailDialog(
             course = course,
+            isWaterCourse = uiState.isWaterCourse(course.name),  // [新功能]
+            onToggleWaterCourse = viewModel::toggleWaterCourse,  // [新功能]
             onDismiss = { viewModel.onCourseSelected(null) }
         )
     }
@@ -385,11 +418,15 @@ fun ScheduleScreen(
  * 课程详情弹窗
  *
  * @param course 课程数据
+ * @param isWaterCourse 是否为水课 [新功能]
+ * @param onToggleWaterCourse 切换水课标注回调 [新功能]
  * @param onDismiss 关闭回调
  */
 @Composable
 private fun CourseDetailDialog(
     course: Course,
+    isWaterCourse: Boolean,  // [新功能]
+    onToggleWaterCourse: (String) -> Unit,  // [新功能]
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -408,19 +445,32 @@ private fun CourseDetailDialog(
                 Text(course.getWeeksDisplayText())  // [v94] 使用位图精确显示周次
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(stringResource(R.string.time, course.startNode, course.endNode))
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(stringResource(R.string.credit, course.credit))
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(stringResource(R.string.type, course.courseType.displayName))
-                if (course.remark.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(stringResource(R.string.remark, course.remark))
-                }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.ok))
+            Row {
+                // [新功能] 水课标注按钮
+                TextButton(
+                    onClick = {
+                        onToggleWaterCourse(course.name)
+                        onDismiss()
+                    }
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (isWaterCourse) R.string.unmark_water_course
+                            else R.string.mark_as_water_course
+                        ),
+                        color = if (isWaterCourse)
+                            MaterialTheme.colorScheme.error
+                        else
+                            MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.ok))
+                }
             }
         }
     )

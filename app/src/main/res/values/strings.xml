@@ -47,4 +47,8 @@
     <string name="campus_east">东校区</string>
     <string name="campus_north">北校区</string>
     <string name="campus_south">南校区</string>
+
+    <!-- [新功能] 水课标注 -->
+    <string name="mark_as_water_course">标注为水课</string>
+    <string name="unmark_water_course">取消水课</string>
 </resources>
