@@ -29,6 +29,7 @@ class UserPreferences(private val context: Context) {
         private val KEY_CURRENT_SEMESTER = stringPreferencesKey("current_semester")
         private val KEY_CAMPUS = stringPreferencesKey("campus")  // [v61] 校区选择
         private val KEY_CURRENT_WEEK = intPreferencesKey("current_week")  // 当前教学周
+        private const val KEY_CONFLICT_CACHE_PREFIX = "conflict_cache_"  // [v74] 冲突缓存前缀
     }
 
     /**
@@ -184,5 +185,116 @@ class UserPreferences(private val context: Context) {
      */
     suspend fun getCurrentWeekOnce(): Int {
         return currentWeek.first()
+    }
+
+    // ================ [v74] 冲突缓存相关 ================
+
+    /**
+     * [v74] 保存冲突缓存
+     * @param semester 学期
+     * @param conflicts Map<周次, Set<冲突课程ID>>
+     */
+    suspend fun saveConflictCache(semester: String, conflicts: Map<Int, Set<Long>>) {
+        val key = stringPreferencesKey(KEY_CONFLICT_CACHE_PREFIX + semester)
+        val json = serializeConflictCache(conflicts)
+        context.dataStore.edit { preferences ->
+            preferences[key] = json
+        }
+        android.util.Log.d("UserPreferences", "[v74] 保存冲突缓存: semester=$semester, ${conflicts.size}周有冲突")
+    }
+
+    /**
+     * [v74] 获取冲突缓存
+     * @param semester 学期
+     * @return Map<周次, Set<冲突课程ID>>，无缓存返回空 Map
+     */
+    suspend fun getConflictCache(semester: String): Map<Int, Set<Long>> {
+        val key = stringPreferencesKey(KEY_CONFLICT_CACHE_PREFIX + semester)
+        val json = context.dataStore.data.map { preferences -> preferences[key] ?: "" }.first()
+        return if (json.isNotEmpty()) {
+            deserializeConflictCache(json)
+        } else {
+            emptyMap()
+        }
+    }
+
+    /**
+     * [v74] 清除冲突缓存
+     * @param semester 学期
+     */
+    suspend fun clearConflictCache(semester: String) {
+        val key = stringPreferencesKey(KEY_CONFLICT_CACHE_PREFIX + semester)
+        context.dataStore.edit { preferences ->
+            preferences.remove(key)
+        }
+        android.util.Log.d("UserPreferences", "[v74] 清除冲突缓存: semester=$semester")
+    }
+
+    /**
+     * [v74] 序列化冲突缓存为 JSON
+     * 格式: {"1":[123,456],"5":[789]}
+     */
+    private fun serializeConflictCache(conflicts: Map<Int, Set<Long>>): String {
+        if (conflicts.isEmpty()) return "{}"
+        val entries = conflicts.entries.map { (week, ids) ->
+            "\"$week\":[${ids.joinToString(",")}]"
+        }
+        return "{${entries.joinToString(",")}}"
+    }
+
+    /**
+     * [v74] 反序列化冲突缓存
+     */
+    private fun deserializeConflictCache(json: String): Map<Int, Set<Long>> {
+        if (json.isEmpty() || json == "{}") return emptyMap()
+
+        val result = mutableMapOf<Int, Set<Long>>()
+        try {
+            // 移除外层 {}
+            val content = json.trim().removeSurrounding("{", "}")
+            if (content.isEmpty()) return result
+
+            // 分割各个周次条目
+            var i = 0
+            while (i < content.length) {
+                // 查找周次
+                val weekStart = content.indexOf('"', i)
+                if (weekStart == -1) break
+                val weekEnd = content.indexOf('"', weekStart + 1)
+                if (weekEnd == -1) break
+                val week = content.substring(weekStart + 1, weekEnd).toIntOrNull()
+                if (week == null) {
+                    i = weekEnd + 1
+                    continue
+                }
+
+                // 查找冒号后的数组
+                val colonPos = content.indexOf(':', weekEnd)
+                if (colonPos == -1) break
+                val arrayStart = content.indexOf('[', colonPos)
+                if (arrayStart == -1) break
+                val arrayEnd = content.indexOf(']', arrayStart)
+                if (arrayEnd == -1) break
+
+                // 解析课程ID
+                val arrayContent = content.substring(arrayStart + 1, arrayEnd)
+                if (arrayContent.isNotEmpty()) {
+                    val ids = arrayContent.split(",")
+                        .mapNotNull { it.trim().toLongOrNull() }
+                        .toSet()
+                    if (ids.isNotEmpty()) {
+                        result[week] = ids
+                    }
+                }
+
+                i = arrayEnd + 1
+                // 跳过逗号
+                while (i < content.length && content[i] == ',') i++
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("UserPreferences", "[v74] 反序列化冲突缓存失败: ${e.message}")
+        }
+
+        return result
     }
 }

@@ -100,6 +100,31 @@ interface ICourseRepository {
      * @return Pair<学期字符串, 当前教学周>，失败返回 null
      */
     fun parseCurrentWeekFromHtml(html: String): Pair<String, Int>?
+
+    // ================ [v74] 冲突预计算缓存相关 ================
+
+    /**
+     * [v74] 预计算并缓存所有周的冲突信息
+     * 在导入课表后调用，一次性计算 1-25 周的所有课程冲突
+     * @param courses 课程列表
+     * @param semester 学期
+     */
+    suspend fun precomputeAndCacheConflicts(courses: List<Course>, semester: String)
+
+    /**
+     * [v74] 获取指定周的冲突课程ID
+     * @param semester 学期
+     * @param week 周次
+     * @return 冲突课程ID集合，无缓存返回 null
+     */
+    suspend fun getConflictsForWeek(semester: String, week: Int): Set<Long>?
+
+    /**
+     * [v74] 获取所有周的冲突缓存
+     * @param semester 学期
+     * @return Map<周次, Set<冲突课程ID>>，无缓存返回空 Map
+     */
+    suspend fun getConflictCache(semester: String): Map<Int, Set<Long>>
 }
 
 /**

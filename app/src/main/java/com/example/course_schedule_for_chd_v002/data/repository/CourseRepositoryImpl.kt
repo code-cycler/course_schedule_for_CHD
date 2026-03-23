@@ -12,6 +12,7 @@ import com.example.course_schedule_for_chd_v002.domain.repository.ICourseReposit
 import com.example.course_schedule_for_chd_v002.domain.repository.LoginResult
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.JsonUtils
+import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 import kotlinx.coroutines.flow.first
 
@@ -342,6 +343,10 @@ class CourseRepositoryImpl(
 
             // 转换为领域模型
             val courses = entities.map { it.toDomainModel() }
+
+            // [v74] 预计算并缓存所有周的冲突信息
+            precomputeAndCacheConflicts(courses, semester)
+
             Result.success(courses)
         } catch (e: Exception) {
             WebViewLogger.logParseDetail("[ERROR] parseHtmlToCourses exception: ${e.message}")
@@ -459,6 +464,9 @@ class CourseRepositoryImpl(
             // 插入新数据
             val entities = courses.map { CourseEntity.fromDomainModel(it) }
             courseDao.insertAll(entities)
+
+            // [v74] 预计算并缓存所有周的冲突信息
+            precomputeAndCacheConflicts(courses, semester)
         }
 
         return courses.size
@@ -514,5 +522,57 @@ class CourseRepositoryImpl(
 
         android.util.Log.i("CHD_CurrentWeek", "========== [Repository] parseCurrentWeekFromHtml 结束 ==========")
         return result
+    }
+
+    // ================ [v74] 冲突预计算缓存相关 ================
+
+    /**
+     * [v74] 预计算并缓存所有周的冲突信息
+     * 在导入课表后调用，一次性计算 1-25 周的所有课程冲突
+     */
+    override suspend fun precomputeAndCacheConflicts(courses: List<Course>, semester: String) {
+        android.util.Log.i(REPO_TAG, "========== [v74] 预计算冲突开始 ==========")
+        android.util.Log.i(REPO_TAG, "课程数: ${courses.size}, 学期: $semester")
+
+        if (courses.isEmpty()) {
+            android.util.Log.w(REPO_TAG, "课程列表为空，跳过预计算")
+            userPreferences.clearConflictCache(semester)
+            return
+        }
+
+        val maxWeek = courses.maxOfOrNull { it.endWeek } ?: 25
+        android.util.Log.i(REPO_TAG, "最大周次: $maxWeek")
+
+        val conflictCache = mutableMapOf<Int, Set<Long>>()
+        var totalConflicts = 0
+
+        for (week in 1..maxWeek) {
+            val conflicts = TimeUtils.findConflictsForWeek(courses, week)
+            if (conflicts.isNotEmpty()) {
+                conflictCache[week] = conflicts.keys
+                totalConflicts += conflicts.keys.size
+                android.util.Log.d(REPO_TAG, "周$week: ${conflicts.keys.size} 门课程有冲突")
+            }
+        }
+
+        userPreferences.saveConflictCache(semester, conflictCache)
+
+        android.util.Log.i(REPO_TAG, "预计算完成: ${conflictCache.size} 周有冲突, 共 $totalConflicts 个冲突标记")
+        android.util.Log.i(REPO_TAG, "========== [v74] 预计算冲突结束 ==========")
+    }
+
+    /**
+     * [v74] 获取指定周的冲突课程ID
+     */
+    override suspend fun getConflictsForWeek(semester: String, week: Int): Set<Long>? {
+        val cache = userPreferences.getConflictCache(semester)
+        return cache[week]
+    }
+
+    /**
+     * [v74] 获取所有周的冲突缓存
+     */
+    override suspend fun getConflictCache(semester: String): Map<Int, Set<Long>> {
+        return userPreferences.getConflictCache(semester)
     }
 }

@@ -81,6 +81,7 @@ class ScheduleViewModel(
      * [v35] 加载后自动选择第一个有课的周次，动态设置最大周数
      * [v89] 改为按当前周次计算冲突，而非全局冲突
      * [新增] 优先使用保存的当前教学周
+     * [v74] 优先从缓存获取冲突，无缓存时实时计算并缓存
      */
     private fun loadSchedule() {
         viewModelScope.launch {
@@ -108,12 +109,25 @@ class ScheduleViewModel(
                 firstWeek
             }
 
-            // [v89] 按当前周次计算冲突
-            val conflicts = TimeUtils.findConflictsForWeek(courses, initialWeek)
-            android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 冲突课程数: ${conflicts.size}")
-            conflicts.forEach { (courseId, conflictList) ->
-                android.util.Log.i("CHD_Conflict", "  冲突: courseId=$courseId, 与 ${conflictList.size} 门课程冲突")
+            // [v74] 优先从缓存获取冲突，无缓存时实时计算并缓存
+            val conflicts = repository.getConflictsForWeek(semester, initialWeek)
+            val conflictIds: Set<Long> = if (conflicts != null) {
+                android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 从缓存获取冲突: ${conflicts.size} 门")
+                conflicts
+            } else {
+                android.util.Log.i("CHD_Conflict", "[Step5] 周$initialWeek 缓存不存在，实时计算...")
+                val computedConflicts = TimeUtils.findConflictsForWeek(courses, initialWeek)
+                // 无缓存时，检查是否需要预计算（可能是旧数据升级）
+                if (courses.isNotEmpty()) {
+                    val cache = repository.getConflictCache(semester)
+                    if (cache.isEmpty()) {
+                        android.util.Log.i("CHD_Conflict", "[v74] 检测到无冲突缓存，触发预计算...")
+                        repository.precomputeAndCacheConflicts(courses, semester)
+                    }
+                }
+                computedConflicts.keys
             }
+            android.util.Log.i("CHD_Conflict", "[Step5.1] 周$initialWeek 最终冲突数: ${conflictIds.size}")
 
             android.util.Log.i("CHD_CurrentWeek", "[Step6] 最终显示周次: $initialWeek")
             android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
@@ -121,7 +135,7 @@ class ScheduleViewModel(
             _uiState.update {
                 it.copy(
                     courses = courses,
-                    conflictingCourseIds = conflicts.keys,
+                    conflictingCourseIds = conflictIds,
                     currentWeek = initialWeek,
                     maxWeeks = maxWeek,  // [v35] 动态设置最大周数
                     isLoading = false
@@ -132,13 +146,26 @@ class ScheduleViewModel(
 
     /**
      * [v89] 根据周次更新冲突课程ID
+     * [v74] 优先从缓存获取，无缓存时实时计算
      * @param week 周次
      */
     private fun updateConflictsForWeek(week: Int) {
-        val courses = _uiState.value.courses
-        val conflicts = TimeUtils.findConflictsForWeek(courses, week)
-        android.util.Log.d("ScheduleViewModel", "[v89] updateConflictsForWeek: 周$week, 冲突数: ${conflicts.size}")
-        _uiState.update { it.copy(conflictingCourseIds = conflicts.keys) }
+        viewModelScope.launch {
+            val courses = _uiState.value.courses
+
+            // [v74] 优先从缓存获取
+            val conflicts = repository.getConflictsForWeek(semester, week)
+            val conflictIds: Set<Long> = if (conflicts != null) {
+                android.util.Log.d("ScheduleViewModel", "[v74] updateConflictsForWeek: 周$week, 从缓存获取 ${conflicts.size} 个冲突")
+                conflicts
+            } else {
+                val computed = TimeUtils.findConflictsForWeek(courses, week)
+                android.util.Log.d("ScheduleViewModel", "[v74] updateConflictsForWeek: 周$week, 实时计算 ${computed.size} 个冲突")
+                computed.keys
+            }
+
+            _uiState.update { it.copy(conflictingCourseIds = conflictIds) }
+        }
     }
 
     /**
