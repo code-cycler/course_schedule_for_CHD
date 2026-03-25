@@ -42,11 +42,13 @@ import kotlin.math.abs  // [v60] 用于课程颜色哈希
  * - [v44] 周末折叠状态由外部控制，通过参数传入
  * - [v61] 支持校区切换，不同校区有不同的时间安排
  * - [新功能] 支持高亮今日列（仅当视图周=当前教学周时）
+ * - [新功能] 表头显示日期（根据周次计算）
  *
  * @param isWeekendExpanded 周末是否展开（由外部控制）
  * @param campus 校区选择（影响时间显示）[v61]
  * @param todayDayOfWeek 今天是星期几，用于高亮今日列 [新功能]
  * @param isCurrentWeek 当前视图是否为当前教学周 [新功能 fix]
+ * @param weekStartDate 当前显示周的周一日期，用于表头显示日期 [新功能]
  */
 @Composable
 fun ScheduleGrid(
@@ -58,12 +60,13 @@ fun ScheduleGrid(
     campus: Campus = Campus.WEISHUI,     // [v61] 校区选择
     todayDayOfWeek: DayOfWeek? = null,   // [新功能] 今日星期几
     isCurrentWeek: Boolean = false,      // [新功能 fix] 是否为当前教学周
+    weekStartDate: java.time.LocalDate? = null,  // [新功能] 当前周的周一日期
     modifier: Modifier = Modifier
 ) {
     val days = DayOfWeek.entries
     val totalNodes = 11
     val cellHeight = 70.dp  // [v73] 增加格子高度 60->70dp
-    val headerHeight = 32.dp
+    val headerHeight = 40.dp  // [新功能] 增加表头高度 32->40dp 以容纳日期显示
     val labelWidth = 40.dp  // [v75] 进一步减小宽度
     val separatorHeight = 4.dp
 
@@ -114,6 +117,9 @@ fun ScheduleGrid(
             // 周一到周五
             days.take(5).forEach { day ->
                 val isToday = isCurrentWeek && todayDayOfWeek == day  // [新功能 fix] 只有当前周才高亮
+                // [新功能] 计算当天日期（周一 = weekStartDate + 0天，周二 = +1天，...）
+                val dayDate = weekStartDate?.plusDays((day.value - 1).toLong())
+
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -131,38 +137,134 @@ fun ScheduleGrid(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = getDayAbbreviation(day),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,  // [视觉优化] 加粗
-                        color = if (isToday)
-                            MaterialTheme.colorScheme.onPrimary  // [视觉优化] 使用 onPrimary
-                        else
-                            MaterialTheme.colorScheme.onSurface
-                    )
+                    // [新功能] 使用 Column 显示星期几和日期
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = getDayAbbreviation(day),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,  // [视觉优化] 加粗
+                            color = if (isToday)
+                                MaterialTheme.colorScheme.onPrimary  // [视觉优化] 使用 onPrimary
+                            else
+                                MaterialTheme.colorScheme.onSurface
+                        )
+                        // [新功能] 显示日期
+                        if (dayDate != null) {
+                            Text(
+                                text = "${dayDate.monthValue}/${dayDate.dayOfMonth}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isToday)
+                                    MaterialTheme.colorScheme.onPrimary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
 
             // [v45] 周末区域 - 折叠时完全隐藏
             if (isWeekendExpanded) {
                 // 展开时：显示周六、周日两列
+                // [新功能] 周六日期 = weekStartDate + 5天
+                val saturdayDate = weekStartDate?.plusDays(5)
+                val isSaturdayToday = isCurrentWeek && todayDayOfWeek == DayOfWeek.SATURDAY
+
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(headerHeight)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                        .then(
+                            if (isSaturdayToday) {
+                                Modifier
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(0.dp))
+                            } else {
+                                Modifier
+                            }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = "Sat", style = MaterialTheme.typography.labelSmall)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Sat",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isSaturdayToday) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSaturdayToday)
+                                MaterialTheme.colorScheme.onPrimary
+                            else
+                                MaterialTheme.colorScheme.onSurface
+                        )
+                        if (saturdayDate != null) {
+                            Text(
+                                text = "${saturdayDate.monthValue}/${saturdayDate.dayOfMonth}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                fontWeight = if (isSaturdayToday) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSaturdayToday)
+                                    MaterialTheme.colorScheme.onPrimary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
+
+                // [新功能] 周日日期 = weekStartDate + 6天
+                val sundayDate = weekStartDate?.plusDays(6)
+                val isSundayToday = isCurrentWeek && todayDayOfWeek == DayOfWeek.SUNDAY
+
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(headerHeight)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                        .then(
+                            if (isSundayToday) {
+                                Modifier
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(0.dp))
+                            } else {
+                                Modifier
+                            }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = "Sun", style = MaterialTheme.typography.labelSmall)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Sun",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isSundayToday) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSundayToday)
+                                MaterialTheme.colorScheme.onPrimary
+                            else
+                                MaterialTheme.colorScheme.onSurface
+                        )
+                        if (sundayDate != null) {
+                            Text(
+                                text = "${sundayDate.monthValue}/${sundayDate.dayOfMonth}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                fontWeight = if (isSundayToday) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSundayToday)
+                                    MaterialTheme.colorScheme.onPrimary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
             // [v45] 折叠时：完全不显示周末区域

@@ -167,6 +167,15 @@ class ScheduleViewModel(
             android.util.Log.i("CHD_Conflict", "[Step7.1] 周$initialWeek 最终冲突数: ${conflictIds.size}")
 
             android.util.Log.i("CHD_CurrentWeek", "[Step8] 最终显示周次: $initialWeek")
+
+            // [新功能] 计算当前显示周的周一日期
+            val weekStartDate = if (semesterStartDate != null) {
+                TimeUtils.calculateWeekStartDate(semesterStartDate, initialWeek)
+            } else {
+                null
+            }
+            android.util.Log.i("CHD_CurrentWeek", "[Step9] 周$initialWeek 周一日期: $weekStartDate")
+
             android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
 
             _uiState.update {
@@ -177,6 +186,7 @@ class ScheduleViewModel(
                     maxWeeks = maxWeek,  // [v35] 动态设置最大周数
                     actualCurrentWeek = actualCurrentWeek,  // [新功能]
                     todayDayOfWeek = todayDayOfWeek,        // [新功能]
+                    weekStartDate = weekStartDate,          // [新功能] 当前周的周一日期
                     waterCourseNames = waterCourses,        // [新功能] 水课列表
                     isLoading = false
                 )
@@ -253,14 +263,31 @@ class ScheduleViewModel(
     /**
      * 选择周次
      * [v89] 切换周次时更新冲突标记
+     * [新功能] 切换周次时更新周开始日期
      *
      * @param week 周次 (1-16)
      */
     fun onWeekSelected(week: Int) {
         val newWeek = week.coerceIn(1, _uiState.value.maxWeeks)
-        _uiState.update {
-            it.copy(currentWeek = newWeek)
+
+        // [新功能] 计算新周的周一日期
+        viewModelScope.launch {
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            val weekStartDate = if (semesterStartDate != null) {
+                TimeUtils.calculateWeekStartDate(semesterStartDate, newWeek)
+            } else {
+                null
+            }
+            android.util.Log.d("ScheduleViewModel", "[新功能] 切换到周$newWeek, 周一日期: $weekStartDate")
+
+            _uiState.update {
+                it.copy(
+                    currentWeek = newWeek,
+                    weekStartDate = weekStartDate
+                )
+            }
         }
+
         // [v89] 切换周次时更新冲突
         updateConflictsForWeek(newWeek)
     }
@@ -273,6 +300,58 @@ class ScheduleViewModel(
         if (targetWeek in 1.._uiState.value.maxWeeks) {
             android.util.Log.i("ScheduleViewModel", "[新功能] 跳转到当前教学周: $targetWeek")
             onWeekSelected(targetWeek)
+        }
+    }
+
+    /**
+     * [新功能] 刷新当前时间和教学周信息
+     * 每次 APP 回到前台时调用，确保当前教学周和今日列与现实时间同步
+     */
+    fun refreshCurrentTimeInfo() {
+        viewModelScope.launch {
+            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] refreshCurrentTimeInfo 开始 ==========")
+
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            val maxWeek = _uiState.value.maxWeeks
+            val currentDisplayWeek = _uiState.value.currentWeek
+
+            // 计算当前实际教学周
+            val actualCurrentWeek = when {
+                semesterStartDate != null -> TimeUtils.calculateCurrentWeek(semesterStartDate)
+                else -> null
+            }
+            android.util.Log.i("CHD_CurrentWeek", "学期开始日期: $semesterStartDate, 计算的实际当前周: $actualCurrentWeek")
+
+            // 获取今天星期几
+            val todayDayOfWeek = TimeUtils.getTodayDayOfWeek()
+            android.util.Log.i("CHD_CurrentWeek", "今天是: $todayDayOfWeek")
+
+            // [新功能] 计算当前显示周的周一日期
+            val weekStartDate = if (semesterStartDate != null) {
+                TimeUtils.calculateWeekStartDate(semesterStartDate, currentDisplayWeek)
+            } else {
+                null
+            }
+            android.util.Log.i("CHD_CurrentWeek", "当前显示周$currentDisplayWeek 周一日期: $weekStartDate")
+
+            // 更新 UI 状态
+            _uiState.update { currentState ->
+                // 如果当前正在查看的是实际当前周（或之前没有选择特定周），则保持在当前周
+                // 否则保持用户选择的周次不变
+                val shouldUpdateDisplayWeek = actualCurrentWeek != null &&
+                    actualCurrentWeek in 1..maxWeek &&
+                    currentState.currentWeek != actualCurrentWeek &&
+                    currentState.currentWeek == currentState.actualCurrentWeek // 只有之前也在看当前周时才自动跳转
+
+                currentState.copy(
+                    actualCurrentWeek = actualCurrentWeek,
+                    todayDayOfWeek = todayDayOfWeek,
+                    weekStartDate = weekStartDate,  // [新功能] 更新周开始日期
+                    currentWeek = if (shouldUpdateDisplayWeek) actualCurrentWeek else currentState.currentWeek
+                )
+            }
+
+            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] refreshCurrentTimeInfo 结束 ==========")
         }
     }
 

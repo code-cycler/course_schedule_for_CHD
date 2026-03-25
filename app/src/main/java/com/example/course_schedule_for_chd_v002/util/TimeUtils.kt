@@ -78,6 +78,33 @@ object TimeUtils {
     }
 
     /**
+     * [新功能] 计算指定周的周一日期
+     * @param semesterStartDate 学期开始日期 (格式: "yyyy-MM-dd")
+     * @param week 周次 (1-25)
+     * @return 该周的周一日期 (LocalDate)，计算失败返回 null
+     */
+    fun calculateWeekStartDate(semesterStartDate: String, week: Int): java.time.LocalDate? {
+        android.util.Log.i(TAG_WEEK, "========== calculateWeekStartDate 开始 ==========")
+        android.util.Log.i(TAG_WEEK, "学期开始日期: $semesterStartDate, 周次: $week")
+
+        return try {
+            val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+            val startDate = java.time.LocalDate.parse(semesterStartDate, formatter)
+
+            // 学期第N周的周一 = 学期开始日期 + (N-1) * 7 天
+            val weekMonday = startDate.plusDays((week - 1).toLong() * 7)
+
+            android.util.Log.i(TAG_WEEK, "第${week}周周一: $weekMonday")
+            android.util.Log.i(TAG_WEEK, "========== calculateWeekStartDate 结束 ==========")
+            weekMonday
+        } catch (e: Exception) {
+            android.util.Log.e(TAG_WEEK, "计算周开始日期失败: ${e.message}")
+            android.util.Log.i(TAG_WEEK, "========== calculateWeekStartDate 异常: null ==========")
+            null
+        }
+    }
+
+    /**
      * [新功能] 获取今天是星期几
      * @return DayOfWeek 枚举值 (1=周一, 7=周日)
      */

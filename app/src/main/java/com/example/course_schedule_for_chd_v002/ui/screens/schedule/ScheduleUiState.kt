@@ -44,6 +44,9 @@ data class ScheduleUiState(
     // [新功能] 今天是星期几
     val todayDayOfWeek: DayOfWeek? = null,
 
+    // [新功能] 当前显示周的周一日期（用于表头显示日期）
+    val weekStartDate: java.time.LocalDate? = null,
+
     // [新功能] 水课名称集合（用于 UI 标记）
     val waterCourseNames: Set<String> = emptySet()
 ) {

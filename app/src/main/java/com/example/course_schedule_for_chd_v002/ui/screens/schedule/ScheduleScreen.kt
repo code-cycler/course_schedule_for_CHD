@@ -17,10 +17,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.course_schedule_for_chd_v002.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
@@ -54,6 +57,21 @@ fun ScheduleScreen(
     LaunchedEffect(Unit) {
         android.util.Log.d("ScheduleScreen", "[v24] LaunchedEffect 触发，调用 reload()")
         viewModel.reload()
+    }
+
+    // [新功能] 监听生命周期，每次 onResume 时刷新当前时间和教学周
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                android.util.Log.d("ScheduleScreen", "[新功能] ON_RESUME 触发，刷新当前时间和教学周")
+                viewModel.refreshCurrentTimeInfo()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     // 登出后导航
@@ -381,6 +399,7 @@ fun ScheduleScreen(
                             campus = uiState.campus,  // [v61] 传递校区参数
                             todayDayOfWeek = uiState.todayDayOfWeek,  // [新功能] 传递今日星期几
                             isCurrentWeek = week == uiState.actualCurrentWeek,  // [新功能 fix] 只有当前周才高亮
+                            weekStartDate = uiState.weekStartDate,  // [新功能] 传递周开始日期
                             modifier = Modifier.fillMaxSize()
                         )
                     }
