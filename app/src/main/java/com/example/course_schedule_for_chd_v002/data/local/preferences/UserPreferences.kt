@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -32,6 +33,12 @@ class UserPreferences(private val context: Context) {
         private const val KEY_CONFLICT_CACHE_PREFIX = "conflict_cache_"  // [v74] 冲突缓存前缀
         private val KEY_SEMESTER_START_DATE = stringPreferencesKey("semester_start_date")  // [新功能] 学期开始日期
         private val KEY_LAST_PARSED_WEEK = intPreferencesKey("last_parsed_week")  // [新功能] 上次从首页解析的周次
+
+        // [课程提醒] 提醒设置
+        private val KEY_REMINDER_SETTINGS = stringPreferencesKey("reminder_settings")
+
+        // [权限管理] 首次启动标记
+        private val KEY_FIRST_LAUNCH = booleanPreferencesKey("first_launch")
     }
 
     /**
@@ -498,5 +505,96 @@ class UserPreferences(private val context: Context) {
             .replace("\\n", "\n")
             .replace("\\\"", "\"")
             .replace("\\\\", "\\")
+    }
+
+    // ================ [课程提醒] 提醒设置相关 ================
+
+    /**
+     * [课程提醒] 获取提醒设置
+     */
+    val reminderSettings: Flow<ReminderSettings> = context.dataStore.data.map { preferences ->
+        val json = preferences[KEY_REMINDER_SETTINGS] ?: ""
+        if (json.isNotEmpty()) {
+            ReminderSettings.fromJson(json)
+        } else {
+            ReminderSettings.DEFAULT
+        }
+    }
+
+    /**
+     * [课程提醒] 获取提醒设置（一次性读取）
+     */
+    suspend fun getReminderSettingsOnce(): ReminderSettings {
+        val result = reminderSettings.first()
+        android.util.Log.d("UserPreferences", "[Debug] getReminderSettingsOnce: $result")
+        return result
+    }
+
+    /**
+     * [课程提醒] 保存提醒设置
+     */
+    suspend fun saveReminderSettings(settings: ReminderSettings) {
+        android.util.Log.d("UserPreferences", "[Debug] saveReminderSettings 开始: $settings")
+        context.dataStore.edit { preferences ->
+            preferences[KEY_REMINDER_SETTINGS] = settings.toJson()
+        }
+        android.util.Log.d("UserPreferences", "[Debug] saveReminderSettings 完成")
+    }
+
+    /**
+     * [课程提醒] 更新提醒设置（部分更新）
+     */
+    suspend fun updateReminderSettings(
+        earlyMorningReminderEnabled: Boolean? = null,
+        earlyMorningReminderHour: Int? = null,
+        earlyMorningReminderMinute: Int? = null,
+        beforeClassReminderEnabled: Boolean? = null,
+        beforeClassReminderMinutes: Int? = null,
+        calendarSyncEnabled: Boolean? = null,
+        calendarId: Long? = null,
+        reminderSoundEnabled: Boolean? = null,
+        reminderVibrationEnabled: Boolean? = null
+    ) {
+        val current = getReminderSettingsOnce()
+        val updated = current.copy(
+            earlyMorningReminderEnabled = earlyMorningReminderEnabled ?: current.earlyMorningReminderEnabled,
+            earlyMorningReminderHour = earlyMorningReminderHour ?: current.earlyMorningReminderHour,
+            earlyMorningReminderMinute = earlyMorningReminderMinute ?: current.earlyMorningReminderMinute,
+            beforeClassReminderEnabled = beforeClassReminderEnabled ?: current.beforeClassReminderEnabled,
+            beforeClassReminderMinutes = beforeClassReminderMinutes ?: current.beforeClassReminderMinutes,
+            calendarSyncEnabled = calendarSyncEnabled ?: current.calendarSyncEnabled,
+            calendarId = calendarId ?: current.calendarId,
+            reminderSoundEnabled = reminderSoundEnabled ?: current.reminderSoundEnabled,
+            reminderVibrationEnabled = reminderVibrationEnabled ?: current.reminderVibrationEnabled
+        )
+        saveReminderSettings(updated)
+    }
+
+    // ================ [权限管理] 首次启动标记 ================
+
+    /**
+     * [权限管理] 检查是否首次启动
+     * 用于决定是否显示权限请求引导页
+     */
+    val isFirstLaunch: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_FIRST_LAUNCH] ?: true
+    }
+
+    /**
+     * [权限管理] 获取首次启动状态（一次性读取）
+     */
+    suspend fun isFirstLaunchOnce(): Boolean {
+        return isFirstLaunch.first()
+    }
+
+    /**
+     * [权限管理] 标记为非首次启动
+     * 在用户完成权限引导或跳过后调用
+     */
+    suspend fun markAsNotFirstLaunch() {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_FIRST_LAUNCH] = false
+        }
+        android.util.Log.d("UserPreferences", "[权限管理] 标记为非首次启动")
     }
 }

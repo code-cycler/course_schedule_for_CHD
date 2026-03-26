@@ -3,6 +3,7 @@ package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
+import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 
 /**
  * 课程表界面UI状态
@@ -48,7 +49,12 @@ data class ScheduleUiState(
     val weekStartDate: java.time.LocalDate? = null,
 
     // [新功能] 水课名称集合（用于 UI 标记）
-    val waterCourseNames: Set<String> = emptySet()
+    val waterCourseNames: Set<String> = emptySet(),
+
+    // ================ [课程提醒] 提醒设置相关 ================
+
+    // [课程提醒] 提醒设置
+    val reminderSettings: ReminderSettings = ReminderSettings.DEFAULT
 ) {
     /**
      * [新功能] 判断课程是否为水课

@@ -532,8 +532,7 @@ fun WebViewScreen(
 }
 
 /**
- * [v72] 动态等待页面渲染完成
- * 初始等待 500ms，然后每 200ms 检测一次，最多 5 秒
+ * [v96] 立即检测页面状态（取消等待时间）
  *
  * @param view WebView 实例
  * @param onReady 页面准备就绪回调
@@ -541,9 +540,9 @@ fun WebViewScreen(
  */
 private fun waitForPageReady(view: WebView, onReady: () -> Unit, onTimeout: () -> Unit) {
     var attempts = 0
-    val maxAttempts = 25  // 500ms + 24*200ms = 5.3秒
-    val checkInterval = 200L
-    val initialDelay = 500L
+    val maxAttempts = 1  // [v96] 只检测1次
+    val checkInterval = 0L  // [v96] 无间隔
+    val initialDelay = 0L  // [v96] 无初始延迟
 
     val checkRunnable = object : Runnable {
         override fun run() {
@@ -576,7 +575,7 @@ private fun waitForPageReady(view: WebView, onReady: () -> Unit, onTimeout: () -
         }
     }
 
-    // 初始等待 500ms 后开始检测
+    // [v96] 立即开始检测（无延迟）
     WebViewLogger.logDebug("课表", "开始动态检测页面状态...")
     view.postDelayed(checkRunnable, initialDelay)
 }

@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.example.course_schedule_for_chd_v002.data.local.database.entity.CourseEntity
+import kotlinx.coroutines.flow.Flow
 
 /**
  * 课程数据访问对象
@@ -12,6 +13,37 @@ import com.example.course_schedule_for_chd_v002.data.local.database.entity.Cours
  */
 @Dao
 interface CourseDao {
+
+    /**
+     * 按学期查询课程 (Flow)
+     * @param semester 学期标识，如 "2024-2025-1"
+     * @return 该学期的所有课程的Flow，按星期和节次排序
+     */
+    @Query("SELECT * FROM courses WHERE semester = :semester ORDER BY dayOfWeek, startNode")
+    fun getCoursesBySemesterFlow(semester: String): Flow<List<CourseEntity>>
+
+    /**
+     * 获取当前学期 (Flow)
+     * @return 最新的学期标识
+     */
+    @Query("SELECT DISTINCT semester FROM courses ORDER BY semester DESC LIMIT 1")
+    fun getCurrentSemesterFlow(): Flow<String?>
+
+    /**
+     * 按学期查询课程 (同步)
+     * @param semester 学期标识，如 "2024-2025-1"
+     * @return 该学期的所有课程，按星期和节次排序
+     */
+    @Query("SELECT * FROM courses WHERE semester = :semester ORDER BY dayOfWeek, startNode")
+    suspend fun getCoursesBySemester(semester: String): List<CourseEntity>
+
+    /**
+     * 按学期查询课程 (同步，非suspend版本，用于BroadcastReceiver)
+     * @param semester 学期标识，如 "2024-2025-1"
+     * @return 该学期的所有课程，按星期和节次排序
+     */
+    @Query("SELECT * FROM courses WHERE semester = :semester ORDER BY dayOfWeek, startNode")
+    fun getCoursesBySemesterSync(semester: String): List<CourseEntity>
 
     /**
      * 按学期查询课程

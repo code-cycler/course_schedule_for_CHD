@@ -59,21 +59,31 @@ object TimeUtils {
 
     /**
      * [新功能] 根据当前教学周反推学期开始日期
+     * [v99 Debug] 修复日期计算：必须先计算当前周周一，再反推第1周周一
      * @param currentWeek 当前教学周 (1-25)
-     * @return 学期开始日期字符串 (格式: "yyyy-MM-dd")
+     * @return 学期开始日期字符串 (格式: "yyyy-MM-dd")，应该是第1周的周一
      */
     fun calculateSemesterStartDate(currentWeek: Int): String {
-        android.util.Log.i(TAG_WEEK, "========== calculateSemesterStartDate 开始 ==========")
-        android.util.Log.i(TAG_WEEK, "当前周次: $currentWeek")
+        android.util.Log.i(TAG_WEEK, "========== [v99] calculateSemesterStartDate 开始 ==========")
+        android.util.Log.i(TAG_WEEK, "[v99] 当前周次: $currentWeek")
 
         val today = java.time.LocalDate.now()
-        // 学期第1周的第1天 = 今天 - (当前周-1)*7天
-        val startDate = today.minusDays((currentWeek - 1).toLong() * 7)
-        val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        val result = startDate.format(formatter)
+        val todayDayOfWeek = today.dayOfWeek.value  // 1=周一，7=周日
 
-        android.util.Log.i(TAG_WEEK, "反推结果: 今天=$today, 学期开始=$result")
-        android.util.Log.i(TAG_WEEK, "========== calculateSemesterStartDate 结束 ==========")
+        // [v99] 步骤1：计算当前周的周一
+        val currentWeekMonday = today.minusDays((todayDayOfWeek - 1).toLong())
+        android.util.Log.i(TAG_WEEK, "[v99] 今天: $today (周$todayDayOfWeek)")
+        android.util.Log.i(TAG_WEEK, "[v99] 当前周周一: $currentWeekMonday")
+
+        // [v99] 步骤2：计算第1周的周一 = 当前周周一 - (currentWeek - 1) * 7 天
+        val semesterStartDate = currentWeekMonday.minusDays((currentWeek - 1).toLong() * 7)
+        android.util.Log.i(TAG_WEEK, "[v99] 第1周周一（学期开始）: $semesterStartDate")
+
+        val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val result = semesterStartDate.format(formatter)
+
+        android.util.Log.i(TAG_WEEK, "[v99] 反推结果: 今天=$today, 学期开始=$result")
+        android.util.Log.i(TAG_WEEK, "========== [v99] calculateSemesterStartDate 结束 ==========")
         return result
     }
 

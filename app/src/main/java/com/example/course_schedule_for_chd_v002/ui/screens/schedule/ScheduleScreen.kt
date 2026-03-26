@@ -1,5 +1,12 @@
 package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border  // [v74] 末尾空节次按钮边框
 import androidx.compose.foundation.clickable
@@ -12,14 +19,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 // [新功能] 回到当前周按钮图标 - 不使用 Today 图标
 import androidx.compose.material3.*
+import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.example.course_schedule_for_chd_v002.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
@@ -29,11 +42,11 @@ import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
 import com.example.course_schedule_for_chd_v002.ui.components.WeekSelector
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.example.course_schedule_for_chd_v002.ui.components.SettingsDrawer
+// [v96] 移除不再需要的协程导入（防抖已取消）
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
+import kotlinx.coroutines.launch
 
 /**
  * 课程表界面
@@ -52,6 +65,91 @@ fun ScheduleScreen(
     viewModel: ScheduleViewModel = koinViewModel { parametersOf(semester) }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // [课程提醒] 侧边栏状态
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    // [课程提醒] 提醒设置
+    val reminderSettings by viewModel.reminderSettings.collectAsStateWithLifecycle()
+
+    // [权限管理] 获取 Context
+    val context = LocalContext.current
+
+    // [权限管理] 通知权限请求 Launcher
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        android.util.Log.d("ScheduleScreen", "[权限] 通知权限结果: $isGranted")
+        viewModel.onNotificationPermissionResult(isGranted)
+    }
+
+    // [权限管理] 日历权限请求 Launcher
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val hasRead = permissions[Manifest.permission.READ_CALENDAR] == true
+        val hasWrite = permissions[Manifest.permission.WRITE_CALENDAR] == true
+        val hasCalendar = hasRead && hasWrite
+        android.util.Log.d("ScheduleScreen", "[权限] 日历权限结果: read=$hasRead, write=$hasWrite, hasCalendar=$hasCalendar")
+        viewModel.onCalendarPermissionResult(hasCalendar)
+    }
+
+    // [权限管理] 检查通知权限
+    fun hasNotificationPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true // Android 13 以下不需要运行时权限
+        }
+    }
+
+    // [权限管理] 检查日历权限
+    fun hasCalendarPermission(): Boolean {
+        val hasRead = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.READ_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasWrite = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.WRITE_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+        return hasRead && hasWrite
+    }
+
+    // [权限管理] 请求通知权限
+    fun requestNotificationPermission() {
+        android.util.Log.d("ScheduleScreen", "[权限] 请求通知权限")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // [权限管理] 请求日历权限
+    fun requestCalendarPermission() {
+        android.util.Log.d("ScheduleScreen", "[权限] 请求日历权限")
+        calendarPermissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.READ_CALENDAR,
+                Manifest.permission.WRITE_CALENDAR
+            )
+        )
+    }
+
+    // [权限管理] 打开精确闹钟设置页面
+    fun openExactAlarmSettings() {
+        android.util.Log.d("ScheduleScreen", "[权限] 打开精确闹钟设置页面")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                android.util.Log.e("ScheduleScreen", "[权限] 打开精确闹钟设置失败", e)
+            }
+        }
+    }
 
     // [v24] 每次进入屏幕时重新加载数据
     LaunchedEffect(Unit) {
@@ -81,14 +179,79 @@ fun ScheduleScreen(
         }
     }
 
-    // [v42] 导航防抖状态
-    var isNavigating by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    android.util.Log.d("ScheduleScreen", "[Debug] SettingsDrawer 组件初始化, settings=$reminderSettings")
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
+    SettingsDrawer(
+        drawerState = drawerState,
+        settings = reminderSettings,
+        hasNotificationPermission = hasNotificationPermission(),
+        hasCalendarPermission = hasCalendarPermission(),
+        hasExactAlarmPermission = viewModel.canScheduleExactAlarms(),
+        onSettingsChange = {
+            android.util.Log.d("ScheduleScreen", "[Debug] 设置变化: $it")
+            viewModel.updateReminderSettings(it)
+        },
+        onCalendarSyncClick = {
+            android.util.Log.d("ScheduleScreen", "[Debug] 日历同步按钮被点击")
+            // 先检查日历权限
+            if (!hasCalendarPermission()) {
+                android.util.Log.d("ScheduleScreen", "[Debug] 没有日历权限，先请求权限")
+                requestCalendarPermission()
+            } else {
+                android.util.Log.d("ScheduleScreen", "[Debug] 已有日历权限，直接同步")
+                viewModel.syncToCalendar()
+            }
+        },
+        onDeleteCalendarClick = {  // [v98] 删除日历事件
+            android.util.Log.d("ScheduleScreen", "[Debug] 删除日历按钮被点击")
+            viewModel.deleteCalendarEvents()
+        },
+        onRequestCalendarPermission = {
+            android.util.Log.d("ScheduleScreen", "[Debug] 请求日历权限")
+            requestCalendarPermission()
+        },
+        onRequestNotificationPermission = {
+            android.util.Log.d("ScheduleScreen", "[Debug] 请求通知权限")
+            requestNotificationPermission()
+        },
+        onRequestExactAlarmPermission = {
+            android.util.Log.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
+            openExactAlarmSettings()
+        },
+        onRequestAllPermissions = {
+            android.util.Log.d("ScheduleScreen", "[Debug] 一键请求所有权限")
+            // [权限管理] 依次请求缺失的权限
+            when {
+                !hasNotificationPermission() -> {
+                    android.util.Log.d("ScheduleScreen", "[Debug] 请求通知权限")
+                    requestNotificationPermission()
+                }
+                !hasCalendarPermission() -> {
+                    android.util.Log.d("ScheduleScreen", "[Debug] 请求日历权限")
+                    requestCalendarPermission()
+                }
+                !viewModel.canScheduleExactAlarms() -> {
+                    android.util.Log.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
+                    openExactAlarmSettings()
+                }
+            }
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            android.util.Log.d("ScheduleScreen", "[Debug] 设置按钮被点击, 尝试打开侧边栏")
+                            scope.launch { drawerState.open() }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "设置"
+                            )
+                        }
+                    },
+                    title = {
                     // [新功能] 显示当前教学周（永远显示现实世界的周次）
                     Column {
                         Text(
@@ -117,18 +280,10 @@ fun ScheduleScreen(
                             )
                         }
                     }
-                    // [v42] 同步按钮（带文字），添加防抖
+                    // [v96] 同步按钮（带文字），取消防抖
                     TextButton(
                         onClick = {
-                            if (!isNavigating) {
-                                isNavigating = true
-                                onNavigateToLogin()
-                                // 延迟重置防抖状态
-                                scope.launch(Dispatchers.Main) {
-                                    delay(500)
-                                    isNavigating = false
-                                }
-                            }
+                            onNavigateToLogin()
                         }
                     ) {
                         Icon(
@@ -421,6 +576,7 @@ fun ScheduleScreen(
             }
         }
     }
+    }  // SettingsDrawer end
 
     // Course detail dialog
     uiState.selectedCourse?.let { course ->

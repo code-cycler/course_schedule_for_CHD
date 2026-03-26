@@ -745,7 +745,7 @@ private fun CourseCardInternal(
                         color = Color.White.copy(alpha = if (isWaterCourse) 0.5f else 0.9f)  // [视觉优化]
                     )
                 }
-            }
+9            }
         }
     }
 }

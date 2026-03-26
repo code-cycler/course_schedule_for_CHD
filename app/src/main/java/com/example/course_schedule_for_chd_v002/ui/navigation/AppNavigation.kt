@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,11 +17,15 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.login.WebViewScreen  // [v47] 使用系统 WebView
+import com.example.course_schedule_for_chd_v002.ui.screens.permission.PermissionRequestScreen  // [权限管理]
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleScreen
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -41,18 +46,29 @@ fun AppNavigation(
     navController: NavHostController
 ) {
     val repository: ICourseRepository = koinInject()
+    val userPreferences: UserPreferences = koinInject()  // [权限管理]
 
-    // 始终以课程表视图为起始目的地
+    // 始终以课程表视图为起始目的地（或权限请求页）
     var startDestination by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         android.util.Log.d(TAG, "=== 初始化起始目的地 ===")
         withContext(Dispatchers.IO) {
-            // 获取当前学期（始终以课程表视图开始）
-            val semester = repository.getCurrentSemester() ?: "2024-2025-1"
-            val route = Screen.Schedule.createRoute(semester)
-            android.util.Log.i(TAG, "[NAV] 起始目的地 -> Schedule: $route")
-            startDestination = route
+            // [权限管理] 检查是否首次启动
+            val isFirstLaunch = userPreferences.isFirstLaunch.first()
+            android.util.Log.i(TAG, "[NAV] 首次启动检查: $isFirstLaunch")
+
+            if (isFirstLaunch) {
+                // 首次启动，显示权限请求页
+                android.util.Log.i(TAG, "[NAV] 起始目的地 -> PermissionRequest")
+                startDestination = Screen.PermissionRequest.route
+            } else {
+                // 非首次启动，直接进入课程表
+                val semester = repository.getCurrentSemester() ?: "2024-2025-1"
+                val route = Screen.Schedule.createRoute(semester)
+                android.util.Log.i(TAG, "[NAV] 起始目的地 -> Schedule: $route")
+                startDestination = route
+            }
         }
     }
 
@@ -71,6 +87,28 @@ fun AppNavigation(
         navController = navController,
         startDestination = startDestination!!
     ) {
+        // [权限管理] 权限请求界面 - 首次启动时显示
+        composable(Screen.PermissionRequest.route) {
+            android.util.Log.d(TAG, "=== 进入 PermissionRequest 屏幕 ===")
+            val scope = rememberCoroutineScope()
+
+            PermissionRequestScreen(
+                onPermissionsHandled = {
+                    android.util.Log.i(TAG, "[NAV] 权限处理完成，导航到 Schedule")
+                    // 标记为非首次启动并导航
+                    scope.launch(Dispatchers.IO) {
+                        userPreferences.markAsNotFirstLaunch()
+                        val semester = repository.getCurrentSemester() ?: "2024-2025-1"
+                        withContext(Dispatchers.Main) {
+                            navController.navigate(Screen.Schedule.createRoute(semester)) {
+                                popUpTo(Screen.PermissionRequest.route) { inclusive = true }
+                            }
+                        }
+                    }
+                }
+            )
+        }
+
         // 登录界面 - 只显示 WebView
         composable(Screen.Login.route) {
             android.util.Log.d(TAG, "=== 进入 Login 屏幕 ===")

@@ -11,6 +11,11 @@ sealed class Screen(val route: String) {
     object Login : Screen("login")
 
     /**
+     * [权限管理] 权限请求引导页 - 首次启动时显示
+     */
+    object PermissionRequest : Screen("permission_request")
+
+    /**
      * 课程表界面 - 登录成功后跳转
      * @param semester 学期参数，格式如 "2024-2025-1"
      */

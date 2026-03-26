@@ -1,11 +1,17 @@
 package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 
+import android.app.AlarmManager
+import android.content.Context
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
+import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncService
+import com.example.course_schedule_for_chd_v002.service.reminder.ReminderManager
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,22 +27,36 @@ import kotlinx.coroutines.launch
  * @param repository 课程仓库接口
  * @param userPreferences 用户偏好设置 [v61]
  * @param semester 当前学期
+ * @param reminderManager 提醒管理器 [课程提醒]
+ * @param calendarSyncService 日历同步服务 [课程提醒]
  */
 class ScheduleViewModel(
     private val repository: ICourseRepository,
-    private val userPreferences: UserPreferences,  // [v61] 新增
-    private val semester: String
+    private val userPreferences: UserPreferences,
+    // [v61] 新增
+    private val semester: String,
+    private val reminderManager: ReminderManager,  // [课程提醒] 新增
+    private val calendarSyncService: CalendarSyncService  // [课程提醒] 新增
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScheduleUiState(semester = semester))
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
+    // [课程提醒] 提醒设置状态
+    private val _reminderSettings = MutableStateFlow<ReminderSettings>(ReminderSettings())
+
+    /**
+     * [课程提醒] 获取提醒设置
+     */
+    val reminderSettings: StateFlow<ReminderSettings> = _reminderSettings.asStateFlow()
+
     // [v37] 添加初始化保护，防止启动崩溃
     init {
         try {
-            android.util.Log.d("ScheduleViewModel", "[v37] 初始化，学期: $semester")
+            android.util.Log.d("ScheduleViewModel", "[v37] 初始化,学期: $semester")
             loadCampus()  // [v61] 先加载校区设置
             loadSchedule()
+            loadReminderSettings()  // [课程提醒] 加载提醒设置
         } catch (e: Exception) {
             android.util.Log.e("ScheduleViewModel", "[v37] 初始化失败: ${e.message}", e)
             _uiState.update { it.copy(isLoading = false, errorMessage = "初始化失败: ${e.message}") }
@@ -466,6 +486,156 @@ class ScheduleViewModel(
      */
     fun clearImportResult() {
         _importResult.value = null
+    }
+
+    // ================ [课程提醒] 提醒设置相关 = =================
+
+    /**
+     * [课程提醒] 加载提醒设置
+     */
+    private fun loadReminderSettings() {
+        viewModelScope.launch {
+            val settings = userPreferences.getReminderSettingsOnce()
+            _reminderSettings.value = settings
+            android.util.Log.d("ScheduleViewModel", "[课程提醒] 加载提醒设置: $settings")
+        }
+    }
+
+    /**
+     * [课程提醒] 更新提醒设置
+     */
+    fun updateReminderSettings(settings: ReminderSettings) {
+        viewModelScope.launch {
+            _reminderSettings.value = settings
+            userPreferences.saveReminderSettings(settings)
+            android.util.Log.d("ScheduleViewModel", "[课程提醒] 保存提醒设置: $settings")
+
+            // 重新调度提醒
+            reminderManager.scheduleEarlyMorningReminder(settings)
+        }
+    }
+
+    /**
+     * [课程提醒] 同步课程到日历
+     * [v98] 根据当前选择的校区使用对应的上课时间
+     * [v99 Debug] 添加关键日期计算 debug 日志
+     */
+    fun syncToCalendar() {
+        viewModelScope.launch {
+            android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 开始 ==========")
+
+            // 获取课程数据
+            val courses = _uiState.value.courses
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            // [v98] 获取当前选择的校区
+            val campus = _uiState.value.campus
+
+            // [v99 Debug] 入口参数日志
+            val today = java.time.LocalDate.now()
+            val todayDayOfWeek = today.dayOfWeek.value
+            android.util.Log.i("CHD_CalendarDebug", "[v99 入口] 今天: $today (周$todayDayOfWeek)")
+            android.util.Log.i("CHD_CalendarDebug", "[v99 入口] 学期开始日期: $semesterStartDate")
+            android.util.Log.i("CHD_CalendarDebug", "[v99 入口] 课程数: ${courses.size}")
+            android.util.Log.i("CHD_CalendarDebug", "[v99 入口] 校区: ${campus.displayName}")
+
+            // 验证学期开始日期
+            if (semesterStartDate != null) {
+                val expectedMonday = semesterStartDate.let {
+                    try {
+                        java.time.LocalDate.parse(it, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                if (expectedMonday != null) {
+                    val isMonday = expectedMonday.dayOfWeek.value == 1
+                    android.util.Log.i("CHD_CalendarDebug", "[v99 验证] 学期开始日期是周一: $isMonday (${expectedMonday.dayOfWeek})")
+                }
+            }
+
+            if (courses.isEmpty()) {
+                _uiState.update { it.copy(errorMessage = "没有课程可同步") }
+                android.util.Log.w("CHD_CalendarDebug", "[v99] 没有课程可同步")
+                android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束（无课程）==========")
+                return@launch
+            }
+
+            if (semesterStartDate == null) {
+                _uiState.update { it.copy(errorMessage = "缺少学期开始日期，请先同步课表") }
+                android.util.Log.w("CHD_CalendarDebug", "[v99] 缺少学期开始日期")
+                android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束（无学期日期）==========")
+                return@launch
+            }
+
+            // 调用日历同步服务 [v98] 传入校区参数
+            try {
+                val (success, fail) = calendarSyncService.syncCoursesToCalendar(courses, semesterStartDate, campus)
+                _uiState.update {
+                    it.copy(errorMessage = "同步完成: 成功 $success 节, 失败 $fail 节 (${campus.displayName})")
+                }
+                android.util.Log.i("CHD_CalendarDebug", "[v99] 同步完成: 成功 $success, 失败 $fail")
+                android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束 ==========")
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "同步失败: ${e.message}") }
+                android.util.Log.e("CHD_CalendarDebug", "[v99] 同步失败", e)
+                android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 异常结束 ==========")
+            }
+        }
+    }
+
+    /**
+     * [v98] 删除日历中的所有课程事件
+     */
+    fun deleteCalendarEvents() {
+        viewModelScope.launch {
+            android.util.Log.d("ScheduleViewModel", "[v98] 开始删除日历事件...")
+
+            try {
+                val deleted = calendarSyncService.deleteCalendar()
+                if (deleted) {
+                    _uiState.update { it.copy(errorMessage = "已删除日历中的所有课程事件") }
+                    android.util.Log.d("ScheduleViewModel", "[v98] 删除日历成功")
+                } else {
+                    _uiState.update { it.copy(errorMessage = "删除日历失败，请检查权限") }
+                    android.util.Log.w("ScheduleViewModel", "[v98] 删除日历失败")
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "删除失败: ${e.message}") }
+                android.util.Log.e("ScheduleViewModel", "[v98] 删除日历异常", e)
+            }
+        }
+    }
+
+    /**
+     * [课程提醒] 权限结果处理 - 通知权限
+     */
+    fun onNotificationPermissionResult(isGranted: Boolean) {
+        android.util.Log.d("ScheduleViewModel", "[课程提醒] 通知权限结果: $isGranted")
+        if (isGranted) {
+            // 权限授予后重新调度提醒
+            viewModelScope.launch {
+                val settings = _reminderSettings.value
+                reminderManager.scheduleEarlyMorningReminder(settings)
+            }
+        }
+    }
+
+    /**
+     * [课程提醒] 权限结果处理 - 日历权限
+     */
+    fun onCalendarPermissionResult(isGranted: Boolean) {
+        android.util.Log.d("ScheduleViewModel", "[课程提醒] 日历权限结果: $isGranted")
+        if (isGranted) {
+            // 权限授予后自动同步
+            syncToCalendar()
+        }
+    }
+
+    /**
+     * [课程提醒] 检查是否可以调度精确闹钟
+     */
+    fun canScheduleExactAlarms(): Boolean {
+        return reminderManager.canScheduleExactAlarms()
     }
 }
 
