@@ -20,10 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -137,7 +135,7 @@ private fun SettingsDrawerContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.Settings,
+                imageVector = Icons.Filled.Settings,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary
             )
@@ -171,7 +169,7 @@ private fun SettingsDrawerContent(
         ReminderSection(
             title = "次日早八提醒",
             description = "前一天晚上提醒第二天的早八课程",
-            icon = Icons.Default.Warning,
+            icon = Icons.Filled.Warning,
             enabled = settings.earlyMorningReminderEnabled,
             onEnabledChange = { enabled ->
                 onSettingsChange(settings.copy(earlyMorningReminderEnabled = enabled))
@@ -208,7 +206,7 @@ private fun SettingsDrawerContent(
         ReminderSection(
             title = "上课前提醒",
             description = "上课前提前通知",
-            icon = Icons.Default.Notifications,
+            icon = Icons.Filled.Warning,
             enabled = settings.beforeClassReminderEnabled,
             onEnabledChange = { enabled ->
                 onSettingsChange(settings.copy(beforeClassReminderEnabled = enabled))
@@ -220,7 +218,7 @@ private fun SettingsDrawerContent(
                 onClick = { showTimeDialog = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(Icons.Default.Settings, contentDescription = null)
+                Icon(Icons.Filled.Settings, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("上课前 ${settings.beforeClassReminderMinutes} 分钟")
             }
@@ -253,7 +251,7 @@ private fun SettingsDrawerContent(
         ReminderSection(
             title = "系统日历",
             description = "同步课程到手机日历",
-            icon = Icons.Default.DateRange,
+            icon = Icons.Filled.Edit,
             enabled = settings.calendarSyncEnabled,
             onEnabledChange = { enabled ->
                 if (enabled) {
@@ -268,7 +266,7 @@ private fun SettingsDrawerContent(
                 onClick = onCalendarSyncClick,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(Icons.Default.DateRange, contentDescription = null)
+                Icon(Icons.Filled.Edit, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("同步课程到日历")
             }
@@ -280,7 +278,7 @@ private fun SettingsDrawerContent(
                 onClick = onDeleteCalendarClick,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(Icons.Default.Close, contentDescription = null)
+                Icon(Icons.Filled.Close, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("删除日历事件")
             }
@@ -315,7 +313,7 @@ private fun SettingsDrawerContent(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Default.Notifications,
+                    Icons.Filled.Warning,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -341,7 +339,7 @@ private fun SettingsDrawerContent(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Default.Settings,
+                    Icons.Filled.Settings,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -441,7 +439,7 @@ private fun TimePickerRow(
         onClick = { showDialog = true },
         modifier = Modifier.fillMaxWidth()
     ) {
-        Icon(Icons.Default.Settings, contentDescription = null)
+        Icon(Icons.Filled.Settings, contentDescription = null)
         Spacer(modifier = Modifier.width(8.dp))
         Text(String.format("%02d:%02d", hour, minute))
     }
@@ -651,7 +649,7 @@ private fun PermissionStatusCard(
 
             // 通知权限
             PermissionRow(
-                icon = Icons.Default.Notifications,
+                icon = Icons.Filled.Warning,
                 label = "通知权限",
                 isGranted = hasNotificationPermission,
                 onClick = if (!hasNotificationPermission) onRequestNotificationPermission else null
@@ -661,7 +659,7 @@ private fun PermissionStatusCard(
 
             // 日历权限
             PermissionRow(
-                icon = Icons.Default.DateRange,
+                icon = Icons.Filled.Edit,
                 label = "日历权限",
                 isGranted = hasCalendarPermission,
                 onClick = if (!hasCalendarPermission) onRequestCalendarPermission else null
@@ -671,7 +669,7 @@ private fun PermissionStatusCard(
 
             // 精确闹钟权限
             PermissionRow(
-                icon = Icons.Default.Warning,
+                icon = Icons.Filled.Warning,
                 label = "精确闹钟",
                 isGranted = hasExactAlarmPermission,
                 onClick = if (!hasExactAlarmPermission) onRequestExactAlarmPermission else null
@@ -698,7 +696,7 @@ private fun PermissionStatusCard(
                         )
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CheckCircle,
+                            imageVector = Icons.Filled.Check,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
@@ -780,7 +778,7 @@ private fun PermissionRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = if (isGranted) Icons.Default.Check else Icons.Default.Close,
+                    imageVector = if (isGranted) Icons.Filled.Check else Icons.Filled.Close,
                     contentDescription = if (isGranted) "已授权" else "未授权",
                     modifier = Modifier.size(14.dp),
                     tint = if (isGranted)

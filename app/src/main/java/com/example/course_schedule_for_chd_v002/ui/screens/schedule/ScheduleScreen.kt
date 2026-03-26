@@ -246,7 +246,7 @@ fun ScheduleScreen(
                             scope.launch { drawerState.open() }
                         }) {
                             Icon(
-                                imageVector = Icons.Default.Settings,
+                                imageVector = Icons.Filled.Settings,
                                 contentDescription = "设置"
                             )
                         }
@@ -287,7 +287,7 @@ fun ScheduleScreen(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = Icons.Filled.Refresh,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
@@ -394,9 +394,9 @@ fun ScheduleScreen(
                     leadingIcon = {
                         Icon(
                             imageVector = if (isWeekendExpanded)
-                                Icons.Default.KeyboardArrowDown
+                                Icons.Filled.KeyboardArrowDown
                             else
-                                Icons.Default.KeyboardArrowRight,
+                                Icons.Filled.KeyboardArrowRight,
                             contentDescription = null,
                             modifier = Modifier.size(14.dp)
                         )

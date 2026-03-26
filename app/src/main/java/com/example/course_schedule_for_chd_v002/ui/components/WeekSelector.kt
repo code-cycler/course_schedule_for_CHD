@@ -49,7 +49,7 @@ fun WeekSelector(
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.KeyboardArrowLeft,
+                imageVector = Icons.Filled.KeyboardArrowLeft,
                 contentDescription = "Previous week",
                 modifier = Modifier.size(20.dp)
             )
@@ -83,7 +83,7 @@ fun WeekSelector(
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.KeyboardArrowRight,
+                imageVector = Icons.Filled.KeyboardArrowRight,
                 contentDescription = "Next week",
                 modifier = Modifier.size(20.dp)
             )

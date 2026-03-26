@@ -591,7 +591,7 @@ fun ScheduleGrid(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.KeyboardArrowUp,
+                        imageVector = Icons.Filled.KeyboardArrowUp,
                         contentDescription = "上方有课程",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
@@ -610,7 +610,7 @@ fun ScheduleGrid(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
+                        imageVector = Icons.Filled.KeyboardArrowDown,
                         contentDescription = "下方有课程",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
@@ -706,7 +706,7 @@ private fun CourseCardInternal(
                 ) {
                     if (hasConflict) {
                         Icon(
-                            imageVector = Icons.Default.Warning,
+                            imageVector = Icons.Filled.Warning,
                             contentDescription = "Conflict",
                             tint = Color.White.copy(alpha = textAlpha),
                             modifier = Modifier.size(12.dp)

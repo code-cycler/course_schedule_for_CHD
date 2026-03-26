@@ -189,7 +189,7 @@ fun WebViewScreen(
                     enabled = !isLoading
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
+                        imageVector = Icons.Filled.Refresh,
                         contentDescription = "刷新页面",
                         tint = if (isLoading)
                             MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)

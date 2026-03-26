@@ -74,7 +74,7 @@ fun CourseCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (hasConflict) {
                     Icon(
-                        imageVector = Icons.Default.Warning,
+                        imageVector = Icons.Filled.Warning,
                         contentDescription = "Time Conflict",
                         tint = Color.White,
                         modifier = Modifier.size(12.dp)

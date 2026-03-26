@@ -152,7 +152,7 @@ fun PermissionRequestScreen(
         ) {
             // 图标
             Icon(
-                imageVector = Icons.Default.Lock,  // 使用 Lock 作为安全图标
+                imageVector = Icons.Filled.Settings,  // 使用 Settings 作为权限设置图标
                 contentDescription = null,
                 modifier = Modifier.size(72.dp),
                 tint = MaterialTheme.colorScheme.primary
@@ -182,7 +182,7 @@ fun PermissionRequestScreen(
 
             // 权限列表
             PermissionItem(
-                icon = Icons.Default.Notifications,
+                icon = Icons.Filled.Warning,  // 通知权限图标
                 title = "通知权限",
                 description = "用于发送课程提醒通知",
                 isGranted = hasNotification,
@@ -193,7 +193,7 @@ fun PermissionRequestScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             PermissionItem(
-                icon = Icons.Default.DateRange,
+                icon = Icons.Filled.Edit,  // 日历权限图标（编辑日历）
                 title = "日历权限",
                 description = "用于同步课程到系统日历",
                 isGranted = hasCalendar,
@@ -204,7 +204,7 @@ fun PermissionRequestScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             PermissionItem(
-                icon = Icons.Default.Info,  // 使用 Info 替代 Alarm
+                icon = Icons.Filled.Warning,  // 使用 Info 替代 Alarm
                 title = "精确闹钟权限",
                 description = "用于在指定时间发送提醒",
                 isGranted = hasExactAlarm,
@@ -228,7 +228,7 @@ fun PermissionRequestScreen(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CheckCircle,
+                            imageVector = Icons.Filled.Check,  // 使用 Check 替代 CheckCircle
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -249,7 +249,7 @@ fun PermissionRequestScreen(
                     onClick = onPermissionsHandled,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.ArrowForward, contentDescription = null)
+                    Icon(Icons.Filled.ArrowForward, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("开始使用")
                 }
@@ -269,7 +269,7 @@ fun PermissionRequestScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("正在请求权限...")
                     } else {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null)
+                        Icon(Icons.Filled.Check, contentDescription = null)  // 使用 Check 替代 CheckCircle
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("一键获取所需权限 ($missingCount)")
                     }
@@ -364,7 +364,7 @@ private fun PermissionItem(
                 )
             } else {
                 Icon(
-                    imageVector = if (isGranted) Icons.Default.CheckCircle else Icons.Default.ArrowForward,
+                    imageVector = if (isGranted) Icons.Filled.Check else Icons.Filled.ArrowForward,  // 使用 Check 替代 CheckCircle
                     contentDescription = null,
                     tint = if (isGranted)
                         MaterialTheme.colorScheme.primary
