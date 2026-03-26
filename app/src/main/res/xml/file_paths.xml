@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 外部存储应用私有目录 -->
+    <external-files-path
+        name="logs"
+        path="logs/" />
+
+    <!-- 内部存储缓存目录 -->
+    <cache-path
+        name="cache"
+        path="." />
+
+    <!-- 内部存储文件目录 -->
+    <files-path
+        name="files"
+        path="." />
+
+    <!-- 外部存储公共下载目录 (Android 10+) -->
+    <external-path
+        name="downloads"
+        path="Download/CHD课程表/logs/" />
+</paths>

@@ -6,6 +6,18 @@ import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 
 /**
+ * [日历同步] 同步状态
+ */
+sealed class CalendarSyncState {
+    object Idle : CalendarSyncState()           // 空闲
+    object Syncing : CalendarSyncState()        // 同步中
+    data class Synced(val count: Int) : CalendarSyncState()  // 同步完成
+    object Deleting : CalendarSyncState()       // 删除中
+    object Deleted : CalendarSyncState()        // 删除完成
+    data class Error(val message: String) : CalendarSyncState()  // 错误
+}
+
+/**
  * 课程表界面UI状态
  * 使用单向数据流管理状态
  */
@@ -54,7 +66,12 @@ data class ScheduleUiState(
     // ================ [课程提醒] 提醒设置相关 ================
 
     // [课程提醒] 提醒设置
-    val reminderSettings: ReminderSettings = ReminderSettings.DEFAULT
+    val reminderSettings: ReminderSettings = ReminderSettings.DEFAULT,
+
+    // ================ [日历同步] 状态相关 ================
+
+    // [日历同步] 同步状态
+    val calendarSyncState: CalendarSyncState = CalendarSyncState.Idle
 ) {
     /**
      * [新功能] 判断课程是否为水课

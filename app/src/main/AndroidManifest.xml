@@ -94,6 +94,17 @@
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
+        <!-- [日志导出] FileProvider 用于分享日志文件 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>

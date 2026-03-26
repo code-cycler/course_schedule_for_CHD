@@ -567,6 +567,7 @@ fun ScheduleGrid(
                                             CourseCardInternal(
                                                 course = course,
                                                 hasConflict = course.id in conflictingCourseIds,
+                                                isWaterCourse = course.name in waterCourseNames,  // [新功能] 水课标记
                                                 onClick = onCourseClick
                                             )
                                         }

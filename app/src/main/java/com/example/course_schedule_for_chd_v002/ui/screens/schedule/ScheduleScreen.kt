@@ -16,6 +16,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape  // [v74] 末尾空节次按钮边框
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
@@ -43,6 +44,8 @@ import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
 import com.example.course_schedule_for_chd_v002.ui.components.WeekSelector
 import com.example.course_schedule_for_chd_v002.ui.components.SettingsDrawer
+import com.example.course_schedule_for_chd_v002.ui.components.LogExportDialog
+import com.example.course_schedule_for_chd_v002.util.LogExporter
 // [v96] 移除不再需要的协程导入（防抖已取消）
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -69,6 +72,11 @@ fun ScheduleScreen(
     // [课程提醒] 侧边栏状态
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    // [日志导出] 日志导出对话框状态
+    var showLogExportDialog by remember { mutableStateOf(false) }
+    var logExportResult by remember { mutableStateOf<LogExporter.ExportResult?>(null) }
+    var isExportingLogs by remember { mutableStateOf(false) }
 
     // [课程提醒] 提醒设置
     val reminderSettings by viewModel.reminderSettings.collectAsStateWithLifecycle()
@@ -187,6 +195,7 @@ fun ScheduleScreen(
         hasNotificationPermission = hasNotificationPermission(),
         hasCalendarPermission = hasCalendarPermission(),
         hasExactAlarmPermission = viewModel.canScheduleExactAlarms(),
+        calendarSyncState = uiState.calendarSyncState,  // [v100] 日历同步状态
         onSettingsChange = {
             android.util.Log.d("ScheduleScreen", "[Debug] 设置变化: $it")
             viewModel.updateReminderSettings(it)
@@ -269,6 +278,17 @@ fun ScheduleScreen(
                     }
                 },
                 actions = {
+                    // [日志导出] 日志导出按钮（在同步按钮左侧）
+                    // [日志导出] 日志导出按钮（使用 Info 图标区分于设置）
+                    IconButton(
+                        onClick = { showLogExportDialog = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = "导出日志"
+                        )
+                    }
+
                     // [新功能] "回到当前周"按钮（移到 actions 区域）
                     if (!uiState.isViewingCurrentWeek() && uiState.actualCurrentWeek != null) {
                         TextButton(
@@ -585,6 +605,34 @@ fun ScheduleScreen(
             isWaterCourse = uiState.isWaterCourse(course.name),  // [新功能]
             onToggleWaterCourse = viewModel::toggleWaterCourse,  // [新功能]
             onDismiss = { viewModel.onCourseSelected(null) }
+        )
+    }
+
+    // [日志导出] 日志导出对话框
+    if (showLogExportDialog) {
+        LogExportDialog(
+            isExporting = isExportingLogs,
+            result = logExportResult,
+            onExport = {
+                isExportingLogs = true
+                logExportResult = null
+                scope.launch {
+                    logExportResult = LogExporter.exportLogs(context)
+                    isExportingLogs = false
+                }
+            },
+            onShare = { file ->
+                try {
+                    val shareIntent = LogExporter.shareLogFile(context, file)
+                    context.startActivity(Intent.createChooser(shareIntent, "分享日志文件"))
+                } catch (e: Exception) {
+                    android.util.Log.e("ScheduleScreen", "分享日志失败", e)
+                }
+            },
+            onDismiss = {
+                showLogExportDialog = false
+                logExportResult = null
+            }
         )
     }
 }

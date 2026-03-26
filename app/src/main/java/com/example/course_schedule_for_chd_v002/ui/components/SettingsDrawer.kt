@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -53,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
+import com.example.course_schedule_for_chd_v002.ui.screens.schedule.CalendarSyncState
 
 /**
  * 侧边栏设置抽屉组件
@@ -67,6 +69,7 @@ fun SettingsDrawer(
     hasNotificationPermission: Boolean = false,
     hasCalendarPermission: Boolean = false,
     hasExactAlarmPermission: Boolean = false,
+    calendarSyncState: CalendarSyncState = CalendarSyncState.Idle,  // [v100] 日历同步状态
     onSettingsChange: (ReminderSettings) -> Unit,
     onCalendarSyncClick: () -> Unit,
     onDeleteCalendarClick: () -> Unit,  // [v98] 删除日历事件回调
@@ -94,6 +97,7 @@ fun SettingsDrawer(
                     hasNotificationPermission = hasNotificationPermission,
                     hasCalendarPermission = hasCalendarPermission,
                     hasExactAlarmPermission = hasExactAlarmPermission,
+                    calendarSyncState = calendarSyncState,  // [v100]
                     onSettingsChange = onSettingsChange,
                     onCalendarSyncClick = onCalendarSyncClick,
                     onDeleteCalendarClick = onDeleteCalendarClick,  // [v98]
@@ -117,6 +121,7 @@ private fun SettingsDrawerContent(
     hasNotificationPermission: Boolean,
     hasCalendarPermission: Boolean,
     hasExactAlarmPermission: Boolean,
+    calendarSyncState: CalendarSyncState = CalendarSyncState.Idle,  // [v100] 日历同步状态
     onSettingsChange: (ReminderSettings) -> Unit,
     onCalendarSyncClick: () -> Unit,
     onDeleteCalendarClick: () -> Unit,  // [v98] 删除日历事件回调
@@ -261,26 +266,88 @@ private fun SettingsDrawerContent(
                 onSettingsChange(settings.copy(calendarSyncEnabled = enabled))
             }
         ) {
-            // [v98] 同步按钮
+            // [v100] 同步按钮（带状态）
             OutlinedButton(
                 onClick = onCalendarSyncClick,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = calendarSyncState !is CalendarSyncState.Syncing  // 同步中禁用按钮
             ) {
-                Icon(Icons.Filled.Edit, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("同步课程到日历")
+                when (calendarSyncState) {
+                    is CalendarSyncState.Syncing -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("同步中...")
+                    }
+                    else -> {
+                        Icon(Icons.Filled.Edit, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("同步课程到日历")
+                    }
+                }
+            }
+
+            // [v100] 同步状态提示
+            when (calendarSyncState) {
+                is CalendarSyncState.Synced -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "[OK] 已同步 ${calendarSyncState.count} 节课程",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                is CalendarSyncState.Error -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "[X] ${calendarSyncState.message}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                else -> {}
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // [v98] 删除日历按钮
+            // [v100] 删除日历按钮（带状态）
             OutlinedButton(
                 onClick = onDeleteCalendarClick,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = calendarSyncState !is CalendarSyncState.Deleting  // 删除中禁用按钮
             ) {
-                Icon(Icons.Filled.Close, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("删除日历事件")
+                when (calendarSyncState) {
+                    is CalendarSyncState.Deleting -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("删除中...")
+                    }
+                    else -> {
+                        Icon(Icons.Filled.Close, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("删除日历事件")
+                    }
+                }
+            }
+
+            // [v100] 删除状态提示
+            when (calendarSyncState) {
+                is CalendarSyncState.Deleted -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "[OK] 已删除所有日历事件",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                else -> {}
             }
 
             Spacer(modifier = Modifier.height(4.dp))

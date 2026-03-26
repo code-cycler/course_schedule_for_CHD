@@ -540,9 +540,9 @@ fun WebViewScreen(
  */
 private fun waitForPageReady(view: WebView, onReady: () -> Unit, onTimeout: () -> Unit) {
     var attempts = 0
-    val maxAttempts = 1  // [v96] 只检测1次
-    val checkInterval = 0L  // [v96] 无间隔
-    val initialDelay = 0L  // [v96] 无初始延迟
+    val maxAttempts = 10  // [v97] 最多检测10次
+    val checkInterval = 300L  // [v97] 间隔300ms
+    val initialDelay = 500L  // [v97] 初始延迟500ms
 
     val checkRunnable = object : Runnable {
         override fun run() {

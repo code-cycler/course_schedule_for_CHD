@@ -528,10 +528,14 @@ class ScheduleViewModel(
      * [课程提醒] 同步课程到日历
      * [v98] 根据当前选择的校区使用对应的上课时间
      * [v99 Debug] 添加关键日期计算 debug 日志
+     * [v100] 添加同步状态更新
      */
     fun syncToCalendar() {
         viewModelScope.launch {
             android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 开始 ==========")
+
+            // [v100] 设置同步中状态
+            _uiState.update { it.copy(calendarSyncState = CalendarSyncState.Syncing) }
 
             // 获取课程数据
             val courses = _uiState.value.courses
@@ -563,14 +567,26 @@ class ScheduleViewModel(
             }
 
             if (courses.isEmpty()) {
-                _uiState.update { it.copy(errorMessage = "没有课程可同步") }
+                // [v100] 设置错误状态
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Error("没有课程可同步"),
+                        errorMessage = "没有课程可同步"
+                    )
+                }
                 android.util.Log.w("CHD_CalendarDebug", "[v99] 没有课程可同步")
                 android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束（无课程）==========")
                 return@launch
             }
 
             if (semesterStartDate == null) {
-                _uiState.update { it.copy(errorMessage = "缺少学期开始日期，请先同步课表") }
+                // [v100] 设置错误状态
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Error("缺少学期开始日期，请先同步课表"),
+                        errorMessage = "缺少学期开始日期，请先同步课表"
+                    )
+                }
                 android.util.Log.w("CHD_CalendarDebug", "[v99] 缺少学期开始日期")
                 android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束（无学期日期）==========")
                 return@launch
@@ -579,13 +595,23 @@ class ScheduleViewModel(
             // 调用日历同步服务 [v98] 传入校区参数
             try {
                 val (success, fail) = calendarSyncService.syncCoursesToCalendar(courses, semesterStartDate, campus)
+                // [v100] 设置同步完成状态
                 _uiState.update {
-                    it.copy(errorMessage = "同步完成: 成功 $success 节, 失败 $fail 节 (${campus.displayName})")
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Synced(success),
+                        errorMessage = "同步完成: 成功 $success 节, 失败 $fail 节 (${campus.displayName})"
+                    )
                 }
                 android.util.Log.i("CHD_CalendarDebug", "[v99] 同步完成: 成功 $success, 失败 $fail")
                 android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束 ==========")
             } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = "同步失败: ${e.message}") }
+                // [v100] 设置错误状态
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Error(e.message ?: "同步失败"),
+                        errorMessage = "同步失败: ${e.message}"
+                    )
+                }
                 android.util.Log.e("CHD_CalendarDebug", "[v99] 同步失败", e)
                 android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 异常结束 ==========")
             }
@@ -594,22 +620,44 @@ class ScheduleViewModel(
 
     /**
      * [v98] 删除日历中的所有课程事件
+     * [v100] 添加删除状态更新
      */
     fun deleteCalendarEvents() {
         viewModelScope.launch {
             android.util.Log.d("ScheduleViewModel", "[v98] 开始删除日历事件...")
 
+            // [v100] 设置删除中状态
+            _uiState.update { it.copy(calendarSyncState = CalendarSyncState.Deleting) }
+
             try {
                 val deleted = calendarSyncService.deleteCalendar()
                 if (deleted) {
-                    _uiState.update { it.copy(errorMessage = "已删除日历中的所有课程事件") }
+                    // [v100] 设置删除完成状态
+                    _uiState.update {
+                        it.copy(
+                            calendarSyncState = CalendarSyncState.Deleted,
+                            errorMessage = "已删除日历中的所有课程事件"
+                        )
+                    }
                     android.util.Log.d("ScheduleViewModel", "[v98] 删除日历成功")
                 } else {
-                    _uiState.update { it.copy(errorMessage = "删除日历失败，请检查权限") }
+                    // [v100] 设置错误状态
+                    _uiState.update {
+                        it.copy(
+                            calendarSyncState = CalendarSyncState.Error("删除日历失败，请检查权限"),
+                            errorMessage = "删除日历失败，请检查权限"
+                        )
+                    }
                     android.util.Log.w("ScheduleViewModel", "[v98] 删除日历失败")
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = "删除失败: ${e.message}") }
+                // [v100] 设置错误状态
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Error(e.message ?: "删除失败"),
+                        errorMessage = "删除失败: ${e.message}"
+                    )
+                }
                 android.util.Log.e("ScheduleViewModel", "[v98] 删除日历异常", e)
             }
         }
