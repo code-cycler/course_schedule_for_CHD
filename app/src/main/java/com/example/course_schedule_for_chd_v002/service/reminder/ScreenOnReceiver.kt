@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+
 import com.example.course_schedule_for_chd_v002.data.local.database.AppDatabase
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
 import kotlinx.coroutines.CoroutineScope
@@ -12,19 +13,22 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * 开机启动广播接收器
+ * 屏幕亮起广播接收器
  *
- * 用于在设备重启后恢复提醒闹钟调度
+ * [健壮性优化] 在屏幕亮起时检查并恢复提醒
+ *
+ * 注意: Android 8.0+ 限制了对隐式广播接收器的注册
+ * 需要在 AndroidManifest.xml 中显式注册
  */
-class BootReceiver : BroadcastReceiver() {
+class ScreenOnReceiver : BroadcastReceiver() {
 
     companion object {
-        private const val TAG = "BootReceiver"
+        private const val TAG = "ScreenOnReceiver"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            Log.i(TAG, "设备启动完成，开始恢复提醒调度")
+        if (intent.action == Intent.ACTION_SCREEN_ON) {
+            Log.d(TAG, "屏幕亮起，检查提醒状态")
 
             // 使用协程异步处理
             CoroutineScope(Dispatchers.IO).launch {
@@ -33,7 +37,7 @@ class BootReceiver : BroadcastReceiver() {
                     val userPreferences = UserPreferences(context)
                     val settings = userPreferences.getReminderSettingsOnce()
 
-                    // [健壮性优化] 获取学期开始日期和当前周次
+                    // 获取学期开始日期和当前周次
                     val semesterStartDate = userPreferences.getSemesterStartDateOnce()
                     val currentWeek = userPreferences.getCurrentWeekOnce()
 
@@ -43,10 +47,10 @@ class BootReceiver : BroadcastReceiver() {
                     // 恢复早八提醒
                     if (settings.earlyMorningReminderEnabled) {
                         reminderManager.scheduleEarlyMorningReminder(settings)
-                        Log.i(TAG, "已恢复早八提醒调度")
+                        Log.d(TAG, "已恢复早八提醒")
                     }
 
-                    // [健壮性优化] 恢复上课前提醒
+                    // 恢复上课前提醒
                     if (settings.beforeClassReminderEnabled && semesterStartDate != null && currentWeek != null) {
                         // 获取课程数据
                         val database = AppDatabase.getDatabase(context)
@@ -55,14 +59,12 @@ class BootReceiver : BroadcastReceiver() {
                             .map { it.toDomainModel() }
 
                         reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek)
-                        Log.i(TAG, "已恢复上课前提醒调度，共${courses.size}节课")
+                        Log.d(TAG, "已恢复上课前提醒， 共${courses.size} 节课")
                     }
-
-                    Log.i(TAG, "提醒调度恢复完成")
                 } catch (e: Exception) {
-                    Log.e(TAG, "恢复提醒调度失败", e)
-                }
+                    Log.e(TAG, "恢复提醒失败", e)
             }
         }
     }
+}
 }

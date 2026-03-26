@@ -276,6 +276,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
     /**
      * 重新调度所有提醒
+     * [健壮性优化] 同时恢复早八提醒和上课前提醒
      */
     private fun rescheduleAllReminders(context: Context) {
         // 启动 ReminderManager 重新调度
@@ -290,8 +291,27 @@ class ReminderReceiver : BroadcastReceiver() {
                     ReminderSettings.DEFAULT
                 }
 
+                // 调度早八提醒
                 reminderManager.scheduleEarlyMorningReminder(settings)
                 android.util.Log.d("ReminderReceiver", "已重新调度早八提醒")
+
+                // [健壮性优化] 调度上课前提醒
+                if (settings.beforeClassReminderEnabled) {
+                    val semesterStartDate = prefs.getString("semester_start_date", null)
+                    val currentWeek = prefs.getInt("current_week", 1)
+                    val semester = prefs.getString("current_semester", "") ?: ""
+
+                    if (!semesterStartDate.isNullOrEmpty() && semester.isNotEmpty()) {
+                        val database = AppDatabase.getDatabase(context)
+                        val courses = database.courseDao().getCoursesBySemesterSync(semester)
+                            .map { it.toDomainModel() }
+
+                        reminderManager.scheduleBeforeClassReminders(
+                            courses, settings, semesterStartDate, currentWeek
+                        )
+                        android.util.Log.d("ReminderReceiver", "已重新调度上课前提醒，共${courses.size}节课")
+                    }
+                }
             } catch (e: Exception) {
                 android.util.Log.e("ReminderReceiver", "重新调度提醒失败", e)
             }

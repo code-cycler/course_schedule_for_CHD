@@ -510,8 +510,17 @@ class ScheduleViewModel(
             userPreferences.saveReminderSettings(settings)
             android.util.Log.d("ScheduleViewModel", "[课程提醒] 保存提醒设置: $settings")
 
-            // 重新调度提醒
+            // 重新调度早八提醒
             reminderManager.scheduleEarlyMorningReminder(settings)
+
+            // [健壮性优化] 重新调度上课前提醒
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            val currentWeek = _uiState.value.actualCurrentWeek
+            val courses = _uiState.value.courses
+            if (semesterStartDate != null && currentWeek != null) {
+                reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek)
+                android.util.Log.d("ScheduleViewModel", "[课程提醒] 已重新调度上课前提醒")
+            }
         }
     }
 
