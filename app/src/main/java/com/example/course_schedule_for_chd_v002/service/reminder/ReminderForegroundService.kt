@@ -15,6 +15,7 @@ import com.example.course_schedule_for_chd_v002.MainActivity
 import com.example.course_schedule_for_chd_v002.R
 import com.example.course_schedule_for_chd_v002.data.local.database.AppDatabase
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
+import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -161,6 +162,7 @@ class ReminderForegroundService : Service() {
                 // 获取学期开始日期和当前周次
                 val semesterStartDate = userPreferences.getSemesterStartDateOnce()
                 val currentWeek = userPreferences.getCurrentWeekOnce()
+                val campus = Campus.fromName(userPreferences.getCampusOnce())
 
                 // 创建提醒管理器
                 val reminderManager = ReminderManager(this@ReminderForegroundService)
@@ -179,7 +181,7 @@ class ReminderForegroundService : Service() {
                     val courses = database.courseDao().getCoursesBySemesterSync(semester)
                         .map { it.toDomainModel() }
 
-                    reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek)
+                    reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek, campus)
                     Log.d(TAG, "已调度上课前提醒， 共${courses.size} 节课")
                 }
 

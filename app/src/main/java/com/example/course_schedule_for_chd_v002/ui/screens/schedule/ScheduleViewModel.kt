@@ -14,6 +14,7 @@ import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncSer
 import com.example.course_schedule_for_chd_v002.service.reminder.ReminderManager
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,12 +54,12 @@ class ScheduleViewModel(
     // [v37] 添加初始化保护，防止启动崩溃
     init {
         try {
-            android.util.Log.d("ScheduleViewModel", "[v37] 初始化,学期: $semester")
+            AppLogger.d("ScheduleViewModel", "[v37] 初始化,学期: $semester")
             loadCampus()  // [v61] 先加载校区设置
             loadSchedule()
             loadReminderSettings()  // [课程提醒] 加载提醒设置
         } catch (e: Exception) {
-            android.util.Log.e("ScheduleViewModel", "[v37] 初始化失败: ${e.message}", e)
+            AppLogger.e("ScheduleViewModel", "[v37] 初始化失败: ${e.message}", e)
             _uiState.update { it.copy(isLoading = false, errorMessage = "初始化失败: ${e.message}") }
         }
     }
@@ -68,7 +69,7 @@ class ScheduleViewModel(
      * 用于从登录页返回后刷新数据
      */
     fun reload() {
-        android.util.Log.d("ScheduleViewModel", "[v24] reload() 被调用")
+        AppLogger.d("ScheduleViewModel", "[v24] reload() 被调用")
         loadSchedule()
     }
 
@@ -79,7 +80,7 @@ class ScheduleViewModel(
         viewModelScope.launch {
             val campusName = userPreferences.getCampusOnce()
             val campus = Campus.fromName(campusName)
-            android.util.Log.d("ScheduleViewModel", "[v61] 加载校区: $campusName")
+            AppLogger.d("ScheduleViewModel", "[v61] 加载校区: $campusName")
             _uiState.update { it.copy(campus = campus) }
         }
     }
@@ -90,10 +91,41 @@ class ScheduleViewModel(
      */
     fun onCampusChanged(campus: Campus) {
         viewModelScope.launch {
-            android.util.Log.d("ScheduleViewModel", "[v61] 切换校区: ${campus.name}")
+            AppLogger.d("ScheduleViewModel", "[v61] 切换校区: ${campus.name}")
+            val oldSettings = _reminderSettings.value
             userPreferences.saveCampus(campus.name)
             _uiState.update { it.copy(campus = campus) }
+
+            // [v108] 切换校区后重新调度提醒（使用新校区时间）
+            rescheduleRemindersWithNewCampus(campus)
+
+            // [v108] 如果日历同步已启用，自动重新同步
+            if (oldSettings.calendarSyncEnabled) {
+                AppLogger.i("ScheduleViewModel", "[v108] 校区变更，自动重新同步日历")
+                syncToCalendar()
+            }
         }
+    }
+
+    /**
+     * [v108] 使用新校区时间重新调度提醒
+     */
+    private suspend fun rescheduleRemindersWithNewCampus(campus: Campus) {
+        val settings = _reminderSettings.value
+        val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+        val currentWeek = _uiState.value.actualCurrentWeek
+        val courses = _uiState.value.courses
+
+        if (semesterStartDate != null && currentWeek != null) {
+            // 重新调度上课前提醒（传递新校区）
+            reminderManager.scheduleBeforeClassReminders(
+                courses, settings, semesterStartDate, currentWeek, campus
+            )
+            AppLogger.d("ScheduleViewModel", "[v108] 已用新校区时间重新调度提醒: ${campus.displayName}")
+        }
+
+        // 重新调度早八提醒（早八提醒不依赖校区，但重新调度确保一致）
+        reminderManager.scheduleEarlyMorningReminder(settings)
     }
 
     /**
@@ -108,19 +140,19 @@ class ScheduleViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 开始 ==========")
+            AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 开始 ==========")
 
             val courses = repository.getLocalSchedule(semester)
-            android.util.Log.i("CHD_CurrentWeek", "[Step1] 本地课程数: ${courses.size}")
+            AppLogger.i("CHD_CurrentWeek", "[Step1] 本地课程数: ${courses.size}")
 
             // [v35] 计算最大周数
             val maxWeek = findMaxWeekWithCourse(courses)
-            android.util.Log.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
 
             // [新功能] 计算当前实际教学周
             val semesterStartDate = userPreferences.getSemesterStartDateOnce()
             val lastParsedWeek = userPreferences.getLastParsedWeekOnce()
-            android.util.Log.i("CHD_CurrentWeek", "[Step3] 学期开始日期: $semesterStartDate, 上次解析周次: $lastParsedWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step3] 学期开始日期: $semesterStartDate, 上次解析周次: $lastParsedWeek")
 
             // [新功能] 优先使用学期开始日期计算，否则使用上次解析的周次
             val actualCurrentWeek = when {
@@ -128,15 +160,15 @@ class ScheduleViewModel(
                 lastParsedWeek != null && lastParsedWeek in 1..maxWeek -> lastParsedWeek
                 else -> null
             }
-            android.util.Log.i("CHD_CurrentWeek", "[Step4] 实际当前教学周: $actualCurrentWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step4] 实际当前教学周: $actualCurrentWeek")
 
             // [新功能] 获取今天星期几
             val todayDayOfWeek = TimeUtils.getTodayDayOfWeek()
-            android.util.Log.i("CHD_CurrentWeek", "[Step5] 今天是: $todayDayOfWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step5] 今天是: $todayDayOfWeek")
 
             // [新功能] 加载水课列表
             val waterCourses = userPreferences.getWaterCoursesForSemester(semester)
-            android.util.Log.d("ScheduleViewModel", "[新功能] 水课数量: ${waterCourses.size}")
+            AppLogger.d("ScheduleViewModel", "[新功能] 水课数量: ${waterCourses.size}")
 
             // 决定初始显示周次：
             // 1. 如果有实际当前周且在有效范围内，使用实际当前周
@@ -145,16 +177,16 @@ class ScheduleViewModel(
             val savedCurrentWeek = userPreferences.getCurrentWeekOnce()
             val initialWeek = when {
                 actualCurrentWeek != null && actualCurrentWeek in 1..maxWeek -> {
-                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 使用实际当前周: $actualCurrentWeek")
+                    AppLogger.i("CHD_CurrentWeek", "[Step6] 使用实际当前周: $actualCurrentWeek")
                     actualCurrentWeek
                 }
                 savedCurrentWeek in 1..maxWeek -> {
-                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 使用保存的周次: $savedCurrentWeek")
+                    AppLogger.i("CHD_CurrentWeek", "[Step6] 使用保存的周次: $savedCurrentWeek")
                     savedCurrentWeek
                 }
                 else -> {
                     val firstWeek = findFirstWeekWithCourse(courses)
-                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 回退到第一个有课周次: $firstWeek")
+                    AppLogger.i("CHD_CurrentWeek", "[Step6] 回退到第一个有课周次: $firstWeek")
                     firstWeek
                 }
             }
@@ -167,26 +199,26 @@ class ScheduleViewModel(
                 val isComplete = cache.isNotEmpty() && cachedMaxWeek >= maxWeek
 
                 if (!isComplete) {
-                    android.util.Log.i("CHD_Conflict", "[v74 fix] 缓存不完整: 缓存覆盖周1-$cachedMaxWeek, 需要1-$maxWeek, 重新预计算...")
+                    AppLogger.i("CHD_Conflict", "[v74 fix] 缓存不完整: 缓存覆盖周1-$cachedMaxWeek, 需要1-$maxWeek, 重新预计算...")
                     repository.precomputeAndCacheConflicts(courses, semester)
                 } else {
-                    android.util.Log.i("CHD_Conflict", "[v74 fix] 缓存完整: 覆盖周1-$cachedMaxWeek")
+                    AppLogger.i("CHD_Conflict", "[v74 fix] 缓存完整: 覆盖周1-$cachedMaxWeek")
                 }
             }
 
             // 从缓存获取当前周的冲突
             val conflicts = repository.getConflictsForWeek(semester, initialWeek)
             val conflictIds: Set<Long> = if (conflicts != null) {
-                android.util.Log.i("CHD_Conflict", "[Step7] 周$initialWeek 从缓存获取冲突: ${conflicts.size} 门")
+                AppLogger.i("CHD_Conflict", "[Step7] 周$initialWeek 从缓存获取冲突: ${conflicts.size} 门")
                 conflicts
             } else {
                 // 缓存中该周无冲突记录，返回空集
-                android.util.Log.i("CHD_Conflict", "[Step7] 周$initialWeek 缓存中无冲突记录")
+                AppLogger.i("CHD_Conflict", "[Step7] 周$initialWeek 缓存中无冲突记录")
                 emptySet()
             }
-            android.util.Log.i("CHD_Conflict", "[Step7.1] 周$initialWeek 最终冲突数: ${conflictIds.size}")
+            AppLogger.i("CHD_Conflict", "[Step7.1] 周$initialWeek 最终冲突数: ${conflictIds.size}")
 
-            android.util.Log.i("CHD_CurrentWeek", "[Step8] 最终显示周次: $initialWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step8] 最终显示周次: $initialWeek")
 
             // [新功能] 计算当前显示周的周一日期
             val weekStartDate = if (semesterStartDate != null) {
@@ -194,9 +226,9 @@ class ScheduleViewModel(
             } else {
                 null
             }
-            android.util.Log.i("CHD_CurrentWeek", "[Step9] 周$initialWeek 周一日期: $weekStartDate")
+            AppLogger.i("CHD_CurrentWeek", "[Step9] 周$initialWeek 周一日期: $weekStartDate")
 
-            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
+            AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
 
             _uiState.update {
                 it.copy(
@@ -226,7 +258,7 @@ class ScheduleViewModel(
             val conflicts = repository.getConflictsForWeek(semester, week)
             val conflictIds: Set<Long> = conflicts ?: emptySet()
 
-            android.util.Log.d("ScheduleViewModel", "[v74 fix] updateConflictsForWeek: 周$week, 缓存获取 ${conflictIds.size} 个冲突")
+            AppLogger.d("ScheduleViewModel", "[v74 fix] updateConflictsForWeek: 周$week, 缓存获取 ${conflictIds.size} 个冲突")
 
             _uiState.update { it.copy(conflictingCourseIds = conflictIds) }
         }
@@ -240,7 +272,7 @@ class ScheduleViewModel(
      */
     private fun findFirstWeekWithCourse(courses: List<Course>): Int {
         if (courses.isEmpty()) {
-            android.util.Log.d("ScheduleViewModel", "[v35] 无课程，默认第一周")
+            AppLogger.d("ScheduleViewModel", "[v35] 无课程，默认第一周")
             return 1
         }
 
@@ -254,7 +286,7 @@ class ScheduleViewModel(
 
         // [v95] 确保周次至少为1（防止旧数据中 startWeek=0 的情况）
         val firstWeek = maxOf(1, if (minStartWeek == Int.MAX_VALUE) 1 else minStartWeek)
-        android.util.Log.d("ScheduleViewModel", "[v35] 第一个有课的周次: $firstWeek")
+        AppLogger.d("ScheduleViewModel", "[v35] 第一个有课的周次: $firstWeek")
         return firstWeek
     }
 
@@ -264,7 +296,7 @@ class ScheduleViewModel(
      */
     private fun findMaxWeekWithCourse(courses: List<Course>): Int {
         if (courses.isEmpty()) {
-            android.util.Log.d("ScheduleViewModel", "[v35] 无课程，默认最大25周")
+            AppLogger.d("ScheduleViewModel", "[v35] 无课程，默认最大25周")
             return Constants.Schedule.MAX_WEEKS
         }
 
@@ -276,7 +308,7 @@ class ScheduleViewModel(
         }
 
         val result = if (maxEndWeek == 0) Constants.Schedule.MAX_WEEKS else maxEndWeek
-        android.util.Log.d("ScheduleViewModel", "[v35] 最大周次: $result")
+        AppLogger.d("ScheduleViewModel", "[v35] 最大周次: $result")
         return result
     }
 
@@ -298,7 +330,7 @@ class ScheduleViewModel(
             } else {
                 null
             }
-            android.util.Log.d("ScheduleViewModel", "[新功能] 切换到周$newWeek, 周一日期: $weekStartDate")
+            AppLogger.d("ScheduleViewModel", "[新功能] 切换到周$newWeek, 周一日期: $weekStartDate")
 
             _uiState.update {
                 it.copy(
@@ -318,7 +350,7 @@ class ScheduleViewModel(
     fun goToCurrentWeek() {
         val targetWeek = _uiState.value.actualCurrentWeek ?: return
         if (targetWeek in 1.._uiState.value.maxWeeks) {
-            android.util.Log.i("ScheduleViewModel", "[新功能] 跳转到当前教学周: $targetWeek")
+            AppLogger.i("ScheduleViewModel", "[新功能] 跳转到当前教学周: $targetWeek")
             onWeekSelected(targetWeek)
         }
     }
@@ -329,7 +361,7 @@ class ScheduleViewModel(
      */
     fun refreshCurrentTimeInfo() {
         viewModelScope.launch {
-            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] refreshCurrentTimeInfo 开始 ==========")
+            AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] refreshCurrentTimeInfo 开始 ==========")
 
             val semesterStartDate = userPreferences.getSemesterStartDateOnce()
             val maxWeek = _uiState.value.maxWeeks
@@ -340,11 +372,11 @@ class ScheduleViewModel(
                 semesterStartDate != null -> TimeUtils.calculateCurrentWeek(semesterStartDate)
                 else -> null
             }
-            android.util.Log.i("CHD_CurrentWeek", "学期开始日期: $semesterStartDate, 计算的实际当前周: $actualCurrentWeek")
+            AppLogger.i("CHD_CurrentWeek", "学期开始日期: $semesterStartDate, 计算的实际当前周: $actualCurrentWeek")
 
             // 获取今天星期几
             val todayDayOfWeek = TimeUtils.getTodayDayOfWeek()
-            android.util.Log.i("CHD_CurrentWeek", "今天是: $todayDayOfWeek")
+            AppLogger.i("CHD_CurrentWeek", "今天是: $todayDayOfWeek")
 
             // [新功能] 计算当前显示周的周一日期
             val weekStartDate = if (semesterStartDate != null) {
@@ -352,7 +384,7 @@ class ScheduleViewModel(
             } else {
                 null
             }
-            android.util.Log.i("CHD_CurrentWeek", "当前显示周$currentDisplayWeek 周一日期: $weekStartDate")
+            AppLogger.i("CHD_CurrentWeek", "当前显示周$currentDisplayWeek 周一日期: $weekStartDate")
 
             // 更新 UI 状态
             _uiState.update { currentState ->
@@ -371,7 +403,7 @@ class ScheduleViewModel(
                 )
             }
 
-            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] refreshCurrentTimeInfo 结束 ==========")
+            AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] refreshCurrentTimeInfo 结束 ==========")
         }
     }
 
@@ -406,13 +438,13 @@ class ScheduleViewModel(
                 _uiState.update {
                     it.copy(waterCourseNames = it.waterCourseNames - courseName)
                 }
-                android.util.Log.d("ScheduleViewModel", "[新功能] 取消水课标注: $courseName")
+                AppLogger.d("ScheduleViewModel", "[新功能] 取消水课标注: $courseName")
             } else {
                 userPreferences.addWaterCourse(courseName, semester)
                 _uiState.update {
                     it.copy(waterCourseNames = it.waterCourseNames + courseName)
                 }
-                android.util.Log.d("ScheduleViewModel", "[新功能] 添加水课标注: $courseName")
+                AppLogger.d("ScheduleViewModel", "[新功能] 添加水课标注: $courseName")
             }
         }
     }
@@ -497,18 +529,24 @@ class ScheduleViewModel(
         viewModelScope.launch {
             val settings = userPreferences.getReminderSettingsOnce()
             _reminderSettings.value = settings
-            android.util.Log.d("ScheduleViewModel", "[课程提醒] 加载提醒设置: $settings")
+            AppLogger.d("ScheduleViewModel", "[课程提醒] 加载提醒设置: $settings")
         }
     }
 
     /**
      * [课程提醒] 更新提醒设置
+     * [v102] 添加日历自动同步功能
      */
     fun updateReminderSettings(settings: ReminderSettings) {
+        // [v102] 保存旧设置用于比较
+        val oldSettings = _reminderSettings.value
+
         viewModelScope.launch {
             _reminderSettings.value = settings
+            // [v103] 同时更新 _uiState 中的 reminderSettings，确保 syncToCalendar() 读取到最新值
+            _uiState.update { it.copy(reminderSettings = settings) }
             userPreferences.saveReminderSettings(settings)
-            android.util.Log.d("ScheduleViewModel", "[课程提醒] 保存提醒设置: $settings")
+            AppLogger.d("ScheduleViewModel", "[课程提醒] 保存提醒设置: $settings")
 
             // 重新调度早八提醒
             reminderManager.scheduleEarlyMorningReminder(settings)
@@ -518,10 +556,29 @@ class ScheduleViewModel(
             val currentWeek = _uiState.value.actualCurrentWeek
             val courses = _uiState.value.courses
             if (semesterStartDate != null && currentWeek != null) {
-                reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek)
-                android.util.Log.d("ScheduleViewModel", "[课程提醒] 已重新调度上课前提醒")
+                val campus = _uiState.value.campus  // [v108] 传递当前校区
+                reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek, campus)
+                AppLogger.d("ScheduleViewModel", "[课程提醒] 已重新调度上课前提醒, 校区: ${campus.displayName}")
+            }
+
+            // [v102] 检查是否需要自动重新同步日历
+            if (settings.calendarSyncEnabled && shouldResyncCalendar(oldSettings, settings)) {
+                AppLogger.i("ScheduleViewModel", "[v102] 日历提醒设置变更，自动重新同步")
+                syncToCalendar()
             }
         }
+    }
+
+    /**
+     * [v102] 判断是否需要重新同步日历
+     * 比较影响日历提醒的关键字段
+     */
+    private fun shouldResyncCalendar(old: ReminderSettings, new: ReminderSettings): Boolean {
+        return old.calendarBeforeClassReminderEnabled != new.calendarBeforeClassReminderEnabled ||
+               old.calendarEarlyMorningReminderEnabled != new.calendarEarlyMorningReminderEnabled ||
+               old.beforeClassReminderMinutes != new.beforeClassReminderMinutes ||
+               old.earlyMorningReminderHour != new.earlyMorningReminderHour ||
+               old.earlyMorningReminderMinute != new.earlyMorningReminderMinute
     }
 
     /**
@@ -529,10 +586,11 @@ class ScheduleViewModel(
      * [v98] 根据当前选择的校区使用对应的上课时间
      * [v99 Debug] 添加关键日期计算 debug 日志
      * [v100] 添加同步状态更新
+     * [v101] 传递 ReminderSettings，支持课前提醒和早八提醒
      */
     fun syncToCalendar() {
         viewModelScope.launch {
-            android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 开始 ==========")
+            AppLogger.i("CHD_CalendarDebug", "========== [v101] syncToCalendar 开始 ==========")
 
             // [v100] 设置同步中状态
             _uiState.update { it.copy(calendarSyncState = CalendarSyncState.Syncing) }
@@ -542,14 +600,18 @@ class ScheduleViewModel(
             val semesterStartDate = userPreferences.getSemesterStartDateOnce()
             // [v98] 获取当前选择的校区
             val campus = _uiState.value.campus
+            // [v101] 获取提醒设置
+            val reminderSettings = _uiState.value.reminderSettings
 
             // [v99 Debug] 入口参数日志
             val today = java.time.LocalDate.now()
             val todayDayOfWeek = today.dayOfWeek.value
-            android.util.Log.i("CHD_CalendarDebug", "[v99 入口] 今天: $today (周$todayDayOfWeek)")
-            android.util.Log.i("CHD_CalendarDebug", "[v99 入口] 学期开始日期: $semesterStartDate")
-            android.util.Log.i("CHD_CalendarDebug", "[v99 入口] 课程数: ${courses.size}")
-            android.util.Log.i("CHD_CalendarDebug", "[v99 入口] 校区: ${campus.displayName}")
+            AppLogger.i("CHD_CalendarDebug", "[v101 入口] 今天: $today (周$todayDayOfWeek)")
+            AppLogger.i("CHD_CalendarDebug", "[v101 入口] 学期开始日期: $semesterStartDate")
+            AppLogger.i("CHD_CalendarDebug", "[v101 入口] 课程数: ${courses.size}")
+            AppLogger.i("CHD_CalendarDebug", "[v101 入口] 校区: ${campus.displayName}")
+            AppLogger.i("CHD_CalendarDebug", "[v101 入口] 课前提醒: ${reminderSettings.calendarBeforeClassReminderEnabled}")
+            AppLogger.i("CHD_CalendarDebug", "[v101 入口] 早八提醒: ${reminderSettings.calendarEarlyMorningReminderEnabled}")
 
             // 验证学期开始日期
             if (semesterStartDate != null) {
@@ -562,7 +624,7 @@ class ScheduleViewModel(
                 }
                 if (expectedMonday != null) {
                     val isMonday = expectedMonday.dayOfWeek.value == 1
-                    android.util.Log.i("CHD_CalendarDebug", "[v99 验证] 学期开始日期是周一: $isMonday (${expectedMonday.dayOfWeek})")
+                    AppLogger.i("CHD_CalendarDebug", "[v101 验证] 学期开始日期是周一: $isMonday (${expectedMonday.dayOfWeek})")
                 }
             }
 
@@ -574,8 +636,8 @@ class ScheduleViewModel(
                         errorMessage = "没有课程可同步"
                     )
                 }
-                android.util.Log.w("CHD_CalendarDebug", "[v99] 没有课程可同步")
-                android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束（无课程）==========")
+                AppLogger.w("CHD_CalendarDebug", "[v101] 没有课程可同步")
+                AppLogger.i("CHD_CalendarDebug", "========== [v101] syncToCalendar 结束（无课程）==========")
                 return@launch
             }
 
@@ -587,23 +649,42 @@ class ScheduleViewModel(
                         errorMessage = "缺少学期开始日期，请先同步课表"
                     )
                 }
-                android.util.Log.w("CHD_CalendarDebug", "[v99] 缺少学期开始日期")
-                android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束（无学期日期）==========")
+                AppLogger.w("CHD_CalendarDebug", "[v101] 缺少学期开始日期")
+                AppLogger.i("CHD_CalendarDebug", "========== [v101] syncToCalendar 结束（无学期日期）==========")
                 return@launch
             }
 
-            // 调用日历同步服务 [v98] 传入校区参数
+            // 调用日历同步服务 [v98] 传入校区参数 [v101] 传入提醒设置
             try {
-                val (success, fail) = calendarSyncService.syncCoursesToCalendar(courses, semesterStartDate, campus)
-                // [v100] 设置同步完成状态
+                val result = calendarSyncService.syncCoursesToCalendar(
+                    courses,
+                    semesterStartDate,
+                    campus,
+                    reminderSettings  // [v101]
+                )
+                // [v101] 使用 SyncResult 更新状态
+                val statusMsg = buildString {
+                    append("同步完成: 成功 ${result.successCount} 节")
+                    if (result.failCount > 0) {
+                        append(", 失败 ${result.failCount} 节")
+                    }
+                    if (result.reminderCount > 0) {
+                        append(", 提醒 ${result.reminderCount} 个")
+                    }
+                    if (result.earlyMorningCount > 0) {
+                        append(", 早八提醒 ${result.earlyMorningCount} 个")
+                    }
+                    append(" (${campus.displayName})")
+                }
+
                 _uiState.update {
                     it.copy(
-                        calendarSyncState = CalendarSyncState.Synced(success),
-                        errorMessage = "同步完成: 成功 $success 节, 失败 $fail 节 (${campus.displayName})"
+                        calendarSyncState = CalendarSyncState.Synced(result.successCount),
+                        errorMessage = statusMsg
                     )
                 }
-                android.util.Log.i("CHD_CalendarDebug", "[v99] 同步完成: 成功 $success, 失败 $fail")
-                android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 结束 ==========")
+                AppLogger.i("CHD_CalendarDebug", "[v101] 同步完成: $result")
+                AppLogger.i("CHD_CalendarDebug", "========== [v101] syncToCalendar 结束 ==========")
             } catch (e: Exception) {
                 // [v100] 设置错误状态
                 _uiState.update {
@@ -612,8 +693,8 @@ class ScheduleViewModel(
                         errorMessage = "同步失败: ${e.message}"
                     )
                 }
-                android.util.Log.e("CHD_CalendarDebug", "[v99] 同步失败", e)
-                android.util.Log.i("CHD_CalendarDebug", "========== [v99] syncToCalendar 异常结束 ==========")
+                AppLogger.e("CHD_CalendarDebug", "[v101] 同步失败", e)
+                AppLogger.i("CHD_CalendarDebug", "========== [v101] syncToCalendar 异常结束 ==========")
             }
         }
     }
@@ -624,7 +705,7 @@ class ScheduleViewModel(
      */
     fun deleteCalendarEvents() {
         viewModelScope.launch {
-            android.util.Log.d("ScheduleViewModel", "[v98] 开始删除日历事件...")
+            AppLogger.d("ScheduleViewModel", "[v98] 开始删除日历事件...")
 
             // [v100] 设置删除中状态
             _uiState.update { it.copy(calendarSyncState = CalendarSyncState.Deleting) }
@@ -639,7 +720,7 @@ class ScheduleViewModel(
                             errorMessage = "已删除日历中的所有课程事件"
                         )
                     }
-                    android.util.Log.d("ScheduleViewModel", "[v98] 删除日历成功")
+                    AppLogger.d("ScheduleViewModel", "[v98] 删除日历成功")
                 } else {
                     // [v100] 设置错误状态
                     _uiState.update {
@@ -648,7 +729,7 @@ class ScheduleViewModel(
                             errorMessage = "删除日历失败，请检查权限"
                         )
                     }
-                    android.util.Log.w("ScheduleViewModel", "[v98] 删除日历失败")
+                    AppLogger.w("ScheduleViewModel", "[v98] 删除日历失败")
                 }
             } catch (e: Exception) {
                 // [v100] 设置错误状态
@@ -658,7 +739,7 @@ class ScheduleViewModel(
                         errorMessage = "删除失败: ${e.message}"
                     )
                 }
-                android.util.Log.e("ScheduleViewModel", "[v98] 删除日历异常", e)
+                AppLogger.e("ScheduleViewModel", "[v98] 删除日历异常", e)
             }
         }
     }
@@ -667,7 +748,7 @@ class ScheduleViewModel(
      * [课程提醒] 权限结果处理 - 通知权限
      */
     fun onNotificationPermissionResult(isGranted: Boolean) {
-        android.util.Log.d("ScheduleViewModel", "[课程提醒] 通知权限结果: $isGranted")
+        AppLogger.d("ScheduleViewModel", "[课程提醒] 通知权限结果: $isGranted")
         if (isGranted) {
             // 权限授予后重新调度提醒
             viewModelScope.launch {
@@ -681,7 +762,7 @@ class ScheduleViewModel(
      * [课程提醒] 权限结果处理 - 日历权限
      */
     fun onCalendarPermissionResult(isGranted: Boolean) {
-        android.util.Log.d("ScheduleViewModel", "[课程提醒] 日历权限结果: $isGranted")
+        AppLogger.d("ScheduleViewModel", "[课程提醒] 日历权限结果: $isGranted")
         if (isGranted) {
             // 权限授予后自动同步
             syncToCalendar()

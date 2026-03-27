@@ -1,5 +1,7 @@
 package com.example.course_schedule_for_chd_v002.domain.model
 
+import com.example.course_schedule_for_chd_v002.util.AppLogger
+
 /**
  * 课程领域模型
  * 表示一门课程的所有信息
@@ -128,7 +130,7 @@ data class Course(
     fun hasTimeConflict(other: Course): Boolean {
         // 不同星期不冲突
         if (dayOfWeek != other.dayOfWeek) {
-            android.util.Log.v("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 不同星期(${dayOfWeek.value} vs ${other.dayOfWeek.value})")
+            AppLogger.d("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 不同星期(${dayOfWeek.value} vs ${other.dayOfWeek.value})")
             return false
         }
 
@@ -154,7 +156,7 @@ data class Course(
         }
 
         if (!hasWeekOverlap) {
-            android.util.Log.v("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 周次无交集($startWeek-$endWeek vs ${other.startWeek}-${other.endWeek})")
+            AppLogger.d("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 周次无交集($startWeek-$endWeek vs ${other.startWeek}-${other.endWeek})")
             return false
         }
 
@@ -163,12 +165,12 @@ data class Course(
         val hasConflict = nodeIntersect.isNotEmpty()
 
         if (hasConflict) {
-            android.util.Log.i("CHD_Conflict", "[有冲突] '$name' vs '${other.name}':")
-            android.util.Log.i("CHD_Conflict", "  星期: ${dayOfWeek.value}")
-            android.util.Log.i("CHD_Conflict", "  周次有交集 (位图检查)")
-            android.util.Log.i("CHD_Conflict", "  节次: $startNode-$endNode vs ${other.startNode}-${other.endNode}, 交集: $nodeIntersect")
+            AppLogger.i("CHD_Conflict", "[有冲突] '$name' vs '${other.name}':")
+            AppLogger.i("CHD_Conflict", "  星期: ${dayOfWeek.value}")
+            AppLogger.i("CHD_Conflict", "  周次有交集 (位图检查)")
+            AppLogger.i("CHD_Conflict", "  节次: $startNode-$endNode vs ${other.startNode}-${other.endNode}, 交集: $nodeIntersect")
         } else {
-            android.util.Log.v("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 节次无交集($startNode-$endNode vs ${other.startNode}-${other.endNode})")
+            AppLogger.d("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 节次无交集($startNode-$endNode vs ${other.startNode}-${other.endNode})")
         }
 
         return hasConflict

@@ -23,6 +23,7 @@ import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.login.WebViewScreen  // [v47] 使用系统 WebView
 import com.example.course_schedule_for_chd_v002.ui.screens.permission.PermissionRequestScreen  // [权限管理]
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleScreen
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -52,21 +53,21 @@ fun AppNavigation(
     var startDestination by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        android.util.Log.d(TAG, "=== 初始化起始目的地 ===")
+        AppLogger.d(TAG, "=== 初始化起始目的地 ===")
         withContext(Dispatchers.IO) {
             // [权限管理] 检查是否首次启动
             val isFirstLaunch = userPreferences.isFirstLaunch.first()
-            android.util.Log.i(TAG, "[NAV] 首次启动检查: $isFirstLaunch")
+            AppLogger.i(TAG, "[NAV] 首次启动检查: $isFirstLaunch")
 
             if (isFirstLaunch) {
                 // 首次启动，显示权限请求页
-                android.util.Log.i(TAG, "[NAV] 起始目的地 -> PermissionRequest")
+                AppLogger.i(TAG, "[NAV] 起始目的地 -> PermissionRequest")
                 startDestination = Screen.PermissionRequest.route
             } else {
                 // 非首次启动，直接进入课程表
                 val semester = repository.getCurrentSemester() ?: "2024-2025-1"
                 val route = Screen.Schedule.createRoute(semester)
-                android.util.Log.i(TAG, "[NAV] 起始目的地 -> Schedule: $route")
+                AppLogger.i(TAG, "[NAV] 起始目的地 -> Schedule: $route")
                 startDestination = route
             }
         }
@@ -74,14 +75,14 @@ fun AppNavigation(
 
     // 加载中状态
     if (startDestination == null) {
-        android.util.Log.d(TAG, "正在加载，显示进度条...")
+        AppLogger.d(TAG, "正在加载，显示进度条...")
         Box(modifier = Modifier.fillMaxSize()) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
         return
     }
 
-    android.util.Log.i(TAG, "[NAV] NavHost 初始化，startDestination=${startDestination}")
+    AppLogger.i(TAG, "[NAV] NavHost 初始化，startDestination=${startDestination}")
 
     NavHost(
         navController = navController,
@@ -89,12 +90,12 @@ fun AppNavigation(
     ) {
         // [权限管理] 权限请求界面 - 首次启动时显示
         composable(Screen.PermissionRequest.route) {
-            android.util.Log.d(TAG, "=== 进入 PermissionRequest 屏幕 ===")
+            AppLogger.d(TAG, "=== 进入 PermissionRequest 屏幕 ===")
             val scope = rememberCoroutineScope()
 
             PermissionRequestScreen(
                 onPermissionsHandled = {
-                    android.util.Log.i(TAG, "[NAV] 权限处理完成，导航到 Schedule")
+                    AppLogger.i(TAG, "[NAV] 权限处理完成，导航到 Schedule")
                     // 标记为非首次启动并导航
                     scope.launch(Dispatchers.IO) {
                         userPreferences.markAsNotFirstLaunch()
@@ -111,25 +112,25 @@ fun AppNavigation(
 
         // 登录界面 - 只显示 WebView
         composable(Screen.Login.route) {
-            android.util.Log.d(TAG, "=== 进入 Login 屏幕 ===")
+            AppLogger.d(TAG, "=== 进入 Login 屏幕 ===")
             val viewModel: LoginViewModel = koinViewModel()
 
             // [v29] 使用一次性事件进行导航
             // 使用 navigate 而不是 popBackStack，因为 Schedule 可能不在栈中（例如登出后）
             LaunchedEffect(Unit) {
-                android.util.Log.d(TAG, "[v29] 开始监听导航事件")
+                AppLogger.d(TAG, "[v29] 开始监听导航事件")
                 viewModel.navigateBackEvent.collect {
-                    android.util.Log.i(TAG, "[NAV] [v29] >>> 收到导航事件，执行导航")
+                    AppLogger.i(TAG, "[NAV] [v29] >>> 收到导航事件，执行导航")
 
                     // 尝试 popBackStack，如果失败则 navigate 到 Schedule
                     val currentRoute = navController.currentDestination?.route
-                    android.util.Log.d(TAG, "[v29] 当前路由: $currentRoute")
+                    AppLogger.d(TAG, "[v29] 当前路由: $currentRoute")
 
                     // 直接导航到 Schedule，清除 Login 及其上面的所有屏幕
                     navController.navigate(Screen.Schedule.createRoute("2024-2025-1")) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
-                    android.util.Log.i(TAG, "[NAV] [v29] >>> 导航到 Schedule 完成")
+                    AppLogger.i(TAG, "[NAV] [v29] >>> 导航到 Schedule 完成")
                 }
             }
 
@@ -152,11 +153,11 @@ fun AppNavigation(
         ) { backStackEntry ->
             val semester = backStackEntry.arguments?.getString(Screen.Schedule.SEMESTER_ARG)
                 ?: "2024-2025-1"
-            android.util.Log.i(TAG, "=== 进入 Schedule 屏幕, semester=$semester ===")
+            AppLogger.i(TAG, "=== 进入 Schedule 屏幕, semester=$semester ===")
             ScheduleScreen(
                 semester = semester,
                 onLogout = {
-                    android.util.Log.i(TAG, "[NAV] 登出，返回 Login")
+                    AppLogger.i(TAG, "[NAV] 登出，返回 Login")
                     // 登出后返回登录界面，清除所有返回栈
                     navController.navigate(Screen.Login.route) {
                         popUpTo(0) { inclusive = true }
@@ -166,12 +167,12 @@ fun AppNavigation(
                     // [v42] 添加导航保护，防止重复导航
                     val currentRoute = navController.currentDestination?.route
                     if (currentRoute != Screen.Login.route) {
-                        android.util.Log.i(TAG, "[NAV] Schedule -> Login (同步数据)")
+                        AppLogger.i(TAG, "[NAV] Schedule -> Login (同步数据)")
                         navController.navigate(Screen.Login.route) {
                             launchSingleTop = true  // 防止重复实例
                         }
                     } else {
-                        android.util.Log.w(TAG, "[NAV] 已在 Login 页面，跳过导航")
+                        AppLogger.w(TAG, "[NAV] 已在 Login 页面，跳过导航")
                     }
                 }
             )

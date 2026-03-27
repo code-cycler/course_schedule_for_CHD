@@ -4,6 +4,7 @@ import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 
 /**
  * [日历同步] 同步状态
@@ -124,11 +125,11 @@ data class ScheduleUiState(
      */
     fun getDisplayCourses(): List<Course> {
         val result = courses.filter { it.isWeekInRange(currentWeek) }
-        android.util.Log.d("ScheduleUiState", "[v35] getDisplayCourses: 总课程=${courses.size}, 当前周=$currentWeek, 过滤后=${result.size}")
+        AppLogger.d("ScheduleUiState", "[v35] getDisplayCourses: 总课程=${courses.size}, 当前周=$currentWeek, 过滤后=${result.size}")
         if (result.isEmpty() && courses.isNotEmpty()) {
             // 调试：打印每门课程的周次范围
             courses.forEachIndexed { index, course ->
-                android.util.Log.d("ScheduleUiState", "[v35] 课程[$index]: ${course.name}, 周${course.startWeek}-${course.endWeek}")
+                AppLogger.d("ScheduleUiState", "[v35] 课程[$index]: ${course.name}, 周${course.startWeek}-${course.endWeek}")
             }
         }
         return result

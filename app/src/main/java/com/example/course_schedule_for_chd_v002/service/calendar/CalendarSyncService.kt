@@ -9,6 +9,7 @@ import android.provider.CalendarContract
 import android.util.Log
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
+import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,6 +28,19 @@ class CalendarSyncService(private val context: Context) {
 
     companion object {
         private const val TAG = "CalendarSyncService"
+
+        /**
+         * [v101] 日历同步结果
+         */
+        data class SyncResult(
+            val successCount: Int,        // 成功创建的课程事件数
+            val failCount: Int,           // 失败的课程事件数
+            val reminderCount: Int,       // 成功创建的课前提醒数
+            val earlyMorningCount: Int    // 成功创建的早八提醒数
+        ) {
+            val totalCount: Int get() = successCount + failCount
+            val hasReminder: Boolean get() = reminderCount > 0 || earlyMorningCount > 0
+        }
 
         // 日历账户名称
         private const val CALENDAR_ACCOUNT_NAME = "course_schedule_chd"
@@ -84,6 +98,105 @@ class CalendarSyncService(private val context: Context) {
     }
 
     private val contentResolver: ContentResolver = context.contentResolver
+
+    // ============ [v101] 日历提醒功能 ============
+
+    /**
+     * [v101] 为日历事件创建提醒
+     *
+     * @param eventId 日历事件ID
+     * @param minutesBefore 提前多少分钟提醒 (0-1440)
+     * @return 是否创建成功
+     */
+    private fun createCalendarReminder(eventId: Long, minutesBefore: Int): Boolean {
+        // 参数验证
+        if (minutesBefore < 0 || minutesBefore > 1440) {
+            Log.w(TAG, "[v101] 无效的提醒分钟数: $minutesBefore")
+            return false
+        }
+
+        val values = ContentValues().apply {
+            put(CalendarContract.Reminders.EVENT_ID, eventId)
+            put(CalendarContract.Reminders.MINUTES, minutesBefore)
+            put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+        }
+
+        return try {
+            val uri = contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, values)
+            if (uri != null) {
+                Log.d(TAG, "[v101] 创建提醒成功: eventId=$eventId, minutes=$minutesBefore")
+                true
+            } else {
+                Log.w(TAG, "[v101] 创建提醒返回空URI: eventId=$eventId")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[v101] 创建日历提醒失败: eventId=$eventId", e)
+            false
+        }
+    }
+
+    /**
+     * [v101] 创建早八提醒日历事件
+     * 前一天晚上提醒明天有早八课程
+     *
+     * @param course 早八课程
+     * @param classDate 上课日期
+     * @param reminderHour 提醒时间-小时
+     * @param reminderMinute 提醒时间-分钟
+     * @param calendarId 日历ID
+     * @return 是否创建成功
+     */
+    private fun createEarlyMorningReminderEvent(
+        course: Course,
+        classDate: LocalDate,
+        reminderHour: Int,
+        reminderMinute: Int,
+        calendarId: Long
+    ): Boolean {
+        // 提醒时间是前一天晚上
+        val reminderDate = classDate.minusDays(1)
+        val reminderTime = LocalTime.of(reminderHour, reminderMinute)
+
+        val startDateTime = reminderDate.atTime(reminderTime)
+        val endDateTime = startDateTime.plusMinutes(15)  // 事件持续15分钟
+
+        val timeZone = ZoneId.systemDefault()
+        val startMillis = startDateTime.atZone(timeZone).toInstant().toEpochMilli()
+        val endMillis = endDateTime.atZone(timeZone).toInstant().toEpochMilli()
+
+        val values = ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendarId)
+            put(CalendarContract.Events.TITLE, "[早八提醒] 明天有早八")
+            put(CalendarContract.Events.DESCRIPTION, "明天 ${course.name} @ ${course.location}")
+            put(CalendarContract.Events.DTSTART, startMillis)
+            put(CalendarContract.Events.DTEND, endMillis)
+            put(CalendarContract.Events.EVENT_TIMEZONE, timeZone.id)
+            put(CalendarContract.Events.HAS_ALARM, 1)
+        }
+
+        return try {
+            val eventUri = contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+            if (eventUri != null) {
+                val eventId = eventUri.lastPathSegment?.toLongOrNull()
+                if (eventId != null) {
+                    // 为早八提醒事件创建即时提醒
+                    createCalendarReminder(eventId, 0)
+                    Log.d(TAG, "[v101] 创建早八提醒成功: ${course.name} @ $reminderDate $reminderTime")
+                    true
+                } else {
+                    Log.w(TAG, "[v101] 早八提醒事件ID解析失败")
+                    false
+                }
+            } else {
+                Log.w(TAG, "[v101] 创建早八提醒返回空URI")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[v101] 创建早八提醒事件失败: ${course.name}", e)
+            false
+        }
+    }
 
     /**
      * 获取或创建应用专用日历
@@ -177,93 +290,149 @@ class CalendarSyncService(private val context: Context) {
     /**
      * [v98] 同步课程到系统日历
      * [v99 Debug] 添加关键日期计算 debug 日志
+     * [v101] 支持提醒设置，添加课前提醒和早八提醒
+     * [v102] 添加日期过滤，不创建已过去的课程事件
      *
      * @param courses 课程列表
      * @param semesterStartDate 学期开始日期 (格式: yyyy-MM-dd)
      * @param campus 校区，默认渭水校区
-     * @return 同步结果: Pair<成功数, 失败数>
+     * @param settings 提醒设置 [v101]
+     * @return 同步结果: SyncResult
      */
     suspend fun syncCoursesToCalendar(
         courses: List<Course>,
         semesterStartDate: String,
-        campus: Campus = Campus.WEISHUI
-    ): Pair<Int, Int> = withContext(Dispatchers.IO) {
-        Log.i(TAG, "========== [v99] syncCoursesToCalendar 开始 ==========")
-        Log.i(TAG, "[v99 参数] 课程数: ${courses.size}")
-        Log.i(TAG, "[v99 参数] 学期开始日期: $semesterStartDate")
-        Log.i(TAG, "[v99 参数] 校区: ${campus.displayName}")
+        campus: Campus = Campus.WEISHUI,
+        settings: ReminderSettings = ReminderSettings()
+    ): SyncResult = withContext(Dispatchers.IO) {
+        // [v102] 获取当前日期用于过滤
+        val currentDate = LocalDate.now()
+        Log.i(TAG, "========== [v102] syncCoursesToCalendar 开始 ==========")
+        Log.i(TAG, "[v102 参数] 课程数: ${courses.size}")
+        Log.i(TAG, "[v102 参数] 学期开始日期: $semesterStartDate")
+        Log.i(TAG, "[v102 参数] 校区: ${campus.displayName}")
+        Log.i(TAG, "[v102 参数] 当前日期: $currentDate")
+        Log.i(TAG, "[v102 参数] 课前提醒: ${settings.calendarBeforeClassReminderEnabled}, ${settings.beforeClassReminderMinutes}分钟")
+        Log.i(TAG, "[v102 参数] 早八提醒: ${settings.calendarEarlyMorningReminderEnabled}, ${settings.earlyMorningReminderHour}:${settings.earlyMorningReminderMinute}")
 
         if (courses.isEmpty() || semesterStartDate.isBlank()) {
-            Log.w(TAG, "[v99] 课程列表或学期开始日期为空，跳过同步")
-            return@withContext Pair(0, 0)
+            Log.w(TAG, "[v101] 课程列表或学期开始日期为空，跳过同步")
+            return@withContext SyncResult(0, 0, 0, 0)
         }
 
         // 获取或创建日历
         val calendarId = getOrCreateCalendarId()
         if (calendarId == null) {
-            Log.e(TAG, "[v99] 无法获取或创建日历")
-            return@withContext Pair(0, courses.size)
+            Log.e(TAG, "[v101] 无法获取或创建日历")
+            return@withContext SyncResult(0, courses.size, 0, 0)
         }
-        Log.i(TAG, "[v99] 日历ID: $calendarId")
+        Log.i(TAG, "[v101] 日历ID: $calendarId")
 
         // 删除该日历的所有旧事件
         deleteCalendarEvents(calendarId)
-        Log.i(TAG, "[v99] 已删除日历中的旧事件")
+        Log.i(TAG, "[v102] 已删除日历中的旧事件")
 
         var successCount = 0
         var failCount = 0
+        var reminderCount = 0
+        var skippedPastCount = 0  // [v102] 统计跳过的已过去课程数
+        val earlyMorningCourses = mutableListOf<Pair<Course, LocalDate>>()  // [v101] 记录早八课程和日期
 
         // [v98] 同步课程
         courses.forEach { course ->
             try {
-                // 计算该课程的所有上课日期
-                val courseDates = calculateCourseDates(course, semesterStartDate)
+                // [v102] 计算该课程的所有上课日期（过滤已过去的日期）
+                val courseDates = calculateCourseDates(course, semesterStartDate, currentDate)
                 if (courseDates.isEmpty()) {
-                    Log.w(TAG, "[v99] 课程 ${course.name} 没有上课日期")
-                    failCount++
+                    Log.i(TAG, "[v102] 课程 ${course.name} 没有未来的上课日期（可能已全部上完）")
+                    skippedPastCount++
                     return@forEach
                 }
 
                 // 为每个上课日期创建日历事件
                 for ((date, startNode, endNode) in courseDates) {
-                    // [v98] 传入校区参数
-                    val created = createCalendarEvent(course, date, startNode, endNode, calendarId, campus)
-                    if (created) {
+                    // [v98] 传入校区参数，[v101] 获取 eventId
+                    val eventId = createCalendarEvent(course, date, startNode, endNode, calendarId, campus)
+                    if (eventId != null) {
                         successCount++
+
+                        // [v101] 如果启用课前提醒，为事件添加提醒
+                        if (settings.calendarBeforeClassReminderEnabled && settings.beforeClassReminderMinutes > 0) {
+                            if (createCalendarReminder(eventId, settings.beforeClassReminderMinutes)) {
+                                reminderCount++
+                            }
+                        }
+
+                        // [v101] 检查是否是早八课程（第1-2节），记录用于后续创建早八提醒
+                        // [v102] 只对明天及之后的早八课创建提醒
+                        if (settings.calendarEarlyMorningReminderEnabled &&
+                            startNode <= 2 && endNode >= 1 &&
+                            date > currentDate) {  // [v102] 只对未来的早八课创建提醒
+                            earlyMorningCourses.add(Pair(course, date))
+                        }
                     } else {
                         failCount++
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "[v99] 同步课程 ${course.name} 到日历失败", e)
+                Log.e(TAG, "[v102] 同步课程 ${course.name} 到日历失败", e)
                 failCount++
             }
         }
 
-        Log.i(TAG, "[v99] 同步完成: 成功 $successCount, 失败 $failCount")
-        Log.i(TAG, "========== [v99] syncCoursesToCalendar 结束 ==========")
-        return@withContext Pair(successCount, failCount)
+        // [v101] 创建早八提醒事件
+        var earlyMorningCount = 0
+        if (settings.calendarEarlyMorningReminderEnabled && earlyMorningCourses.isNotEmpty()) {
+            Log.i(TAG, "[v102] 开始创建早八提醒，共 ${earlyMorningCourses.size} 节未来的早八课")
+
+            // 去重：同一个日期只创建一个早八提醒
+            val uniqueDates = earlyMorningCourses.map { it.second }.toSet()
+
+            for (classDate in uniqueDates) {
+                // 找到这个日期的第一节早八课程（用于显示课程信息）
+                val firstEarlyCourse = earlyMorningCourses.first { it.second == classDate }.first
+
+                if (createEarlyMorningReminderEvent(
+                    firstEarlyCourse,
+                    classDate,
+                    settings.earlyMorningReminderHour,
+                    settings.earlyMorningReminderMinute,
+                    calendarId
+                )) {
+                    earlyMorningCount++
+                }
+            }
+            Log.i(TAG, "[v102] 早八提醒创建完成: $earlyMorningCount")
+        }
+
+        Log.i(TAG, "[v102] 同步完成: 成功 $successCount, 失败 $failCount, 提醒 $reminderCount, 早八 $earlyMorningCount, 跳过已上完 $skippedPastCount")
+        Log.i(TAG, "========== [v102] syncCoursesToCalendar 结束 ==========")
+        return@withContext SyncResult(successCount, failCount, reminderCount, earlyMorningCount)
     }
 
     /**
      * 计算课程的所有上课日期
      * [v98] 修复：使用 getActiveWeeks() 获取实际有课的周次，而非简单遍历范围
      * [v99 Debug] 添加关键日期计算 debug 日志
+     * [v102] 添加日期过滤，不返回已过去的日期
      *
      * @param course 课程
      * @param semesterStartDate 学期开始日期
-     * @return 课程的上课日期列表，包含日期、开始节次、结束节次
+     * @param currentDate 当前日期，用于过滤已过去的日期 [v102]
+     * @return 课程的上课日期列表，包含日期、开始节次、结束节次（已过滤已过去的日期）
      */
     private fun calculateCourseDates(
         course: Course,
-        semesterStartDate: String
+        semesterStartDate: String,
+        currentDate: LocalDate = LocalDate.now()  // [v102] 新增参数
     ): List<Triple<LocalDate, Int, Int>> {
-        Log.i(TAG, "========== [v99] calculateCourseDates 开始 ==========")
-        Log.i(TAG, "[v99 课程] 名称: ${course.name}")
-        Log.i(TAG, "[v99 课程] 星期: ${course.dayOfWeek.value} (1=周一, 7=周日)")
-        Log.i(TAG, "[v99 课程] 节次: ${course.startNode}-${course.endNode}")
-        Log.i(TAG, "[v99 课程] 周次范围: ${course.startWeek}-${course.endWeek}")
-        Log.i(TAG, "[v99 参数] 学期开始日期: $semesterStartDate")
+        Log.i(TAG, "========== [v102] calculateCourseDates 开始 ==========")
+        Log.i(TAG, "[v102 课程] 名称: ${course.name}")
+        Log.i(TAG, "[v102 课程] 星期: ${course.dayOfWeek.value} (1=周一, 7=周日)")
+        Log.i(TAG, "[v102 课程] 节次: ${course.startNode}-${course.endNode}")
+        Log.i(TAG, "[v102 课程] 周次范围: ${course.startWeek}-${course.endWeek}")
+        Log.i(TAG, "[v102 参数] 学期开始日期: $semesterStartDate")
+        Log.i(TAG, "[v102 参数] 当前日期: $currentDate")
 
         val result = mutableListOf<Triple<LocalDate, Int, Int>>()
 
@@ -276,10 +445,10 @@ class CalendarSyncService(private val context: Context) {
 
             // 如果有位图信息，使用活跃周列表；否则回退到范围遍历
             val weeksToProcess = if (activeWeeks.isNotEmpty()) {
-                Log.i(TAG, "[v99 活跃周] 使用位图，列表: $activeWeeks")
+                Log.i(TAG, "[v102 活跃周] 使用位图，列表: $activeWeeks")
                 activeWeeks
             } else {
-                Log.i(TAG, "[v99 活跃周] 无位图，使用范围: ${course.startWeek}..${course.endWeek}")
+                Log.i(TAG, "[v102 活跃周] 无位图，使用范围: ${course.startWeek}..${course.endWeek}")
                 (course.startWeek..course.endWeek).toList()
             }
 
@@ -287,28 +456,34 @@ class CalendarSyncService(private val context: Context) {
             for (week in weeksToProcess) {
                 // 计算该周的日期
                 val weekStart = TimeUtils.calculateWeekStartDate(semesterStartDate, week)
-                Log.i(TAG, "[v99 日期计算] 第${week}周 -> 周一: $weekStart (学期开始=$semesterStartDate)")
+                Log.i(TAG, "[v102 日期计算] 第${week}周 -> 周一: $weekStart (学期开始=$semesterStartDate)")
 
                 if (weekStart != null) {
                     val date = weekStart.plusDays((courseDayOfWeek - 1).toLong())
-                    result.add(Triple(date, course.startNode, course.endNode))
-                    Log.i(TAG, "[v99 日期计算] 第${week}周周${courseDayOfWeek} -> 课程日期: $date")
+                    // [v102] 只添加未过去的日期（保留今天）
+                    if (date >= currentDate) {
+                        result.add(Triple(date, course.startNode, course.endNode))
+                        Log.i(TAG, "[v102 日期计算] 第${week}周周${courseDayOfWeek} -> 课程日期: $date (保留)")
+                    } else {
+                        Log.i(TAG, "[v102 日期过滤] 第${week}周周${courseDayOfWeek} -> 课程日期: $date (已过去，跳过)")
+                    }
                 } else {
-                    Log.w(TAG, "[v99 日期计算] 第${week}周周一计算失败，跳过")
+                    Log.w(TAG, "[v102 日期计算] 第${week}周周一计算失败，跳过")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "[v99] 计算课程日期失败", e)
+            Log.e(TAG, "[v102] 计算课程日期失败", e)
         }
 
-        Log.i(TAG, "[v99] 课程 ${course.name} 共 ${result.size} 个上课日期")
-        Log.i(TAG, "========== [v99] calculateCourseDates 结束 ==========")
+        Log.i(TAG, "[v102] 课程 ${course.name} 共 ${result.size} 个有效上课日期（已过滤已过去的日期）")
+        Log.i(TAG, "========== [v102] calculateCourseDates 结束 ==========")
         return result
     }
 
     /**
      * [v98] 为单个课程创建日历事件
      * [v99 Debug] 添加关键时间计算 debug 日志
+     * [v101] 返回 eventId 以便添加提醒
      *
      * @param course 课程
      * @param date 上课日期
@@ -316,7 +491,7 @@ class CalendarSyncService(private val context: Context) {
      * @param endNode 结束节次
      * @param calendarId 日历ID
      * @param campus 校区，决定上课时间
-     * @return 是否创建成功
+     * @return 事件ID，失败返回 null
      */
     private fun createCalendarEvent(
         course: Course,
@@ -325,7 +500,7 @@ class CalendarSyncService(private val context: Context) {
         endNode: Int,
         calendarId: Long,
         campus: Campus
-    ): Boolean {
+    ): Long? {
         Log.i(TAG, "========== [v99] createCalendarEvent 开始 ==========")
         Log.i(TAG, "[v99 事件] 课程: ${course.name}")
         Log.i(TAG, "[v99 事件] 日期: $date")
@@ -364,18 +539,19 @@ class CalendarSyncService(private val context: Context) {
         return try {
             val uri = contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
             if (uri != null) {
-                Log.i(TAG, "[v99 成功] 创建事件: ${course.name} @ $date $startTimeStr-$endTimeStr")
+                val eventId = uri.lastPathSegment?.toLongOrNull()
+                Log.i(TAG, "[v99 成功] 创建事件: ${course.name} @ $date $startTimeStr-$endTimeStr, eventId=$eventId")
                 Log.i(TAG, "========== [v99] createCalendarEvent 成功 ==========")
-                true
+                eventId
             } else {
                 Log.w(TAG, "[v99 失败] 创建事件返回空URI: ${course.name}")
                 Log.i(TAG, "========== [v99] createCalendarEvent 失败 ==========")
-                false
+                null
             }
         } catch (e: Exception) {
             Log.e(TAG, "[v99 异常] 创建日历事件失败: ${course.name}", e)
             Log.i(TAG, "========== [v99] createCalendarEvent 异常 ==========")
-            false
+            null
         }
     }
 

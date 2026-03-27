@@ -10,6 +10,7 @@ import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlP
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.domain.repository.LoginResult
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.JsonUtils
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
@@ -120,27 +121,27 @@ class CourseRepositoryImpl(
      * @return 是否已登录
      */
     override suspend fun isLoggedIn(): Boolean {
-        android.util.Log.d(REPO_TAG, "=== isLoggedIn 检查 ===")
+        AppLogger.d(REPO_TAG, "=== isLoggedIn 检查 ===")
 
         // 检查 DataStore 中的登录状态
         val savedLoginState = userPreferences.isLoggedIn.first()
-        android.util.Log.d(REPO_TAG, "DataStore 登录状态: $savedLoginState")
+        AppLogger.d(REPO_TAG, "DataStore 登录状态: $savedLoginState")
         if (!savedLoginState) {
-            android.util.Log.d(REPO_TAG, "isLoggedIn 返回 false (DataStore)")
+            AppLogger.d(REPO_TAG, "isLoggedIn 返回 false (DataStore)")
             return false
         }
 
         // 检查 Cookie 是否有效
         val hasCookie = cookieManager.hasSessionCookie()
-        android.util.Log.d(REPO_TAG, "Cookie 状态: hasSessionCookie=$hasCookie")
+        AppLogger.d(REPO_TAG, "Cookie 状态: hasSessionCookie=$hasCookie")
         if (!hasCookie) {
-            android.util.Log.d(REPO_TAG, "isLoggedIn 返回 false (无 Cookie)")
+            AppLogger.d(REPO_TAG, "isLoggedIn 返回 false (无 Cookie)")
             return false
         }
 
         // 验证服务器端会话
         val serverValid = eamsApi.accessHomePage().getOrDefault(false)
-        android.util.Log.d(REPO_TAG, "服务器验证: $serverValid")
+        AppLogger.d(REPO_TAG, "服务器验证: $serverValid")
         return serverValid
     }
 
@@ -233,7 +234,7 @@ class CourseRepositoryImpl(
      * 并直接尝试获取课表数据。
      */
     override suspend fun verifyWebViewLogin(): Boolean {
-        android.util.Log.d(REPO_TAG, "=== verifyWebViewLogin 开始 ===")
+        AppLogger.d(REPO_TAG, "=== verifyWebViewLogin 开始 ===")
 
         // 对于 GeckoView 场景：
         // 由于 GeckoView 和 OkHttp 的 Cookie 存储完全隔离，
@@ -243,18 +244,18 @@ class CourseRepositoryImpl(
 
         // 尝试同步 Cookie（可能失败，但不影响后续操作）
         try {
-            android.util.Log.d(REPO_TAG, "尝试从 WebView 同步 Cookie...")
+            AppLogger.d(REPO_TAG, "尝试从 WebView 同步 Cookie...")
             cookieManager.syncFromWebView(Constants.EamsUrls.HOME_PAGE)
-            android.util.Log.d(REPO_TAG, "Cookie 同步完成，当前 Cookie 数量: ${cookieManager.getAllCookies().size}")
+            AppLogger.d(REPO_TAG, "Cookie 同步完成，当前 Cookie 数量: ${cookieManager.getAllCookies().size}")
         } catch (e: Exception) {
-            android.util.Log.w(REPO_TAG, "同步 Cookie 失败: ${e.message}")
+            AppLogger.w(REPO_TAG, "同步 Cookie 失败: ${e.message}")
         }
 
         // 验证登录状态
-        android.util.Log.d(REPO_TAG, "调用 eamsApi.accessHomePage()...")
+        AppLogger.d(REPO_TAG, "调用 eamsApi.accessHomePage()...")
         val isLoggedIn = eamsApi.accessHomePage().getOrDefault(false)
 
-        android.util.Log.i(REPO_TAG, "verifyWebViewLogin 结果: isLoggedIn=$isLoggedIn, hasSessionCookie=${cookieManager.hasSessionCookie()}")
+        AppLogger.i(REPO_TAG, "verifyWebViewLogin 结果: isLoggedIn=$isLoggedIn, hasSessionCookie=${cookieManager.hasSessionCookie()}")
 
         if (isLoggedIn) {
             // 保存登录状态（不需要学生信息）
@@ -264,11 +265,11 @@ class CourseRepositoryImpl(
                 studentId = "",
                 studentName = ""
             )
-            android.util.Log.i(REPO_TAG, "[OK] 登录状态已保存")
+            AppLogger.i(REPO_TAG, "[OK] 登录状态已保存")
         } else {
             // GeckoView 场景：即使用 OkHttp 验证失败，用户也可能已在 GeckoView 中登录
             // 保存登录状态，允许用户继续操作
-            android.util.Log.w(REPO_TAG, "OkHttp 验证失败，但用户可能已在 GeckoView 中登录，保存登录状态")
+            AppLogger.w(REPO_TAG, "OkHttp 验证失败，但用户可能已在 GeckoView 中登录，保存登录状态")
             userPreferences.saveLoginState(
                 isLoggedIn = true,
                 username = "",
@@ -360,7 +361,7 @@ class CourseRepositoryImpl(
      * @return 课程列表
      */
     override suspend fun fetchRemoteSchedule(semester: String): Result<List<Course>> {
-        android.util.Log.d(REPO_TAG, "=== fetchRemoteSchedule 开始, semester=$semester ===")
+        AppLogger.d(REPO_TAG, "=== fetchRemoteSchedule 开始, semester=$semester ===")
 
         return try {
             // GeckoView 场景：跳过登录状态检查，直接尝试获取课表
@@ -368,21 +369,21 @@ class CourseRepositoryImpl(
             // 但用户可能已在 GeckoView 中登录，所以直接尝试获取
 
             // 获取课表 HTML - 使用 GET 请求直接获取课表页面
-            android.util.Log.d(REPO_TAG, "获取课表 HTML (GET)...")
+            AppLogger.d(REPO_TAG, "获取课表 HTML (GET)...")
             val html = eamsApi.getCourseTablePage().getOrNull()
             if (html == null) {
-                android.util.Log.e(REPO_TAG, "fetchRemoteSchedule 失败: 无法获取课表 HTML")
+                AppLogger.e(REPO_TAG, "fetchRemoteSchedule 失败: 无法获取课表 HTML")
                 return Result.failure(Exception("[X] Cannot get course table"))
             }
-            android.util.Log.d(REPO_TAG, "获取到 HTML，长度: ${html.length}")
+            AppLogger.d(REPO_TAG, "获取到 HTML，长度: ${html.length}")
 
             // 解析 HTML（支持原始 HTML 中的 TaskActivity 数据和渲染后的 infoTitle 单元格）
-            android.util.Log.d(REPO_TAG, "解析 HTML...")
+            AppLogger.d(REPO_TAG, "解析 HTML...")
             val entities = htmlParser.parse(html, semester)
 
             // 转换为领域模型
             val courses = entities.map { it.toDomainModel() }
-            android.util.Log.i(REPO_TAG, "解析完成，课程数量: ${courses.size}")
+            AppLogger.i(REPO_TAG, "解析完成，课程数量: ${courses.size}")
 
             // 保存到本地数据库
             if (courses.isNotEmpty()) {
@@ -390,16 +391,16 @@ class CourseRepositoryImpl(
                 courseDao.deleteBySemester(semester)
                 // 插入新数据
                 courseDao.insertAll(entities)
-                android.util.Log.i(REPO_TAG, "已保存 ${courses.size} 门课程到数据库")
+                AppLogger.i(REPO_TAG, "已保存 ${courses.size} 门课程到数据库")
 
                 // 更新当前学期
                 userPreferences.saveCurrentSemester(semester)
             }
 
-            android.util.Log.i(REPO_TAG, "[OK] fetchRemoteSchedule 成功")
+            AppLogger.i(REPO_TAG, "[OK] fetchRemoteSchedule 成功")
             Result.success(courses)
         } catch (e: Exception) {
-            android.util.Log.e(REPO_TAG, "fetchRemoteSchedule 异常: ${e.message}", e)
+            AppLogger.e(REPO_TAG, "fetchRemoteSchedule 异常: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -477,29 +478,29 @@ class CourseRepositoryImpl(
      * @return Pair<学期字符串, 当前教学周>，失败返回 null
      */
     override suspend fun fetchCurrentWeek(): Pair<String, Int>? {
-        android.util.Log.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 开始 ==========")
+        AppLogger.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 开始 ==========")
         return try {
-            android.util.Log.i("CHD_CurrentWeek", "[Step1] 调用 eamsApi.getHomePageHtml()...")
+            AppLogger.i("CHD_CurrentWeek", "[Step1] 调用 eamsApi.getHomePageHtml()...")
             val html = eamsApi.getHomePageHtml().getOrNull()
             if (html == null) {
-                android.util.Log.e("CHD_CurrentWeek", "[Step1.1] 获取失败: eamsApi.getHomePageHtml() 返回 null")
-                android.util.Log.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 失败 ==========")
+                AppLogger.e("CHD_CurrentWeek", "[Step1.1] 获取失败: eamsApi.getHomePageHtml() 返回 null")
+                AppLogger.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 失败 ==========")
                 return null
             }
-            android.util.Log.i("CHD_CurrentWeek", "[Step1.1] 获取成功，HTML 长度: ${html.length}")
+            AppLogger.i("CHD_CurrentWeek", "[Step1.1] 获取成功，HTML 长度: ${html.length}")
 
-            android.util.Log.i("CHD_CurrentWeek", "[Step2] 调用 htmlParser.parseCurrentWeek()...")
+            AppLogger.i("CHD_CurrentWeek", "[Step2] 调用 htmlParser.parseCurrentWeek()...")
             val result = htmlParser.parseCurrentWeek(html)
             if (result != null) {
-                android.util.Log.i("CHD_CurrentWeek", "[Step2.1] 解析成功: 学期=${result.first}, 周次=${result.second}")
+                AppLogger.i("CHD_CurrentWeek", "[Step2.1] 解析成功: 学期=${result.first}, 周次=${result.second}")
             } else {
-                android.util.Log.w("CHD_CurrentWeek", "[Step2.1] 解析失败: parseCurrentWeek 返回 null")
+                AppLogger.w("CHD_CurrentWeek", "[Step2.1] 解析失败: parseCurrentWeek 返回 null")
             }
-            android.util.Log.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 结束 ==========")
+            AppLogger.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 结束 ==========")
             result
         } catch (e: Exception) {
-            android.util.Log.e("CHD_CurrentWeek", "[Exception] fetchCurrentWeek 异常: ${e.message}", e)
-            android.util.Log.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 异常结束 ==========")
+            AppLogger.e("CHD_CurrentWeek", "[Exception] fetchCurrentWeek 异常: ${e.message}", e)
+            AppLogger.i("CHD_CurrentWeek", "========== [Repository] fetchCurrentWeek 异常结束 ==========")
             null
         }
     }
@@ -509,18 +510,18 @@ class CourseRepositoryImpl(
      * 用于 WebView 场景，从 JS 渲染后的首页 HTML 解析教学周信息
      */
     override fun parseCurrentWeekFromHtml(html: String): Pair<String, Int>? {
-        android.util.Log.i("CHD_CurrentWeek", "========== [Repository] parseCurrentWeekFromHtml 开始 ==========")
-        android.util.Log.i("CHD_CurrentWeek", "HTML 长度: ${html.length}")
+        AppLogger.i("CHD_CurrentWeek", "========== [Repository] parseCurrentWeekFromHtml 开始 ==========")
+        AppLogger.i("CHD_CurrentWeek", "HTML 长度: ${html.length}")
 
         val result = htmlParser.parseCurrentWeek(html)
 
         if (result != null) {
-            android.util.Log.i("CHD_CurrentWeek", "解析成功: 学期=${result.first}, 周次=${result.second}")
+            AppLogger.i("CHD_CurrentWeek", "解析成功: 学期=${result.first}, 周次=${result.second}")
         } else {
-            android.util.Log.w("CHD_CurrentWeek", "解析失败")
+            AppLogger.w("CHD_CurrentWeek", "解析失败")
         }
 
-        android.util.Log.i("CHD_CurrentWeek", "========== [Repository] parseCurrentWeekFromHtml 结束 ==========")
+        AppLogger.i("CHD_CurrentWeek", "========== [Repository] parseCurrentWeekFromHtml 结束 ==========")
         return result
     }
 
@@ -531,17 +532,17 @@ class CourseRepositoryImpl(
      * 在导入课表后调用，一次性计算 1-25 周的所有课程冲突
      */
     override suspend fun precomputeAndCacheConflicts(courses: List<Course>, semester: String) {
-        android.util.Log.i(REPO_TAG, "========== [v74] 预计算冲突开始 ==========")
-        android.util.Log.i(REPO_TAG, "课程数: ${courses.size}, 学期: $semester")
+        AppLogger.i(REPO_TAG, "========== [v74] 预计算冲突开始 ==========")
+        AppLogger.i(REPO_TAG, "课程数: ${courses.size}, 学期: $semester")
 
         if (courses.isEmpty()) {
-            android.util.Log.w(REPO_TAG, "课程列表为空，跳过预计算")
+            AppLogger.w(REPO_TAG, "课程列表为空，跳过预计算")
             userPreferences.clearConflictCache(semester)
             return
         }
 
         val maxWeek = courses.maxOfOrNull { it.endWeek } ?: 25
-        android.util.Log.i(REPO_TAG, "最大周次: $maxWeek")
+        AppLogger.i(REPO_TAG, "最大周次: $maxWeek")
 
         val conflictCache = mutableMapOf<Int, Set<Long>>()
         var totalConflicts = 0
@@ -551,14 +552,14 @@ class CourseRepositoryImpl(
             if (conflicts.isNotEmpty()) {
                 conflictCache[week] = conflicts.keys
                 totalConflicts += conflicts.keys.size
-                android.util.Log.d(REPO_TAG, "周$week: ${conflicts.keys.size} 门课程有冲突")
+                AppLogger.d(REPO_TAG, "周$week: ${conflicts.keys.size} 门课程有冲突")
             }
         }
 
         userPreferences.saveConflictCache(semester, conflictCache)
 
-        android.util.Log.i(REPO_TAG, "预计算完成: ${conflictCache.size} 周有冲突, 共 $totalConflicts 个冲突标记")
-        android.util.Log.i(REPO_TAG, "========== [v74] 预计算冲突结束 ==========")
+        AppLogger.i(REPO_TAG, "预计算完成: ${conflictCache.size} 周有冲突, 共 $totalConflicts 个冲突标记")
+        AppLogger.i(REPO_TAG, "========== [v74] 预计算冲突结束 ==========")
     }
 
     /**

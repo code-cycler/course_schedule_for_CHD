@@ -7,6 +7,7 @@ import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
  * 时间工具类
  * 提供课程冲突检测等时间相关功能
  * [新功能] 添加当前教学周计算功能
+ * [v107] 迁移到 AppLogger
  */
 object TimeUtils {
 
@@ -21,38 +22,38 @@ object TimeUtils {
      * @return 当前教学周 (1-25)，计算失败或超出范围返回 null
      */
     fun calculateCurrentWeek(semesterStartDate: String): Int? {
-        android.util.Log.i(TAG_WEEK, "========== calculateCurrentWeek 开始 ==========")
-        android.util.Log.i(TAG_WEEK, "学期开始日期: $semesterStartDate")
+        AppLogger.i(TAG_WEEK, "========== calculateCurrentWeek 开始 ==========")
+        AppLogger.i(TAG_WEEK, "学期开始日期: $semesterStartDate")
 
         return try {
             val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
             val startDate = java.time.LocalDate.parse(semesterStartDate, formatter)
             val today = java.time.LocalDate.now()
 
-            android.util.Log.i(TAG_WEEK, "开始日期: $startDate, 今天: $today")
+            AppLogger.i(TAG_WEEK, "开始日期: $startDate, 今天: $today")
 
             // 计算天数差
             val daysBetween = java.time.temporal.ChronoUnit.DAYS.between(startDate, today)
-            android.util.Log.i(TAG_WEEK, "天数差: $daysBetween")
+            AppLogger.i(TAG_WEEK, "天数差: $daysBetween")
 
             // 转换为周次（向上取整，第一天为第1周）
             // daysBetween=0 -> 第1周, daysBetween=7 -> 第2周
             val week = (daysBetween / 7 + 1).toInt()
-            android.util.Log.i(TAG_WEEK, "计算周次: $week")
+            AppLogger.i(TAG_WEEK, "计算周次: $week")
 
             // 边界检查
             val result = if (week in 1..25) {
-                android.util.Log.i(TAG_WEEK, "========== calculateCurrentWeek 结果: $week ==========")
+                AppLogger.i(TAG_WEEK, "========== calculateCurrentWeek 结果: $week ==========")
                 week
             } else {
-                android.util.Log.w(TAG_WEEK, "周次 $week 超出范围(1-25), 返回 null")
-                android.util.Log.i(TAG_WEEK, "========== calculateCurrentWeek 结果: null ==========")
+                AppLogger.w(TAG_WEEK, "周次 $week 超出范围(1-25), 返回 null")
+                AppLogger.i(TAG_WEEK, "========== calculateCurrentWeek 结果: null ==========")
                 null
             }
             result
         } catch (e: Exception) {
-            android.util.Log.e(TAG_WEEK, "计算教学周失败: ${e.message}")
-            android.util.Log.i(TAG_WEEK, "========== calculateCurrentWeek 异常: null ==========")
+            AppLogger.e(TAG_WEEK, "计算教学周失败: ${e.message}")
+            AppLogger.i(TAG_WEEK, "========== calculateCurrentWeek 异常: null ==========")
             null
         }
     }
@@ -64,26 +65,26 @@ object TimeUtils {
      * @return 学期开始日期字符串 (格式: "yyyy-MM-dd")，应该是第1周的周一
      */
     fun calculateSemesterStartDate(currentWeek: Int): String {
-        android.util.Log.i(TAG_WEEK, "========== [v99] calculateSemesterStartDate 开始 ==========")
-        android.util.Log.i(TAG_WEEK, "[v99] 当前周次: $currentWeek")
+        AppLogger.i(TAG_WEEK, "========== [v99] calculateSemesterStartDate 开始 ==========")
+        AppLogger.i(TAG_WEEK, "[v99] 当前周次: $currentWeek")
 
         val today = java.time.LocalDate.now()
         val todayDayOfWeek = today.dayOfWeek.value  // 1=周一，7=周日
 
         // [v99] 步骤1：计算当前周的周一
         val currentWeekMonday = today.minusDays((todayDayOfWeek - 1).toLong())
-        android.util.Log.i(TAG_WEEK, "[v99] 今天: $today (周$todayDayOfWeek)")
-        android.util.Log.i(TAG_WEEK, "[v99] 当前周周一: $currentWeekMonday")
+        AppLogger.i(TAG_WEEK, "[v99] 今天: $today (周$todayDayOfWeek)")
+        AppLogger.i(TAG_WEEK, "[v99] 当前周周一: $currentWeekMonday")
 
         // [v99] 步骤2：计算第1周的周一 = 当前周周一 - (currentWeek - 1) * 7 天
         val semesterStartDate = currentWeekMonday.minusDays((currentWeek - 1).toLong() * 7)
-        android.util.Log.i(TAG_WEEK, "[v99] 第1周周一（学期开始）: $semesterStartDate")
+        AppLogger.i(TAG_WEEK, "[v99] 第1周周一（学期开始）: $semesterStartDate")
 
         val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
         val result = semesterStartDate.format(formatter)
 
-        android.util.Log.i(TAG_WEEK, "[v99] 反推结果: 今天=$today, 学期开始=$result")
-        android.util.Log.i(TAG_WEEK, "========== [v99] calculateSemesterStartDate 结束 ==========")
+        AppLogger.i(TAG_WEEK, "[v99] 反推结果: 今天=$today, 学期开始=$result")
+        AppLogger.i(TAG_WEEK, "========== [v99] calculateSemesterStartDate 结束 ==========")
         return result
     }
 
@@ -94,8 +95,8 @@ object TimeUtils {
      * @return 该周的周一日期 (LocalDate)，计算失败返回 null
      */
     fun calculateWeekStartDate(semesterStartDate: String, week: Int): java.time.LocalDate? {
-        android.util.Log.i(TAG_WEEK, "========== calculateWeekStartDate 开始 ==========")
-        android.util.Log.i(TAG_WEEK, "学期开始日期: $semesterStartDate, 周次: $week")
+        AppLogger.i(TAG_WEEK, "========== calculateWeekStartDate 开始 ==========")
+        AppLogger.i(TAG_WEEK, "学期开始日期: $semesterStartDate, 周次: $week")
 
         return try {
             val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
@@ -104,12 +105,12 @@ object TimeUtils {
             // 学期第N周的周一 = 学期开始日期 + (N-1) * 7 天
             val weekMonday = startDate.plusDays((week - 1).toLong() * 7)
 
-            android.util.Log.i(TAG_WEEK, "第${week}周周一: $weekMonday")
-            android.util.Log.i(TAG_WEEK, "========== calculateWeekStartDate 结束 ==========")
+            AppLogger.i(TAG_WEEK, "第${week}周周一: $weekMonday")
+            AppLogger.i(TAG_WEEK, "========== calculateWeekStartDate 结束 ==========")
             weekMonday
         } catch (e: Exception) {
-            android.util.Log.e(TAG_WEEK, "计算周开始日期失败: ${e.message}")
-            android.util.Log.i(TAG_WEEK, "========== calculateWeekStartDate 异常: null ==========")
+            AppLogger.e(TAG_WEEK, "计算周开始日期失败: ${e.message}")
+            AppLogger.i(TAG_WEEK, "========== calculateWeekStartDate 异常: null ==========")
             null
         }
     }
@@ -131,7 +132,7 @@ object TimeUtils {
             7 -> DayOfWeek.SUNDAY
             else -> DayOfWeek.MONDAY
         }
-        android.util.Log.d(TAG_WEEK, "今天是: $result (Java dayOfWeek=$javaDayOfWeek)")
+        AppLogger.d(TAG_WEEK, "今天是: $result (Java dayOfWeek=$javaDayOfWeek)")
         return result
     }
 
@@ -144,8 +145,8 @@ object TimeUtils {
      * @return Map<Long, List<Long>> key 为冲突课程ID，value 为与之冲突的其他课程ID列表
      */
     fun findConflicts(courses: List<Course>): Map<Long, List<Long>> {
-        android.util.Log.i(TAG, "========== [TimeUtils] findConflicts 开始 ==========")
-        android.util.Log.i(TAG, "输入课程数: ${courses.size}")
+        AppLogger.i(TAG, "========== [TimeUtils] findConflicts 开始 ==========")
+        AppLogger.i(TAG, "输入课程数: ${courses.size}")
 
         val conflicts = mutableMapOf<Long, MutableList<Long>>()
         var checkCount = 0
@@ -159,9 +160,9 @@ object TimeUtils {
 
                 if (c1.hasTimeConflict(c2)) {
                     conflictCount++
-                    android.util.Log.i(TAG, "[冲突发现] '${c1.name}'(id=${c1.id}) <-> '${c2.name}'(id=${c2.id})")
-                    android.util.Log.i(TAG, "  课程1: 周${c1.dayOfWeek.value} 第${c1.startNode}-${c1.endNode}节 周${c1.startWeek}-${c1.endWeek}")
-                    android.util.Log.i(TAG, "  课程2: 周${c2.dayOfWeek.value} 第${c2.startNode}-${c2.endNode}节 周${c2.startWeek}-${c2.endWeek}")
+                    AppLogger.i(TAG, "[冲突发现] '${c1.name}'(id=${c1.id}) <-> '${c2.name}'(id=${c2.id})")
+                    AppLogger.i(TAG, "  课程1: 周${c1.dayOfWeek.value} 第${c1.startNode}-${c1.endNode}节 周${c1.startWeek}-${c1.endWeek}")
+                    AppLogger.i(TAG, "  课程2: 周${c2.dayOfWeek.value} 第${c2.startNode}-${c2.endNode}节 周${c2.startWeek}-${c2.endWeek}")
 
                     conflicts.getOrPut(c1.id) { mutableListOf() }.add(c2.id)
                     conflicts.getOrPut(c2.id) { mutableListOf() }.add(c1.id)
@@ -169,8 +170,8 @@ object TimeUtils {
             }
         }
 
-        android.util.Log.i(TAG, "检测结果: 检查${checkCount}对, 发现${conflictCount}对冲突, 涉及${conflicts.size}门课程")
-        android.util.Log.i(TAG, "========== [TimeUtils] findConflicts 结束 ==========")
+        AppLogger.i(TAG, "检测结果: 检查${checkCount}对, 发现${conflictCount}对冲突, 涉及${conflicts.size}门课程")
+        AppLogger.i(TAG, "========== [TimeUtils] findConflicts 结束 ==========")
         return conflicts
     }
 
@@ -193,19 +194,19 @@ object TimeUtils {
      * @return 冲突课程ID映射
      */
     fun findConflictsForWeek(courses: List<Course>, week: Int): Map<Long, List<Long>> {
-        android.util.Log.i(TAG, "========== [TimeUtils] findConflictsForWeek 开始 ==========")
-        android.util.Log.i(TAG, "参数: 课程数=${courses.size}, 检测周次=$week")
+        AppLogger.i(TAG, "========== [TimeUtils] findConflictsForWeek 开始 ==========")
+        AppLogger.i(TAG, "参数: 课程数=${courses.size}, 检测周次=$week")
 
         val weekCourses = courses.filter { it.isWeekInRange(week) }
-        android.util.Log.i(TAG, "当前周有课的课程数: ${weekCourses.size}")
+        AppLogger.i(TAG, "当前周有课的课程数: ${weekCourses.size}")
 
         // 打印该周有课的课程列表
         weekCourses.forEachIndexed { index, course ->
-            android.util.Log.i(TAG, "  [$index] ${course.name}: 周${course.dayOfWeek.value} 第${course.startNode}-${course.endNode}节 周${course.startWeek}-${course.endWeek}")
+            AppLogger.i(TAG, "  [$index] ${course.name}: 周${course.dayOfWeek.value} 第${course.startNode}-${course.endNode}节 周${course.startWeek}-${course.endWeek}")
         }
 
         val result = findConflicts(weekCourses)
-        android.util.Log.i(TAG, "========== [TimeUtils] findConflictsForWeek 结束 ==========")
+        AppLogger.i(TAG, "========== [TimeUtils] findConflictsForWeek 结束 ==========")
         return result
     }
 }

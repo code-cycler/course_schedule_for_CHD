@@ -45,6 +45,7 @@ import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
 import com.example.course_schedule_for_chd_v002.ui.components.WeekSelector
 import com.example.course_schedule_for_chd_v002.ui.components.SettingsDrawer
 import com.example.course_schedule_for_chd_v002.ui.components.LogExportDialog
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.LogExporter
 // [v96] 移除不再需要的协程导入（防抖已取消）
 import org.koin.androidx.compose.koinViewModel
@@ -88,7 +89,7 @@ fun ScheduleScreen(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        android.util.Log.d("ScheduleScreen", "[权限] 通知权限结果: $isGranted")
+        AppLogger.d("ScheduleScreen", "[权限] 通知权限结果: $isGranted")
         viewModel.onNotificationPermissionResult(isGranted)
     }
 
@@ -99,7 +100,7 @@ fun ScheduleScreen(
         val hasRead = permissions[Manifest.permission.READ_CALENDAR] == true
         val hasWrite = permissions[Manifest.permission.WRITE_CALENDAR] == true
         val hasCalendar = hasRead && hasWrite
-        android.util.Log.d("ScheduleScreen", "[权限] 日历权限结果: read=$hasRead, write=$hasWrite, hasCalendar=$hasCalendar")
+        AppLogger.d("ScheduleScreen", "[权限] 日历权限结果: read=$hasRead, write=$hasWrite, hasCalendar=$hasCalendar")
         viewModel.onCalendarPermissionResult(hasCalendar)
     }
 
@@ -127,7 +128,7 @@ fun ScheduleScreen(
 
     // [权限管理] 请求通知权限
     fun requestNotificationPermission() {
-        android.util.Log.d("ScheduleScreen", "[权限] 请求通知权限")
+        AppLogger.d("ScheduleScreen", "[权限] 请求通知权限")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -135,7 +136,7 @@ fun ScheduleScreen(
 
     // [权限管理] 请求日历权限
     fun requestCalendarPermission() {
-        android.util.Log.d("ScheduleScreen", "[权限] 请求日历权限")
+        AppLogger.d("ScheduleScreen", "[权限] 请求日历权限")
         calendarPermissionLauncher.launch(
             arrayOf(
                 Manifest.permission.READ_CALENDAR,
@@ -146,7 +147,7 @@ fun ScheduleScreen(
 
     // [权限管理] 打开精确闹钟设置页面
     fun openExactAlarmSettings() {
-        android.util.Log.d("ScheduleScreen", "[权限] 打开精确闹钟设置页面")
+        AppLogger.d("ScheduleScreen", "[权限] 打开精确闹钟设置页面")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
@@ -154,14 +155,14 @@ fun ScheduleScreen(
                 }
                 context.startActivity(intent)
             } catch (e: Exception) {
-                android.util.Log.e("ScheduleScreen", "[权限] 打开精确闹钟设置失败", e)
+                AppLogger.e("ScheduleScreen", "[权限] 打开精确闹钟设置失败", e)
             }
         }
     }
 
     // [v24] 每次进入屏幕时重新加载数据
     LaunchedEffect(Unit) {
-        android.util.Log.d("ScheduleScreen", "[v24] LaunchedEffect 触发，调用 reload()")
+        AppLogger.d("ScheduleScreen", "[v24] LaunchedEffect 触发，调用 reload()")
         viewModel.reload()
     }
 
@@ -170,7 +171,7 @@ fun ScheduleScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                android.util.Log.d("ScheduleScreen", "[新功能] ON_RESUME 触发，刷新当前时间和教学周")
+                AppLogger.d("ScheduleScreen", "[新功能] ON_RESUME 触发，刷新当前时间和教学周")
                 viewModel.refreshCurrentTimeInfo()
             }
         }
@@ -187,7 +188,7 @@ fun ScheduleScreen(
         }
     }
 
-    android.util.Log.d("ScheduleScreen", "[Debug] SettingsDrawer 组件初始化, settings=$reminderSettings")
+    AppLogger.d("ScheduleScreen", "[Debug] SettingsDrawer 组件初始化, settings=$reminderSettings")
 
     SettingsDrawer(
         drawerState = drawerState,
@@ -197,50 +198,50 @@ fun ScheduleScreen(
         hasExactAlarmPermission = viewModel.canScheduleExactAlarms(),
         calendarSyncState = uiState.calendarSyncState,  // [v100] 日历同步状态
         onSettingsChange = {
-            android.util.Log.d("ScheduleScreen", "[Debug] 设置变化: $it")
+            AppLogger.d("ScheduleScreen", "[Debug] 设置变化: $it")
             viewModel.updateReminderSettings(it)
         },
         onCalendarSyncClick = {
-            android.util.Log.d("ScheduleScreen", "[Debug] 日历同步按钮被点击")
+            AppLogger.d("ScheduleScreen", "[Debug] 日历同步按钮被点击")
             // 先检查日历权限
             if (!hasCalendarPermission()) {
-                android.util.Log.d("ScheduleScreen", "[Debug] 没有日历权限，先请求权限")
+                AppLogger.d("ScheduleScreen", "[Debug] 没有日历权限，先请求权限")
                 requestCalendarPermission()
             } else {
-                android.util.Log.d("ScheduleScreen", "[Debug] 已有日历权限，直接同步")
+                AppLogger.d("ScheduleScreen", "[Debug] 已有日历权限，直接同步")
                 viewModel.syncToCalendar()
             }
         },
         onDeleteCalendarClick = {  // [v98] 删除日历事件
-            android.util.Log.d("ScheduleScreen", "[Debug] 删除日历按钮被点击")
+            AppLogger.d("ScheduleScreen", "[Debug] 删除日历按钮被点击")
             viewModel.deleteCalendarEvents()
         },
         onRequestCalendarPermission = {
-            android.util.Log.d("ScheduleScreen", "[Debug] 请求日历权限")
+            AppLogger.d("ScheduleScreen", "[Debug] 请求日历权限")
             requestCalendarPermission()
         },
         onRequestNotificationPermission = {
-            android.util.Log.d("ScheduleScreen", "[Debug] 请求通知权限")
+            AppLogger.d("ScheduleScreen", "[Debug] 请求通知权限")
             requestNotificationPermission()
         },
         onRequestExactAlarmPermission = {
-            android.util.Log.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
+            AppLogger.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
             openExactAlarmSettings()
         },
         onRequestAllPermissions = {
-            android.util.Log.d("ScheduleScreen", "[Debug] 一键请求所有权限")
+            AppLogger.d("ScheduleScreen", "[Debug] 一键请求所有权限")
             // [权限管理] 依次请求缺失的权限
             when {
                 !hasNotificationPermission() -> {
-                    android.util.Log.d("ScheduleScreen", "[Debug] 请求通知权限")
+                    AppLogger.d("ScheduleScreen", "[Debug] 请求通知权限")
                     requestNotificationPermission()
                 }
                 !hasCalendarPermission() -> {
-                    android.util.Log.d("ScheduleScreen", "[Debug] 请求日历权限")
+                    AppLogger.d("ScheduleScreen", "[Debug] 请求日历权限")
                     requestCalendarPermission()
                 }
                 !viewModel.canScheduleExactAlarms() -> {
-                    android.util.Log.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
+                    AppLogger.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
                     openExactAlarmSettings()
                 }
             }
@@ -251,7 +252,7 @@ fun ScheduleScreen(
                 TopAppBar(
                     navigationIcon = {
                         IconButton(onClick = {
-                            android.util.Log.d("ScheduleScreen", "[Debug] 设置按钮被点击, 尝试打开侧边栏")
+                            AppLogger.d("ScheduleScreen", "[Debug] 设置按钮被点击, 尝试打开侧边栏")
                             scope.launch { drawerState.open() }
                         }) {
                             Icon(
@@ -626,7 +627,7 @@ fun ScheduleScreen(
                     val shareIntent = LogExporter.shareLogFile(context, file)
                     context.startActivity(Intent.createChooser(shareIntent, "分享日志文件"))
                 } catch (e: Exception) {
-                    android.util.Log.e("ScheduleScreen", "分享日志失败", e)
+                    AppLogger.e("ScheduleScreen", "分享日志失败", e)
                 }
             },
             onDismiss = {

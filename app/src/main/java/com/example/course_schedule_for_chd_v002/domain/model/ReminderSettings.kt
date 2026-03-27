@@ -1,5 +1,7 @@
 package com.example.course_schedule_for_chd_v002.domain.model
 
+import com.example.course_schedule_for_chd_v002.util.AppLogger
+
 /**
  * 提醒设置领域模型
  *
@@ -29,6 +31,13 @@ data class ReminderSettings(
 
     /** 选中的日历ID (null表示使用应用专用日历) */
     val calendarId: Long? = null,
+
+    // ============ [v101] 日历提醒设置 ============
+    /** [v101] 是否在日历中添加课前提醒 */
+    val calendarBeforeClassReminderEnabled: Boolean = true,
+
+    /** [v101] 是否在日历中添加早八提醒 */
+    val calendarEarlyMorningReminderEnabled: Boolean = true,
 
     // ============ 通知设置 ============
     /** 是否启用提醒声音 */
@@ -66,6 +75,8 @@ data class ReminderSettings(
             append("\"beforeClassReminderMinutes\":$beforeClassReminderMinutes,")
             append("\"calendarSyncEnabled\":$calendarSyncEnabled,")
             append("\"calendarId\":${calendarId ?: "null"},")
+            append("\"calendarBeforeClassReminderEnabled\":$calendarBeforeClassReminderEnabled,")  // [v101]
+            append("\"calendarEarlyMorningReminderEnabled\":$calendarEarlyMorningReminderEnabled,")  // [v101]
             append("\"reminderSoundEnabled\":$reminderSoundEnabled,")
             append("\"reminderVibrationEnabled\":$reminderVibrationEnabled")
             append("}")
@@ -77,9 +88,9 @@ data class ReminderSettings(
          * 从 JSON 字符串反序列化
          */
         fun fromJson(json: String): ReminderSettings {
-            android.util.Log.d("ReminderSettings", "[Debug] fromJson 输入: $json")
+            AppLogger.d("ReminderSettings", "[Debug] fromJson 输入: $json")
             if (json.isEmpty() || json == "{}") {
-                android.util.Log.d("ReminderSettings", "[Debug] JSON 为空，返回默认设置")
+                AppLogger.d("ReminderSettings", "[Debug] JSON 为空，返回默认设置")
                 return ReminderSettings()
             }
 
@@ -92,6 +103,8 @@ data class ReminderSettings(
                 var beforeClassMinutes = 15
                 var calendarSyncEnabled = false
                 var calendarId: Long? = null
+                var calendarBeforeClassReminderEnabled = true     // [v101]
+                var calendarEarlyMorningReminderEnabled = true    // [v101]
                 var soundEnabled = true
                 var vibrationEnabled = true
 
@@ -144,6 +157,13 @@ data class ReminderSettings(
                 parseValue("reminderVibrationEnabled", content)?.let {
                     vibrationEnabled = it == "true"
                 }
+                // [v101] 解析日历提醒开关
+                parseValue("calendarBeforeClassReminderEnabled", content)?.let {
+                    calendarBeforeClassReminderEnabled = it == "true"
+                }
+                parseValue("calendarEarlyMorningReminderEnabled", content)?.let {
+                    calendarEarlyMorningReminderEnabled = it == "true"
+                }
 
                 // 解析 int
                 parseValue("earlyMorningReminderHour", content)?.toIntOrNull()?.let {
@@ -169,13 +189,15 @@ data class ReminderSettings(
                     beforeClassReminderMinutes = beforeClassMinutes,
                     calendarSyncEnabled = calendarSyncEnabled,
                     calendarId = calendarId,
+                    calendarBeforeClassReminderEnabled = calendarBeforeClassReminderEnabled,      // [v101]
+                    calendarEarlyMorningReminderEnabled = calendarEarlyMorningReminderEnabled,   // [v101]
                     reminderSoundEnabled = soundEnabled,
                     reminderVibrationEnabled = vibrationEnabled
                 )
-                android.util.Log.d("ReminderSettings", "[Debug] fromJson 成功: $result")
+                AppLogger.d("ReminderSettings", "[Debug] fromJson 成功: $result")
                 result
             } catch (e: Exception) {
-                android.util.Log.e("ReminderSettings", "Failed to parse JSON: ${e.message}")
+                AppLogger.e("ReminderSettings", "Failed to parse JSON: ${e.message}")
                 ReminderSettings()
             }
         }

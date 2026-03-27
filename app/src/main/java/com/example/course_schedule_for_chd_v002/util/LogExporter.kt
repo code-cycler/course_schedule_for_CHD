@@ -22,7 +22,8 @@ import java.util.Locale
  * 日志导出工具类
  *
  * 功能：
- * - 从 logcat 获取本应用的日志
+ * - [v107] 优先从内存缓存 (AppLogger) 获取日志
+ * - 回退到 logcat 获取日志
  * - 将日志导出到文件
  * - 提供分享日志文件的功能
  *
@@ -34,7 +35,7 @@ object LogExporter {
 
     private const val TAG = "LogExporter"
 
-    // 需要收集的日志 TAG
+    // [v107] 需要收集的日志 TAG（用于 logcat 回退方案）
     private val LOG_TAGS = listOf(
         "CHD_WebView",
         "CHD_WeekType",
@@ -46,7 +47,8 @@ object LogExporter {
         "BootReceiver",
         "ScreenOnReceiver",
         "ChargingReceiver",
-        "LogExporter"
+        "LogExporter",
+        "AppLogger"  // [v107] 添加 AppLogger TAG
     )
 
     // 日志文件名前缀
@@ -128,9 +130,30 @@ object LogExporter {
     }
 
     /**
-     * 从 logcat 捕获日志
+     * [v107] 捕获日志
+     *
+     * 优先从内存缓存 (AppLogger) 获取，确保日志完整性
+     * 如果缓存为空，回退到 logcat
      */
     private fun captureLogs(context: Context): String {
+        // [v107] 优先从 AppLogger 内存缓存获取
+        val cachedLogs = AppLogger.getFormattedLogs()
+        val cacheSize = AppLogger.getCacheSize()
+
+        if (cachedLogs.isNotEmpty()) {
+            Log.i(TAG, "[v107] 从内存缓存获取日志: $cacheSize 条")
+            return cachedLogs
+        }
+
+        // 回退到 logcat（兼容模式）
+        Log.w(TAG, "[v107] 内存缓存为空，回退到 logcat")
+        return captureLogsFromLogcat()
+    }
+
+    /**
+     * [v107] 从 logcat 捕获日志（回退方案）
+     */
+    private fun captureLogsFromLogcat(): String {
         return try {
             val processId = Process.myPid()
 
@@ -168,7 +191,7 @@ object LogExporter {
     }
 
     /**
-     * 构建日志文件头部信息
+     * [v107] 构建日志文件头部信息
      */
     private fun buildLogFileHeader(context: Context): String {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -185,12 +208,18 @@ object LogExporter {
 
         val deviceInfo = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
 
+        // [v107] 获取日志来源信息
+        val logSource = "内存缓存 (${AppLogger.getCacheSize()} 条)"
+        val logStats = AppLogger.getStats()
+
         return buildString {
             appendLine("========================================")
             appendLine("CHD 课程表应用日志")
             appendLine("导出时间: $exportTime")
             appendLine("应用版本: $versionName ($versionCode)")
             appendLine("设备: $deviceInfo")
+            appendLine("日志来源: $logSource")
+            appendLine("日志统计: $logStats")
             appendLine("========================================")
             appendLine()
         }

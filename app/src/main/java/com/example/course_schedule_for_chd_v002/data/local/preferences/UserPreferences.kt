@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -206,7 +207,7 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[KEY_SEMESTER_START_DATE] = date
         }
-        android.util.Log.d("UserPreferences", "[新功能] 保存学期开始日期: $date")
+        AppLogger.d("UserPreferences", "[新功能] 保存学期开始日期: $date")
     }
 
     /**
@@ -230,7 +231,7 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[KEY_LAST_PARSED_WEEK] = week
         }
-        android.util.Log.d("UserPreferences", "[新功能] 保存解析周次: $week")
+        AppLogger.d("UserPreferences", "[新功能] 保存解析周次: $week")
     }
 
     /**
@@ -260,7 +261,7 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[key] = json
         }
-        android.util.Log.d("UserPreferences", "[v74] 保存冲突缓存: semester=$semester, ${conflicts.size}周有冲突")
+        AppLogger.d("UserPreferences", "[v74] 保存冲突缓存: semester=$semester, ${conflicts.size}周有冲突")
     }
 
     /**
@@ -287,7 +288,7 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences.remove(key)
         }
-        android.util.Log.d("UserPreferences", "[v74] 清除冲突缓存: semester=$semester")
+        AppLogger.d("UserPreferences", "[v74] 清除冲突缓存: semester=$semester")
     }
 
     /**
@@ -352,7 +353,7 @@ class UserPreferences(private val context: Context) {
                 while (i < content.length && content[i] == ',') i++
             }
         } catch (e: Exception) {
-            android.util.Log.e("UserPreferences", "[v74] 反序列化冲突缓存失败: ${e.message}")
+            AppLogger.e("UserPreferences", "[v74] 反序列化冲突缓存失败: ${e.message}")
         }
 
         return result
@@ -388,7 +389,7 @@ class UserPreferences(private val context: Context) {
             currentMap[semester] = currentSet
             preferences[KEY_WATER_COURSES] = serializeWaterCoursesJson(currentMap)
         }
-        android.util.Log.d("UserPreferences", "[新功能] 添加水课标注: $courseName @ $semester")
+        AppLogger.d("UserPreferences", "[新功能] 添加水课标注: $courseName @ $semester")
     }
 
     /**
@@ -406,7 +407,7 @@ class UserPreferences(private val context: Context) {
             }
             preferences[KEY_WATER_COURSES] = serializeWaterCoursesJson(currentMap)
         }
-        android.util.Log.d("UserPreferences", "[新功能] 移除水课标注: $courseName @ $semester")
+        AppLogger.d("UserPreferences", "[新功能] 移除水课标注: $courseName @ $semester")
     }
 
     /**
@@ -463,7 +464,7 @@ class UserPreferences(private val context: Context) {
                 while (i < content.length && content[i] == ',') i++
             }
         } catch (e: Exception) {
-            android.util.Log.e("UserPreferences", "[新功能] 反序列化水课列表失败: ${e.message}")
+            AppLogger.e("UserPreferences", "[新功能] 反序列化水课列表失败: ${e.message}")
         }
 
         return result
@@ -526,7 +527,7 @@ class UserPreferences(private val context: Context) {
      */
     suspend fun getReminderSettingsOnce(): ReminderSettings {
         val result = reminderSettings.first()
-        android.util.Log.d("UserPreferences", "[Debug] getReminderSettingsOnce: $result")
+        AppLogger.d("UserPreferences", "[Debug] getReminderSettingsOnce: $result")
         return result
     }
 
@@ -534,11 +535,11 @@ class UserPreferences(private val context: Context) {
      * [课程提醒] 保存提醒设置
      */
     suspend fun saveReminderSettings(settings: ReminderSettings) {
-        android.util.Log.d("UserPreferences", "[Debug] saveReminderSettings 开始: $settings")
+        AppLogger.d("UserPreferences", "[Debug] saveReminderSettings 开始: $settings")
         context.dataStore.edit { preferences ->
             preferences[KEY_REMINDER_SETTINGS] = settings.toJson()
         }
-        android.util.Log.d("UserPreferences", "[Debug] saveReminderSettings 完成")
+        AppLogger.d("UserPreferences", "[Debug] saveReminderSettings 完成")
     }
 
     /**
@@ -595,6 +596,6 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[KEY_FIRST_LAUNCH] = false
         }
-        android.util.Log.d("UserPreferences", "[权限管理] 标记为非首次启动")
+        AppLogger.d("UserPreferences", "[权限管理] 标记为非首次启动")
     }
 }

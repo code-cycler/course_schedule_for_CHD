@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import com.example.course_schedule_for_chd_v002.util.WebViewLogger
@@ -43,7 +44,7 @@ class LoginViewModel(
     val navigateBackEvent: SharedFlow<Unit> = _navigateBackEvent.asSharedFlow()
 
     init {
-        android.util.Log.d(TAG, "=== LoginViewModel 初始化 ===")
+        AppLogger.d(TAG, "=== LoginViewModel 初始化 ===")
         // [v28] 不再重置 isLoggedIn，因为这会导致状态混乱
         // 使用 navigateBackEvent 替代状态标志进行导航
     }
@@ -157,7 +158,7 @@ class LoginViewModel(
      * @param homePageHtml 首页 HTML 内容（包含教学周信息），可能为 null
      */
     fun onCasLoginSuccess(courseTableHtml: String, homePageHtml: String?) {
-        android.util.Log.i("CHD_CurrentWeek", "========== [LoginViewModel] onCasLoginSuccess 开始 ==========")
+        AppLogger.i("CHD_CurrentWeek", "========== [LoginViewModel] onCasLoginSuccess 开始 ==========")
         WebViewLogger.logSuccess("CAS", "登录成功，开始解析...")
         WebViewLogger.logDebug(TAG, "课表 HTML 长度: ${courseTableHtml.length}, 首页 HTML: ${homePageHtml?.length ?: "null"}")
 
@@ -166,56 +167,56 @@ class LoginViewModel(
 
             // 步骤1：解析课表 HTML
             val defaultSemester = "2024-2025-1"
-            android.util.Log.i("CHD_CurrentWeek", "[Step1] 开始解析课表 HTML...")
+            AppLogger.i("CHD_CurrentWeek", "[Step1] 开始解析课表 HTML...")
             val result = repository.parseHtmlToCourses(courseTableHtml, defaultSemester)
 
             result.fold(
                 onSuccess = { courses ->
                     WebViewLogger.logSuccess("课表", "解析成功，共 ${courses.size} 门课程")
-                    android.util.Log.i("CHD_CurrentWeek", "[Step2] 课表解析成功，课程数: ${courses.size}")
+                    AppLogger.i("CHD_CurrentWeek", "[Step2] 课表解析成功，课程数: ${courses.size}")
 
                     // 步骤2：从首页 HTML 解析当前教学周
-                    android.util.Log.i("CHD_CurrentWeek", "[Step3] 开始从首页解析当前教学周...")
+                    AppLogger.i("CHD_CurrentWeek", "[Step3] 开始从首页解析当前教学周...")
                     if (homePageHtml != null) {
-                        android.util.Log.i("CHD_CurrentWeek", "[Step3.0] 首页 HTML 长度: ${homePageHtml.length}")
+                        AppLogger.i("CHD_CurrentWeek", "[Step3.0] 首页 HTML 长度: ${homePageHtml.length}")
 
                         // 使用 HtmlParser 直接解析首页 HTML
                         val currentWeekInfo = repository.parseCurrentWeekFromHtml(homePageHtml)
 
                         if (currentWeekInfo != null) {
                             val (semester, week) = currentWeekInfo
-                            android.util.Log.i("CHD_CurrentWeek", "[Step3.1] 解析成功: 学期=$semester, 周次=$week")
+                            AppLogger.i("CHD_CurrentWeek", "[Step3.1] 解析成功: 学期=$semester, 周次=$week")
                             WebViewLogger.logSuccess("教学周", "当前: $semester 第${week}周")
 
                             // [新功能] 反推学期开始日期并保存
                             val semesterStartDate = TimeUtils.calculateSemesterStartDate(week)
-                            android.util.Log.i("CHD_Semester", "[新功能] 反推学期开始日期: $semesterStartDate (当前周=$week)")
+                            AppLogger.i("CHD_Semester", "[新功能] 反推学期开始日期: $semesterStartDate (当前周=$week)")
 
                             // 保存到偏好设置
                             userPreferences.saveCurrentWeek(week)
                             userPreferences.saveCurrentSemester(semester)
                             userPreferences.saveSemesterStartDate(semesterStartDate)
                             userPreferences.saveLastParsedWeek(week)
-                            android.util.Log.i("CHD_CurrentWeek", "[Step3.2] 已保存到 UserPreferences: week=$week, semester=$semester, startDate=$semesterStartDate")
+                            AppLogger.i("CHD_CurrentWeek", "[Step3.2] 已保存到 UserPreferences: week=$week, semester=$semester, startDate=$semesterStartDate")
                         } else {
-                            android.util.Log.w("CHD_CurrentWeek", "[Step3.1] 解析失败，首页 HTML 可能不包含教学周信息")
+                            AppLogger.w("CHD_CurrentWeek", "[Step3.1] 解析失败，首页 HTML 可能不包含教学周信息")
                             // 打印 HTML 片段用于调试
                             val weekInfoIndex = homePageHtml.indexOf("本周为")
                             if (weekInfoIndex >= 0) {
                                 val start = maxOf(0, weekInfoIndex - 50)
                                 val end = minOf(homePageHtml.length, weekInfoIndex + 200)
-                                android.util.Log.w("CHD_CurrentWeek", "找到'本周为'位置: $weekInfoIndex, 内容: ${homePageHtml.substring(start, end)}")
+                                AppLogger.w("CHD_CurrentWeek", "找到'本周为'位置: $weekInfoIndex, 内容: ${homePageHtml.substring(start, end)}")
                             } else {
-                                android.util.Log.w("CHD_CurrentWeek", "未找到'本周为'关键字")
+                                AppLogger.w("CHD_CurrentWeek", "未找到'本周为'关键字")
                             }
                         }
                     } else {
-                        android.util.Log.w("CHD_CurrentWeek", "[Step3] 首页 HTML 为 null，跳过教学周解析")
+                        AppLogger.w("CHD_CurrentWeek", "[Step3] 首页 HTML 为 null，跳过教学周解析")
                     }
 
                     // 步骤3：发射导航事件
                     val navResult = _navigateBackEvent.tryEmit(Unit)
-                    android.util.Log.i("CHD_CurrentWeek", "[Step4] 导航事件已发射: $navResult")
+                    AppLogger.i("CHD_CurrentWeek", "[Step4] 导航事件已发射: $navResult")
 
                     _uiState.update {
                         it.copy(
@@ -225,10 +226,10 @@ class LoginViewModel(
                             currentSemester = defaultSemester
                         )
                     }
-                    android.util.Log.i("CHD_CurrentWeek", "========== [LoginViewModel] onCasLoginSuccess 成功结束 ==========")
+                    AppLogger.i("CHD_CurrentWeek", "========== [LoginViewModel] onCasLoginSuccess 成功结束 ==========")
                 },
                 onFailure = { error ->
-                    android.util.Log.e("CHD_CurrentWeek", "[ERROR] 课表解析失败: ${error.message}")
+                    AppLogger.e("CHD_CurrentWeek", "[ERROR] 课表解析失败: ${error.message}")
                     WebViewLogger.logError("课表", "解析失败: ${error.message}")
                     _uiState.update {
                         it.copy(
@@ -374,21 +375,21 @@ class LoginViewModel(
      * 获取课表并导航到课程表视图
      */
     private suspend fun fetchCourseTableAndNavigate() {
-        android.util.Log.d(TAG, "fetchCourseTableAndNavigate: 开始")
+        AppLogger.d(TAG, "fetchCourseTableAndNavigate: 开始")
 
         // 获取学生信息
         val studentName = repository.getStudentName()
         val studentId = repository.getStudentId()
-        android.util.Log.d(TAG, "学生信息: name=$studentName, id=$studentId")
+        AppLogger.d(TAG, "学生信息: name=$studentName, id=$studentId")
 
         // 获取课表
         val defaultSemester = "2024-2025-1"
-        android.util.Log.d(TAG, "调用 fetchRemoteSchedule...")
+        AppLogger.d(TAG, "调用 fetchRemoteSchedule...")
         val fetchResult = repository.fetchRemoteSchedule(defaultSemester)
 
         fetchResult.fold(
             onSuccess = { courses ->
-                android.util.Log.i(TAG, "[OK] fetchRemoteSchedule 成功，共 ${courses.size} 门课程")
+                AppLogger.i(TAG, "[OK] fetchRemoteSchedule 成功，共 ${courses.size} 门课程")
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -399,10 +400,10 @@ class LoginViewModel(
                         currentSemester = defaultSemester
                     )
                 }
-                android.util.Log.i(TAG, "[STATE] 状态已更新，isLoggedIn=true，等待 LaunchedEffect 触发导航")
+                AppLogger.i(TAG, "[STATE] 状态已更新，isLoggedIn=true，等待 LaunchedEffect 触发导航")
             },
             onFailure = { error ->
-                android.util.Log.e(TAG, "[FAIL] fetchRemoteSchedule 失败: ${error.message}")
+                AppLogger.e(TAG, "[FAIL] fetchRemoteSchedule 失败: ${error.message}")
                 _uiState.update {
                     it.copy(
                         isLoading = false,

@@ -2,6 +2,7 @@ package com.example.course_schedule_for_chd_v002.ui.screens.permission
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -27,7 +28,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import kotlinx.coroutines.delay
+
+// [v104] 通知渠道 ID 常量（与 ReminderReceiver 保持一致）
+private const val CHANNEL_ID_EARLY_MORNING = "course_reminder_early_morning"
+private const val CHANNEL_ID_BEFORE_CLASS = "course_reminder_before_class"
 
 /**
  * [权限管理] 权限请求引导页
@@ -46,6 +52,7 @@ fun PermissionRequestScreen(
     var hasNotification by remember { mutableStateOf(checkNotificationPermission(context)) }
     var hasCalendar by remember { mutableStateOf(checkCalendarPermission(context)) }
     var hasExactAlarm by remember { mutableStateOf(checkExactAlarmPermission(context)) }
+    var hasNotificationPolicy by remember { mutableStateOf(checkNotificationPolicyAccess(context)) }  // [v104] 勿扰权限
 
     // 当前请求阶段
     var currentRequestStep by remember { mutableStateOf<PermissionStep?>(null) }
@@ -54,7 +61,7 @@ fun PermissionRequestScreen(
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        android.util.Log.d("PermissionRequestScreen", "[权限] 通知权限结果: $isGranted")
+        AppLogger.d("PermissionRequestScreen", "[权限] 通知权限结果: $isGranted")
         hasNotification = isGranted
         currentRequestStep = null
     }
@@ -64,7 +71,7 @@ fun PermissionRequestScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.values.all { it }
-        android.util.Log.d("PermissionRequestScreen", "[权限] 日历权限结果: $allGranted")
+        AppLogger.d("PermissionRequestScreen", "[权限] 日历权限结果: $allGranted")
         hasCalendar = allGranted
         currentRequestStep = null
     }
@@ -73,8 +80,17 @@ fun PermissionRequestScreen(
     val exactAlarmLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
-        android.util.Log.d("PermissionRequestScreen", "[权限] 从精确闹钟设置返回")
+        AppLogger.d("PermissionRequestScreen", "[权限] 从精确闹钟设置返回")
         hasExactAlarm = checkExactAlarmPermission(context)
+        currentRequestStep = null
+    }
+
+    // [v104] 勿扰权限设置返回监听
+    val notificationPolicyLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        AppLogger.d("PermissionRequestScreen", "[v104] 从勿扰设置返回")
+        hasNotificationPolicy = checkNotificationPolicyAccess(context)
         currentRequestStep = null
     }
 
@@ -85,6 +101,7 @@ fun PermissionRequestScreen(
             hasNotification = checkNotificationPermission(context)
             hasCalendar = checkCalendarPermission(context)
             hasExactAlarm = checkExactAlarmPermission(context)
+            hasNotificationPolicy = checkNotificationPolicyAccess(context)  // [v104]
         }
     }
 
@@ -118,12 +135,22 @@ fun PermissionRequestScreen(
         }
     }
 
+    // [v104] 请求勿扰权限
+    // 注意：NOTIFICATION_POLICY_ACCESS_SETTINGS 不支持带 package URI，
+    // 在某些设备上（如荣耀手机）会导致 ActivityNotFoundException
+    fun requestNotificationPolicyAccess() {
+        currentRequestStep = PermissionStep.NOTIFICATION_POLICY
+        val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+        notificationPolicyLauncher.launch(intent)
+    }
+
     // 一键请求所有权限（依次请求）
     fun requestAllPermissions() {
         when {
             !hasNotification -> requestNotificationPermission()
             !hasCalendar -> requestCalendarPermission()
             !hasExactAlarm -> requestExactAlarmPermission()
+            !hasNotificationPolicy -> requestNotificationPolicyAccess()  // [v104]
         }
     }
 
@@ -211,6 +238,23 @@ fun PermissionRequestScreen(
                 isRequesting = currentRequestStep == PermissionStep.EXACT_ALARM,
                 onClick = { if (!hasExactAlarm) requestExactAlarmPermission() }
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // [v104] 勿扰权限项
+            PermissionItem(
+                icon = Icons.Filled.Phone,  // [v104] 使用 Phone 图标
+                title = "勿扰权限",
+                description = "允许提醒在勿扰模式下响铃",
+                isGranted = hasNotificationPolicy,
+                isRequesting = currentRequestStep == PermissionStep.NOTIFICATION_POLICY,
+                onClick = { if (!hasNotificationPolicy) requestNotificationPolicyAccess() }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // [v104] 通知渠道设置引导
+            NotificationChannelGuideSection()
 
             Spacer(modifier = Modifier.height(32.dp))
 
@@ -377,12 +421,121 @@ private fun PermissionItem(
 }
 
 /**
+ * [v104] 通知渠道设置引导区域
+ */
+@Composable
+private fun NotificationChannelGuideSection() {
+    val context = LocalContext.current
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,  // [v104] 使用 Settings 替代 Tune
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "通知设置建议",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "为确保提醒正常触达，建议前往系统设置：",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 设置建议列表
+            val suggestions = listOf(
+                "关闭静默通知",
+                "开启锁屏通知",
+                "开启横幅通知",
+                "设置默认铃声"
+            )
+
+            suggestions.forEach { suggestion ->
+                Row(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = suggestion,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 早八提醒渠道设置按钮
+            OutlinedButton(
+                onClick = {
+                    val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL_ID_EARLY_MORNING)
+                    }
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Info, contentDescription = null)  // [v104] 使用 Info
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("早八提醒 通知设置")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 上课提醒渠道设置按钮
+            OutlinedButton(
+                onClick = {
+                    val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL_ID_BEFORE_CLASS)
+                    }
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Info, contentDescription = null)  // [v104] 使用 Info 替代 School
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("上课提醒 通知设置")
+            }
+        }
+    }
+}
+
+/**
  * 权限请求步骤
  */
 private enum class PermissionStep {
     NOTIFICATION,
     CALENDAR,
-    EXACT_ALARM
+    EXACT_ALARM,
+    NOTIFICATION_POLICY  // [v104] 勿扰权限
 }
 
 /**
@@ -421,4 +574,12 @@ private fun checkExactAlarmPermission(context: Context): Boolean {
     } else {
         true
     }
+}
+
+/**
+ * [v104] 检查勿扰权限
+ */
+private fun checkNotificationPolicyAccess(context: Context): Boolean {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    return notificationManager.isNotificationPolicyAccessGranted
 }

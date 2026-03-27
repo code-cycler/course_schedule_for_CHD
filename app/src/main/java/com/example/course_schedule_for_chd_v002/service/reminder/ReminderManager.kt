@@ -8,6 +8,7 @@ import android.os.Build
 import android.util.Log
 import com.example.course_schedule_for_chd_v002.data.local.database.AppDatabase
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
+import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
@@ -147,7 +148,8 @@ class ReminderManager(private val context: Context) {
         courses: List<Course>,
         settings: ReminderSettings,
         semesterStartDate: String,
-        currentWeek: Int
+        currentWeek: Int,
+        campus: Campus = Campus.BENBU  // [v108] 校区参数
     ) {
         if (!settings.beforeClassReminderEnabled) {
             cancelAllBeforeClassReminders()
@@ -168,8 +170,9 @@ class ReminderManager(private val context: Context) {
         cancelAllBeforeClassReminders()
 
         // 为每节课调度提醒
+        val startTimes = CourseReminderUtils.getClassStartTimes(campus)  // [v108] 使用校区感知时间
         todayCourses.forEach { course ->
-            val classStartTime = CourseReminderUtils.CLASS_START_TIMES[course.startNode]
+            val classStartTime = startTimes[course.startNode]
             if (classStartTime != null) {
                 val reminderTime = LocalDateTime.of(today, classStartTime)
                     .minusMinutes(settings.beforeClassReminderMinutes.toLong())
@@ -267,6 +270,8 @@ class ReminderManager(private val context: Context) {
                 val userPreferences = UserPreferences(context)
                 val settings = userPreferences.getReminderSettingsOnce()
                 val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+                val campusName = userPreferences.getCampusOnce()  // [v108] 读取校区
+                val campus = Campus.fromName(campusName)
 
                 if (semesterStartDate != null) {
                     val currentWeek = TimeUtils.calculateCurrentWeek(semesterStartDate) ?: 1
@@ -280,10 +285,10 @@ class ReminderManager(private val context: Context) {
                     // 调度早八提醒
                     scheduleEarlyMorningReminder(settings)
 
-                    // 调度上课前提醒
-                    scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek)
+                    // 调度上课前提醒 [v108] 传递校区参数
+                    scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek, campus)
 
-                    Log.d(TAG, "提醒服务初始化完成")
+                    Log.d(TAG, "提醒服务初始化完成, 校区: ${campus.displayName}")
                 } else {
                     // 没有学期开始日期，只调度早八提醒
                     scheduleEarlyMorningReminder(settings)

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -31,15 +32,20 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDefaults
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,9 +58,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.CalendarSyncState
+import com.example.course_schedule_for_chd_v002.util.AppLogger
+import java.util.Calendar
 
 /**
  * 侧边栏设置抽屉组件
@@ -83,7 +92,7 @@ fun SettingsDrawer(
     val scrollState = rememberScrollState()
 
     // Debug: 侧边栏状态变化
-    android.util.Log.d("SettingsDrawer", "SettingsDrawer recomposed, drawerState.isOpen=${drawerState.isOpen}, settings=$settings, hasNotification=$hasNotificationPermission, hasCalendar=$hasCalendarPermission, hasExactAlarm=$hasExactAlarmPermission")
+    AppLogger.d("SettingsDrawer", "SettingsDrawer recomposed, drawerState.isOpen=${drawerState.isOpen}, settings=$settings, hasNotification=$hasNotificationPermission, hasCalendar=$hasCalendarPermission, hasExactAlarm=$hasExactAlarmPermission")
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -180,10 +189,11 @@ private fun SettingsDrawerContent(
                 onSettingsChange(settings.copy(earlyMorningReminderEnabled = enabled))
             }
         ) {
-            // 时间选择器
+            // [v106] 时间选择器 - 始终可编辑
             TimePickerRow(
                 hour = settings.earlyMorningReminderHour,
                 minute = settings.earlyMorningReminderMinute,
+                enabled = settings.earlyMorningReminderEnabled,
                 onTimeChange = { hour, minute ->
                     onSettingsChange(
                         settings.copy(
@@ -207,7 +217,7 @@ private fun SettingsDrawerContent(
         HorizontalDivider()
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 上课前提醒设置
+        // [v106] 上课前提醒设置 - 使用现代化 Slider 组件
         ReminderSection(
             title = "上课前提醒",
             description = "上课前提前通知",
@@ -217,34 +227,12 @@ private fun SettingsDrawerContent(
                 onSettingsChange(settings.copy(beforeClassReminderEnabled = enabled))
             }
         ) {
-            var showTimeDialog by remember { mutableStateOf(false) }
-
-            OutlinedButton(
-                onClick = { showTimeDialog = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.Settings, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("上课前 ${settings.beforeClassReminderMinutes} 分钟")
-            }
-
-            if (showTimeDialog) {
-                BeforeClassTimeDialog(
-                    currentValue = settings.beforeClassReminderMinutes,
-                    onDismiss = { showTimeDialog = false },
-                    onConfirm = { minutes ->
-                        onSettingsChange(settings.copy(beforeClassReminderMinutes = minutes))
-                        showTimeDialog = false
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "将在上课前提醒即将开始的课程",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            BeforeClassTimeSelector(
+                currentValue = settings.beforeClassReminderMinutes,
+                enabled = settings.beforeClassReminderEnabled,
+                onValueChange = { minutes ->
+                    onSettingsChange(settings.copy(beforeClassReminderMinutes = minutes))
+                }
             )
         }
 
@@ -266,6 +254,69 @@ private fun SettingsDrawerContent(
                 onSettingsChange(settings.copy(calendarSyncEnabled = enabled))
             }
         ) {
+            // [v105] 日历提醒设置（开关控制是否在日历中添加提醒）
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 日历课前提醒开关
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("日历课前提醒")
+                }
+                Switch(
+                    checked = settings.calendarBeforeClassReminderEnabled,
+                    onCheckedChange = { enabled ->
+                        AppLogger.d("SettingsDrawer", "[v105] 日历课前提醒开关变化: $enabled")
+                        onSettingsChange(settings.copy(calendarBeforeClassReminderEnabled = enabled))
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 日历早八提醒开关
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("日历早八提醒")
+                }
+                Switch(
+                    checked = settings.calendarEarlyMorningReminderEnabled,
+                    onCheckedChange = { enabled ->
+                        AppLogger.d("SettingsDrawer", "[v105] 日历早八提醒开关变化: $enabled")
+                        onSettingsChange(settings.copy(calendarEarlyMorningReminderEnabled = enabled))
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "开关变更后需点击同步才会生效",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // [v100] 同步按钮（带状态）
             OutlinedButton(
                 onClick = onCalendarSyncClick,
@@ -390,7 +441,7 @@ private fun SettingsDrawerContent(
             Switch(
                 checked = settings.reminderSoundEnabled,
                 onCheckedChange = { enabled ->
-                    android.util.Log.d("SettingsDrawer", "[Debug] 声音开关变化: $enabled")
+                    AppLogger.d("SettingsDrawer", "[Debug] 声音开关变化: $enabled")
                     onSettingsChange(settings.copy(reminderSoundEnabled = enabled))
                 }
             )
@@ -416,7 +467,7 @@ private fun SettingsDrawerContent(
             Switch(
                 checked = settings.reminderVibrationEnabled,
                 onCheckedChange = { enabled ->
-                    android.util.Log.d("SettingsDrawer", "[Debug] 振动开关变化: $enabled")
+                    AppLogger.d("SettingsDrawer", "[Debug] 振动开关变化: $enabled")
                     onSettingsChange(settings.copy(reminderVibrationEnabled = enabled))
                 }
             )
@@ -443,6 +494,7 @@ private fun HorizontalDivider(
 
 /**
  * 提醒设置区块
+ * [v106] 时间编辑器始终显示，不依赖开关状态
  */
 @Composable
 private fun ReminderSection(
@@ -463,13 +515,20 @@ private fun ReminderSection(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = if (enabled)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.titleMedium
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (enabled)
+                            MaterialTheme.colorScheme.onSurface
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = description,
@@ -484,35 +543,101 @@ private fun ReminderSection(
             )
         }
 
-        if (enabled) {
-            Spacer(modifier = Modifier.height(12.dp))
-            content()
+        // [v106] 时间编辑器始终显示，使用视觉提示区分启用/禁用状态
+        Spacer(modifier = Modifier.height(12.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = if (enabled)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                content()
+            }
         }
     }
 }
 
 /**
- * 时间选择器行
+ * [v106] 现代化时间选择器行
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimePickerRow(
     hour: Int,
     minute: Int,
+    enabled: Boolean = true,
     onTimeChange: (Int, Int) -> Unit
 ) {
     var showDialog by remember { mutableStateOf(false) }
 
-    OutlinedButton(
-        onClick = { showDialog = true },
-        modifier = Modifier.fillMaxWidth()
+    // 现代化时间显示卡片
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { showDialog = true },
+        shape = RoundedCornerShape(12.dp),
+        color = if (enabled)
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+        else
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        tonalElevation = if (enabled) 2.dp else 0.dp
     ) {
-        Icon(Icons.Filled.Settings, contentDescription = null)
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(String.format("%02d:%02d", hour, minute))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = null,
+                    tint = if (enabled)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "提醒时间",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (enabled)
+                        MaterialTheme.colorScheme.onSurface
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // 现代化时间显示
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (enabled)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.outline
+            ) {
+                Text(
+                    text = String.format("%02d:%02d", hour, minute),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (enabled)
+                        MaterialTheme.colorScheme.onPrimary
+                    else
+                        MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
     }
 
     if (showDialog) {
-        TimePickerDialog(
+        ModernTimePickerDialog(
             initialHour = hour,
             initialMinute = minute,
             onDismiss = { showDialog = false },
@@ -525,159 +650,202 @@ private fun TimePickerRow(
 }
 
 /**
- * 时间选择对话框
+ * [v106] 现代化 Material 3 时间选择对话框
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimePickerDialog(
+private fun ModernTimePickerDialog(
     initialHour: Int,
     initialMinute: Int,
     onDismiss: () -> Unit,
     onConfirm: (Int, Int) -> Unit
 ) {
-    var selectedHour by remember { mutableIntStateOf(initialHour) }
-    var selectedMinute by remember { mutableIntStateOf(initialMinute) }
+    // 使用当前时间作为默认值，然后设置初始值
+    val calendar = Calendar.getInstance()
+    val timePickerState = rememberTimePickerState(
+        initialHour = initialHour,
+        initialMinute = initialMinute,
+        is24Hour = true
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("选择提醒时间") },
+        title = {
+            Text(
+                text = "选择提醒时间",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = {
-            Column {
-                // 小时选择
-                Text(
-                    text = "小时",
-                    style = MaterialTheme.typography.labelMedium
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Material 3 TimePicker
+                TimePicker(
+                    state = timePickerState,
+                    modifier = Modifier.padding(vertical = 16.dp),
+                    colors = TimePickerDefaults.colors(
+                        clockDialColor = MaterialTheme.colorScheme.surfaceVariant,
+                        selectorColor = MaterialTheme.colorScheme.primary,
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "将在设定时间检查第二天第1-2节是否有课",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(timePickerState.hour, timePickerState.minute) }
+            ) {
+                Icon(Icons.Filled.Check, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+/**
+ * [v106] 现代化上课前时间选择组件 - 使用 Slider
+ */
+@Composable
+private fun BeforeClassTimeSelector(
+    currentValue: Int,
+    enabled: Boolean = true,
+    onValueChange: (Int) -> Unit
+) {
+    // 预设选项
+    val presetOptions = listOf(5, 10, 15, 20, 30, 45, 60)
+    val selectedIndex = presetOptions.indexOf(currentValue).coerceAtLeast(0)
+
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // 快捷选择按钮
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = if (enabled)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    (0..23).forEach { h ->
-                        FilterChip(
-                            selected = selectedHour == h,
-                            onClick = { selectedHour = h },
-                            label = { Text(String.format("%02d", h)) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = null,
+                            tint = if (enabled)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "提前时间",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (enabled)
+                                MaterialTheme.colorScheme.onSurface
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // 当前值显示
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (enabled)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.outline
+                    ) {
+                        Text(
+                            text = "${currentValue}分钟",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (enabled)
+                                MaterialTheme.colorScheme.onPrimary
+                            else
+                                MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 分钟选择
-                Text(
-                    text = "分钟",
-                    style = MaterialTheme.typography.labelMedium
+                // 现代化 Slider
+                Slider(
+                    value = selectedIndex.toFloat(),
+                    onValueChange = { index ->
+                        if (enabled) {
+                            onValueChange(presetOptions[index.toInt()])
+                        }
+                    },
+                    valueRange = 0f..(presetOptions.size - 1).toFloat(),
+                    steps = presetOptions.size - 2,
+                    enabled = enabled,
+                    colors = SliderDefaults.colors(
+                        thumbColor = if (enabled)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.outline,
+                        activeTrackColor = if (enabled)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.outline,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
+
+                // 选项标签 - 显示所有 7 个选项
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    (0..59 step 5).forEach { m ->
-                        FilterChip(
-                            selected = selectedMinute == m,
-                            onClick = { selectedMinute = m },
-                            label = { Text(String.format("%02d", m)) }
+                    presetOptions.forEach { minutes ->
+                        Text(
+                            text = "${minutes}分",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (currentValue == minutes && enabled)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(selectedHour, selectedMinute) }) {
-                Text("确定")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
         }
-    )
-}
 
-/**
- * 上课前时间选择对话框
- */
-@Composable
-private fun BeforeClassTimeDialog(
-    currentValue: Int,
-    onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit
-) {
-    val options = listOf(5, 10, 15, 20, 30, 45, 60)
-    var selected by remember { mutableIntStateOf(currentValue) }
+        Spacer(modifier = Modifier.height(8.dp))
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("选择提醒时间") },
-        text = {
-            Column {
-                options.forEach { minutes ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { selected = minutes }
-                            .padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = selected == minutes,
-                            onClick = { selected = minutes }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("上课前 $minutes 分钟")
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(selected) }) {
-                Text("确定")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        }
-    )
-}
-
-/**
- * 过滤芯片
- */
-@Composable
-private fun FilterChip(
-    selected: Boolean,
-    onClick: () -> Unit,
-    label: @Composable () -> Unit
-) {
-    val containerColor = if (selected) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-
-    val contentColor = if (selected) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    Surface(
-        modifier = Modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        color = containerColor,
-        contentColor = contentColor
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            label()
-        }
+        Text(
+            text = "将在上课前提醒即将开始的课程",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

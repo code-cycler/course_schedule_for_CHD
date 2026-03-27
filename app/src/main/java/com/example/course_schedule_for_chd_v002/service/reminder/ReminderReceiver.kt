@@ -1,5 +1,6 @@
 package com.example.course_schedule_for_chd_v002.service.reminder
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,8 +12,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.course_schedule_for_chd_v002.MainActivity
 import com.example.course_schedule_for_chd_v002.R
+import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.data.local.database.AppDatabase
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -45,7 +48,7 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        android.util.Log.d("ReminderReceiver", "收到广播: ${intent.action}")
+        AppLogger.d("ReminderReceiver", "收到广播: ${intent.action}")
 
         when (intent.action) {
             ACTION_EARLY_MORNING_REMINDER -> {
@@ -78,7 +81,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 val semester = prefs.getString("current_semester", "") ?: ""
 
                 if (semester.isEmpty()) {
-                    android.util.Log.w("ReminderReceiver", "没有当前学期信息，跳过早八提醒")
+                    AppLogger.w("ReminderReceiver", "没有当前学期信息，跳过早八提醒")
                     return@launch
                 }
 
@@ -108,10 +111,10 @@ class ReminderReceiver : BroadcastReceiver() {
                     // 显示通知
                     showEarlyMorningNotification(context, earlyMorningCourses, settings)
                 } else {
-                    android.util.Log.d("ReminderReceiver", "明天没有早八课程，不发送通知")
+                    AppLogger.d("ReminderReceiver", "明天没有早八课程，不发送通知")
                 }
             } catch (e: Exception) {
-                android.util.Log.e("ReminderReceiver", "处理早八提醒失败", e)
+                AppLogger.e("ReminderReceiver", "处理早八提醒失败", e)
             }
         }
     }
@@ -179,9 +182,9 @@ class ReminderReceiver : BroadcastReceiver() {
 
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_EARLY_MORNING, notification)
-            android.util.Log.d("ReminderReceiver", "早八提醒通知已发送: $content")
+            AppLogger.d("ReminderReceiver", "早八提醒通知已发送: $content")
         } catch (e: SecurityException) {
-            android.util.Log.e("ReminderReceiver", "没有通知权限", e)
+            AppLogger.e("ReminderReceiver", "没有通知权限", e)
         }
     }
 
@@ -222,9 +225,9 @@ class ReminderReceiver : BroadcastReceiver() {
 
         try {
             NotificationManagerCompat.from(context).notify(notificationId, notification)
-            android.util.Log.d("ReminderReceiver", "上课提醒通知已发送: $content")
+            AppLogger.d("ReminderReceiver", "上课提醒通知已发送: $content")
         } catch (e: SecurityException) {
-            android.util.Log.e("ReminderReceiver", "没有通知权限", e)
+            AppLogger.e("ReminderReceiver", "没有通知权限", e)
         }
     }
 
@@ -241,6 +244,12 @@ class ReminderReceiver : BroadcastReceiver() {
                 description = "课程表提醒通知"
                 enableLights(true)
                 enableVibration(true)
+                // [v104] 锁屏显示完整通知内容
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                // [v104] 绕过勿扰模式（需要用户在系统设置中授权）
+                setBypassDnd(true)
+                // [v104] 显示横幅通知
+                setShowBadge(true)
             }
 
             val notificationManager = context.getSystemService(NotificationManager::class.java)
@@ -293,13 +302,15 @@ class ReminderReceiver : BroadcastReceiver() {
 
                 // 调度早八提醒
                 reminderManager.scheduleEarlyMorningReminder(settings)
-                android.util.Log.d("ReminderReceiver", "已重新调度早八提醒")
+                AppLogger.d("ReminderReceiver", "已重新调度早八提醒")
 
                 // [健壮性优化] 调度上课前提醒
                 if (settings.beforeClassReminderEnabled) {
                     val semesterStartDate = prefs.getString("semester_start_date", null)
                     val currentWeek = prefs.getInt("current_week", 1)
                     val semester = prefs.getString("current_semester", "") ?: ""
+                    val campusName = prefs.getString("campus", "WEISHUI") ?: "WEISHUI"  // [v108] 读取校区
+                    val campus = Campus.fromName(campusName)
 
                     if (!semesterStartDate.isNullOrEmpty() && semester.isNotEmpty()) {
                         val database = AppDatabase.getDatabase(context)
@@ -307,13 +318,13 @@ class ReminderReceiver : BroadcastReceiver() {
                             .map { it.toDomainModel() }
 
                         reminderManager.scheduleBeforeClassReminders(
-                            courses, settings, semesterStartDate, currentWeek
+                            courses, settings, semesterStartDate, currentWeek, campus  // [v108] 传递校区
                         )
-                        android.util.Log.d("ReminderReceiver", "已重新调度上课前提醒，共${courses.size}节课")
+                        AppLogger.d("ReminderReceiver", "已重新调度上课前提醒，共${courses.size}节课, 校区: ${campus.displayName}")
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("ReminderReceiver", "重新调度提醒失败", e)
+                AppLogger.e("ReminderReceiver", "重新调度提醒失败", e)
             }
         }
     }
