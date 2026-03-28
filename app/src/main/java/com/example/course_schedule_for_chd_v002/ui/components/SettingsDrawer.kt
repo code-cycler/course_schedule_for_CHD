@@ -78,6 +78,8 @@ fun SettingsDrawer(
     hasNotificationPermission: Boolean = false,
     hasCalendarPermission: Boolean = false,
     hasExactAlarmPermission: Boolean = false,
+    hasNotificationPolicyPermission: Boolean = false,
+    hasBatteryOptimizationIgnored: Boolean = false,
     calendarSyncState: CalendarSyncState = CalendarSyncState.Idle,  // [v100] 日历同步状态
     onSettingsChange: (ReminderSettings) -> Unit,
     onCalendarSyncClick: () -> Unit,
@@ -85,6 +87,8 @@ fun SettingsDrawer(
     onRequestCalendarPermission: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestExactAlarmPermission: () -> Unit,
+    onRequestNotificationPolicyPermission: () -> Unit = {},
+    onRequestBatteryOptimization: () -> Unit = {},
     onRequestAllPermissions: () -> Unit = {},  // [权限管理] 一键获取所需权限
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
@@ -106,6 +110,8 @@ fun SettingsDrawer(
                     hasNotificationPermission = hasNotificationPermission,
                     hasCalendarPermission = hasCalendarPermission,
                     hasExactAlarmPermission = hasExactAlarmPermission,
+                    hasNotificationPolicyPermission = hasNotificationPolicyPermission,
+                    hasBatteryOptimizationIgnored = hasBatteryOptimizationIgnored,
                     calendarSyncState = calendarSyncState,  // [v100]
                     onSettingsChange = onSettingsChange,
                     onCalendarSyncClick = onCalendarSyncClick,
@@ -113,6 +119,8 @@ fun SettingsDrawer(
                     onRequestCalendarPermission = onRequestCalendarPermission,
                     onRequestNotificationPermission = onRequestNotificationPermission,
                     onRequestExactAlarmPermission = onRequestExactAlarmPermission,
+                    onRequestNotificationPolicyPermission = onRequestNotificationPolicyPermission,
+                    onRequestBatteryOptimization = onRequestBatteryOptimization,
                     onRequestAllPermissions = onRequestAllPermissions,  // [权限管理]
                     modifier = Modifier
                         .fillMaxSize()
@@ -130,6 +138,8 @@ private fun SettingsDrawerContent(
     hasNotificationPermission: Boolean,
     hasCalendarPermission: Boolean,
     hasExactAlarmPermission: Boolean,
+    hasNotificationPolicyPermission: Boolean,
+    hasBatteryOptimizationIgnored: Boolean,
     calendarSyncState: CalendarSyncState = CalendarSyncState.Idle,  // [v100] 日历同步状态
     onSettingsChange: (ReminderSettings) -> Unit,
     onCalendarSyncClick: () -> Unit,
@@ -137,6 +147,8 @@ private fun SettingsDrawerContent(
     onRequestCalendarPermission: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestExactAlarmPermission: () -> Unit,
+    onRequestNotificationPolicyPermission: () -> Unit = {},
+    onRequestBatteryOptimization: () -> Unit = {},
     onRequestAllPermissions: () -> Unit = {},  // [权限管理] 一键获取所需权限
     modifier: Modifier = Modifier
 ) {
@@ -169,9 +181,13 @@ private fun SettingsDrawerContent(
             hasNotificationPermission = hasNotificationPermission,
             hasCalendarPermission = hasCalendarPermission,
             hasExactAlarmPermission = hasExactAlarmPermission,
+            hasNotificationPolicyPermission = hasNotificationPolicyPermission,
+            hasBatteryOptimizationIgnored = hasBatteryOptimizationIgnored,
             onRequestNotificationPermission = onRequestNotificationPermission,
             onRequestCalendarPermission = onRequestCalendarPermission,
             onRequestExactAlarmPermission = onRequestExactAlarmPermission,
+            onRequestNotificationPolicyPermission = onRequestNotificationPolicyPermission,
+            onRequestBatteryOptimization = onRequestBatteryOptimization,
             onRequestAllPermissions = onRequestAllPermissions
         )
 
@@ -858,9 +874,13 @@ private fun PermissionStatusCard(
     hasNotificationPermission: Boolean,
     hasCalendarPermission: Boolean,
     hasExactAlarmPermission: Boolean,
+    hasNotificationPolicyPermission: Boolean,
+    hasBatteryOptimizationIgnored: Boolean,
     onRequestNotificationPermission: () -> Unit,
     onRequestCalendarPermission: () -> Unit,
     onRequestExactAlarmPermission: () -> Unit,
+    onRequestNotificationPolicyPermission: () -> Unit = {},
+    onRequestBatteryOptimization: () -> Unit = {},
     onRequestAllPermissions: () -> Unit  // [权限管理] 一键获取所需权限
 ) {
     val context = LocalContext.current
@@ -910,11 +930,33 @@ private fun PermissionStatusCard(
                 onClick = if (!hasExactAlarmPermission) onRequestExactAlarmPermission else null
             )
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 勿扰权限
+            PermissionRow(
+                icon = Icons.Filled.Edit,
+                label = "勿扰权限",
+                isGranted = hasNotificationPolicyPermission,
+                onClick = if (!hasNotificationPolicyPermission) onRequestNotificationPolicyPermission else null
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 电池优化忽略权限
+            PermissionRow(
+                icon = Icons.Filled.Settings,
+                label = "电池优化",
+                isGranted = hasBatteryOptimizationIgnored,
+                onClick = if (!hasBatteryOptimizationIgnored) onRequestBatteryOptimization else null
+            )
+
             // 如果有缺失权限，显示提示和一键获取按钮
             val missingCount = listOf(
                 hasNotificationPermission,
                 hasCalendarPermission,
-                hasExactAlarmPermission
+                hasExactAlarmPermission,
+                hasNotificationPolicyPermission,
+                hasBatteryOptimizationIgnored
             ).count { !it }
 
             if (missingCount > 0) {

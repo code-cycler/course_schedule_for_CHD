@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- [v104] 勿扰模式例外权限 - 允许提醒在勿扰模式下响铃 -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- 电池优化忽略权限 - 防止系统杀后台导致提醒失效 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- [健壮性优化] 前台服务权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

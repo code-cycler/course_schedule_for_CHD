@@ -85,11 +85,19 @@ fun ScheduleScreen(
     // [权限管理] 获取 Context
     val context = LocalContext.current
 
+    // [权限状态] 响应式权限状态 - 授权后即时更新 UI
+    var hasNotificationPerm by remember { mutableStateOf(false) }
+    var hasCalendarPerm by remember { mutableStateOf(false) }
+    var hasExactAlarmPerm by remember { mutableStateOf(false) }
+    var hasNotificationPolicyPerm by remember { mutableStateOf(false) }
+    var hasBatteryOptimizationPerm by remember { mutableStateOf(false) }
+
     // [权限管理] 通知权限请求 Launcher
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         AppLogger.d("ScheduleScreen", "[权限] 通知权限结果: $isGranted")
+        hasNotificationPerm = isGranted  // [权限状态] 即时更新
         viewModel.onNotificationPermissionResult(isGranted)
     }
 
@@ -101,6 +109,7 @@ fun ScheduleScreen(
         val hasWrite = permissions[Manifest.permission.WRITE_CALENDAR] == true
         val hasCalendar = hasRead && hasWrite
         AppLogger.d("ScheduleScreen", "[权限] 日历权限结果: read=$hasRead, write=$hasWrite, hasCalendar=$hasCalendar")
+        hasCalendarPerm = hasCalendar  // [权限状态] 即时更新
         viewModel.onCalendarPermissionResult(hasCalendar)
     }
 
@@ -124,6 +133,27 @@ fun ScheduleScreen(
             context, Manifest.permission.WRITE_CALENDAR
         ) == PackageManager.PERMISSION_GRANTED
         return hasRead && hasWrite
+    }
+
+    // 检查勿扰权限
+    fun hasNotificationPolicyPermission(): Boolean {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        return notificationManager.isNotificationPolicyAccessGranted
+    }
+
+    // 检查电池优化忽略权限
+    fun hasBatteryOptimizationIgnored(): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    // [权限状态] 刷新所有权限状态
+    fun refreshPermissionStates() {
+        hasNotificationPerm = hasNotificationPermission()
+        hasCalendarPerm = hasCalendarPermission()
+        hasExactAlarmPerm = viewModel.canScheduleExactAlarms()
+        hasNotificationPolicyPerm = hasNotificationPolicyPermission()
+        hasBatteryOptimizationPerm = hasBatteryOptimizationIgnored()
     }
 
     // [权限管理] 请求通知权限
@@ -160,10 +190,35 @@ fun ScheduleScreen(
         }
     }
 
+    // 打开勿扰权限设置页面
+    fun requestNotificationPolicyAccess() {
+        AppLogger.d("ScheduleScreen", "[权限] 打开勿扰权限设置页面")
+        try {
+            val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            AppLogger.e("ScheduleScreen", "[权限] 打开勿扰设置失败", e)
+        }
+    }
+
+    // 请求电池优化忽略权限
+    fun requestBatteryOptimization() {
+        AppLogger.d("ScheduleScreen", "[权限] 请求电池优化忽略权限")
+        try {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            AppLogger.e("ScheduleScreen", "[权限] 请求电池优化失败", e)
+        }
+    }
+
     // [v24] 每次进入屏幕时重新加载数据
     LaunchedEffect(Unit) {
         AppLogger.d("ScheduleScreen", "[v24] LaunchedEffect 触发，调用 reload()")
         viewModel.reload()
+        refreshPermissionStates()  // [权限状态] 初始化权限状态
     }
 
     // [新功能] 监听生命周期，每次 onResume 时刷新当前时间和教学周
@@ -173,6 +228,7 @@ fun ScheduleScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 AppLogger.d("ScheduleScreen", "[新功能] ON_RESUME 触发，刷新当前时间和教学周")
                 viewModel.refreshCurrentTimeInfo()
+                refreshPermissionStates()  // [权限状态] 从设置页返回时即时刷新
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -193,9 +249,11 @@ fun ScheduleScreen(
     SettingsDrawer(
         drawerState = drawerState,
         settings = reminderSettings,
-        hasNotificationPermission = hasNotificationPermission(),
-        hasCalendarPermission = hasCalendarPermission(),
-        hasExactAlarmPermission = viewModel.canScheduleExactAlarms(),
+        hasNotificationPermission = hasNotificationPerm,
+        hasCalendarPermission = hasCalendarPerm,
+        hasExactAlarmPermission = hasExactAlarmPerm,
+        hasNotificationPolicyPermission = hasNotificationPolicyPerm,
+        hasBatteryOptimizationIgnored = hasBatteryOptimizationPerm,
         calendarSyncState = uiState.calendarSyncState,  // [v100] 日历同步状态
         onSettingsChange = {
             AppLogger.d("ScheduleScreen", "[Debug] 设置变化: $it")
@@ -228,6 +286,14 @@ fun ScheduleScreen(
             AppLogger.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
             openExactAlarmSettings()
         },
+        onRequestNotificationPolicyPermission = {
+            AppLogger.d("ScheduleScreen", "[Debug] 请求勿扰权限")
+            requestNotificationPolicyAccess()
+        },
+        onRequestBatteryOptimization = {
+            AppLogger.d("ScheduleScreen", "[Debug] 请求电池优化忽略权限")
+            requestBatteryOptimization()
+        },
         onRequestAllPermissions = {
             AppLogger.d("ScheduleScreen", "[Debug] 一键请求所有权限")
             // [权限管理] 依次请求缺失的权限
@@ -243,6 +309,14 @@ fun ScheduleScreen(
                 !viewModel.canScheduleExactAlarms() -> {
                     AppLogger.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
                     openExactAlarmSettings()
+                }
+                !hasNotificationPolicyPermission() -> {
+                    AppLogger.d("ScheduleScreen", "[Debug] 请求勿扰权限")
+                    requestNotificationPolicyAccess()
+                }
+                !hasBatteryOptimizationIgnored() -> {
+                    AppLogger.d("ScheduleScreen", "[Debug] 请求电池优化忽略权限")
+                    requestBatteryOptimization()
                 }
             }
         }
@@ -330,8 +404,8 @@ fun ScheduleScreen(
             // [v61] 校区切换状态
             var showCampusDialog by remember { mutableStateOf(false) }
 
-            // [v46] 获取当前周的课程，并分别检测周六和周日是否有课
-            val displayCourses = uiState.getDisplayCourses()
+            // [v46] 从缓存获取当前周课程，并分别检测周六和周日是否有课
+            val displayCourses = uiState.displayCourses
             val hasSaturdayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SATURDAY }
             val hasSundayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SUNDAY }
             val hasWeekendCourses = hasSaturdayCourses || hasSundayCourses
@@ -542,7 +616,7 @@ fun ScheduleScreen(
                         .padding(horizontal = 8.dp)
                 ) { page ->
                     val week = page + 1  // 周次 = 页码 + 1
-                    val weekCourses = uiState.courses.filter { it.isWeekInRange(week) }
+                    val weekCourses = uiState.coursesByWeek[week] ?: emptyList()
 
                     if (weekCourses.isEmpty()) {
                         // [v57] 该周没有课程，显示提示

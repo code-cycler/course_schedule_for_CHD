@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,6 +54,7 @@ fun PermissionRequestScreen(
     var hasCalendar by remember { mutableStateOf(checkCalendarPermission(context)) }
     var hasExactAlarm by remember { mutableStateOf(checkExactAlarmPermission(context)) }
     var hasNotificationPolicy by remember { mutableStateOf(checkNotificationPolicyAccess(context)) }  // [v104] 勿扰权限
+    var hasBatteryOptimization by remember { mutableStateOf(checkBatteryOptimization(context)) }  // 电池优化忽略
 
     // 当前请求阶段
     var currentRequestStep by remember { mutableStateOf<PermissionStep?>(null) }
@@ -94,6 +96,15 @@ fun PermissionRequestScreen(
         currentRequestStep = null
     }
 
+    // 电池优化设置返回监听
+    val batteryOptimizationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        AppLogger.d("PermissionRequestScreen", "从电池优化设置返回")
+        hasBatteryOptimization = checkBatteryOptimization(context)
+        currentRequestStep = null
+    }
+
     // 刷新权限状态
     LaunchedEffect(Unit) {
         while (true) {
@@ -102,6 +113,7 @@ fun PermissionRequestScreen(
             hasCalendar = checkCalendarPermission(context)
             hasExactAlarm = checkExactAlarmPermission(context)
             hasNotificationPolicy = checkNotificationPolicyAccess(context)  // [v104]
+            hasBatteryOptimization = checkBatteryOptimization(context)
         }
     }
 
@@ -144,6 +156,15 @@ fun PermissionRequestScreen(
         notificationPolicyLauncher.launch(intent)
     }
 
+    // 请求电池优化忽略权限
+    fun requestBatteryOptimization() {
+        currentRequestStep = PermissionStep.BATTERY_OPTIMIZATION
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        batteryOptimizationLauncher.launch(intent)
+    }
+
     // 一键请求所有权限（依次请求）
     fun requestAllPermissions() {
         when {
@@ -151,12 +172,13 @@ fun PermissionRequestScreen(
             !hasCalendar -> requestCalendarPermission()
             !hasExactAlarm -> requestExactAlarmPermission()
             !hasNotificationPolicy -> requestNotificationPolicyAccess()  // [v104]
+            !hasBatteryOptimization -> requestBatteryOptimization()
         }
     }
 
     // 检查是否所有权限都已处理
-    val allHandled = hasNotification && hasCalendar && hasExactAlarm
-    val missingCount = listOf(hasNotification, hasCalendar, hasExactAlarm).count { !it }
+    val allHandled = hasNotification && hasCalendar && hasExactAlarm && hasNotificationPolicy && hasBatteryOptimization
+    val missingCount = listOf(hasNotification, hasCalendar, hasExactAlarm, hasNotificationPolicy, hasBatteryOptimization).count { !it }
 
     Scaffold(
         topBar = {
@@ -249,6 +271,18 @@ fun PermissionRequestScreen(
                 isGranted = hasNotificationPolicy,
                 isRequesting = currentRequestStep == PermissionStep.NOTIFICATION_POLICY,
                 onClick = { if (!hasNotificationPolicy) requestNotificationPolicyAccess() }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 电池优化忽略权限项
+            PermissionItem(
+                icon = Icons.Filled.Settings,
+                title = "电池优化",
+                description = "防止系统限制后台提醒",
+                isGranted = hasBatteryOptimization,
+                isRequesting = currentRequestStep == PermissionStep.BATTERY_OPTIMIZATION,
+                onClick = { if (!hasBatteryOptimization) requestBatteryOptimization() }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -535,7 +569,8 @@ private enum class PermissionStep {
     NOTIFICATION,
     CALENDAR,
     EXACT_ALARM,
-    NOTIFICATION_POLICY  // [v104] 勿扰权限
+    NOTIFICATION_POLICY,  // [v104] 勿扰权限
+    BATTERY_OPTIMIZATION  // 电池优化忽略
 }
 
 /**
@@ -582,4 +617,12 @@ private fun checkExactAlarmPermission(context: Context): Boolean {
 private fun checkNotificationPolicyAccess(context: Context): Boolean {
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     return notificationManager.isNotificationPolicyAccessGranted
+}
+
+/**
+ * 检查电池优化忽略状态
+ */
+private fun checkBatteryOptimization(context: Context): Boolean {
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    return powerManager.isIgnoringBatteryOptimizations(context.packageName)
 }

@@ -31,15 +31,18 @@ data class Course(
      */
     val nodeRange: IntRange get() = startNode..endNode
 
+    // [优化] 缓存位图解析结果，避免每次 isWeekInRange 都重新正则解析
+    private val cachedWeeksBitmap: String? by lazy {
+        val bitmapMatch = """weeksBitmap:([01]+)""".toRegex().find(remark)
+        bitmapMatch?.groupValues?.get(1)
+    }
+
     /**
      * [v93] 从 remark 中提取周数位图
      * 格式: "weeksBitmap:010101..."
      * @return 位图字符串，如果不存在则返回 null
      */
-    private fun extractWeeksBitmap(): String? {
-        val bitmapMatch = """weeksBitmap:([01]+)""".toRegex().find(remark)
-        return bitmapMatch?.groupValues?.get(1)
-    }
+    private fun extractWeeksBitmap(): String? = cachedWeeksBitmap
 
     /**
      * [v93] 检查指定周是否在课程周次范围内
@@ -50,7 +53,7 @@ data class Course(
      */
     fun isWeekInRange(week: Int): Boolean {
         // [v93] 尝试使用位图精确判断
-        val bitmap = extractWeeksBitmap()
+        val bitmap = cachedWeeksBitmap
         if (bitmap != null && bitmap.isNotEmpty()) {
             // [v96] 位图索引 = 实际周次（学校系统位图从第0周开始）
             // bitmap[0] = 第0周(预备周), bitmap[1] = 第1周, ...
@@ -129,17 +132,13 @@ data class Course(
      */
     fun hasTimeConflict(other: Course): Boolean {
         // 不同星期不冲突
-        if (dayOfWeek != other.dayOfWeek) {
-            AppLogger.d("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 不同星期(${dayOfWeek.value} vs ${other.dayOfWeek.value})")
-            return false
-        }
+        if (dayOfWeek != other.dayOfWeek) return false
 
-        // [v93] 使用位图精确判断周次交集
-        val thisBitmap = extractWeeksBitmap()
-        val otherBitmap = other.extractWeeksBitmap()
+        // [优化] 使用缓存位图精确判断周次交集
+        val thisBitmap = cachedWeeksBitmap
+        val otherBitmap = other.cachedWeeksBitmap
 
         val hasWeekOverlap = if (thisBitmap != null && otherBitmap != null) {
-            // 两门课都有位图，检查位图交集
             val minLen = minOf(thisBitmap.length, otherBitmap.length)
             var hasOverlap = false
             for (i in 0 until minLen) {
@@ -150,29 +149,12 @@ data class Course(
             }
             hasOverlap
         } else {
-            // 至少一门课没有位图，回退到范围判断
-            val weekIntersect = weekRange.intersect(other.weekRange)
-            weekIntersect.isNotEmpty()
+            weekRange.intersect(other.weekRange).isNotEmpty()
         }
 
-        if (!hasWeekOverlap) {
-            AppLogger.d("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 周次无交集($startWeek-$endWeek vs ${other.startWeek}-${other.endWeek})")
-            return false
-        }
+        if (!hasWeekOverlap) return false
 
         // 节次范围有交集则冲突
-        val nodeIntersect = nodeRange.intersect(other.nodeRange)
-        val hasConflict = nodeIntersect.isNotEmpty()
-
-        if (hasConflict) {
-            AppLogger.i("CHD_Conflict", "[有冲突] '$name' vs '${other.name}':")
-            AppLogger.i("CHD_Conflict", "  星期: ${dayOfWeek.value}")
-            AppLogger.i("CHD_Conflict", "  周次有交集 (位图检查)")
-            AppLogger.i("CHD_Conflict", "  节次: $startNode-$endNode vs ${other.startNode}-${other.endNode}, 交集: $nodeIntersect")
-        } else {
-            AppLogger.d("CHD_Conflict", "[无冲突] '$name' vs '${other.name}': 节次无交集($startNode-$endNode vs ${other.startNode}-${other.endNode})")
-        }
-
-        return hasConflict
+        return nodeRange.intersect(other.nodeRange).isNotEmpty()
     }
 }

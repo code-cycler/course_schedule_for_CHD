@@ -72,7 +72,11 @@ data class ScheduleUiState(
     // ================ [日历同步] 状态相关 ================
 
     // [日历同步] 同步状态
-    val calendarSyncState: CalendarSyncState = CalendarSyncState.Idle
+    val calendarSyncState: CalendarSyncState = CalendarSyncState.Idle,
+
+    // [优化] 预计算缓存
+    val displayCourses: List<Course> = emptyList(),       // 当前周的课程缓存
+    val coursesByWeek: Map<Int, List<Course>> = emptyMap() // 按周索引的课程缓存（供 HorizontalPager 使用）
 ) {
     /**
      * [新功能] 判断课程是否为水课
@@ -118,34 +122,6 @@ data class ScheduleUiState(
      */
     fun hasConflict(course: Course): Boolean {
         return course.id in conflictingCourseIds
-    }
-    /**
-     * 获取当前周次显示的课程
-     * 筛选出当前选中周次内的课程
-     */
-    fun getDisplayCourses(): List<Course> {
-        val result = courses.filter { it.isWeekInRange(currentWeek) }
-        AppLogger.d("ScheduleUiState", "[v35] getDisplayCourses: 总课程=${courses.size}, 当前周=$currentWeek, 过滤后=${result.size}")
-        if (result.isEmpty() && courses.isNotEmpty()) {
-            // 调试：打印每门课程的周次范围
-            courses.forEachIndexed { index, course ->
-                AppLogger.d("ScheduleUiState", "[v35] 课程[$index]: ${course.name}, 周${course.startWeek}-${course.endWeek}")
-            }
-        }
-        return result
-    }
-
-    /**
-     * 获取指定星期和节次的课程
-     *
-     * @param day 星期几
-     * @param node 节次 (1-12)
-     * @return 匹配的课程，如果没有则返回null
-     */
-    fun getCourseAt(day: DayOfWeek, node: Int): Course? {
-        return getDisplayCourses().find { course ->
-            course.dayOfWeek == day && node in course.nodeRange
-        }
     }
 
     /**

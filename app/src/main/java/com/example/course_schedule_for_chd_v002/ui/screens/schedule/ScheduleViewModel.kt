@@ -230,6 +230,12 @@ class ScheduleViewModel(
 
             AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
 
+            // [优化] 预计算课程缓存：displayCourses 和 coursesByWeek
+            val initialDisplayCourses = courses.filter { it.isWeekInRange(initialWeek) }
+            val initialCoursesByWeek = (1..maxWeek).associateWith { week ->
+                courses.filter { course -> course.isWeekInRange(week) }
+            }
+
             _uiState.update {
                 it.copy(
                     courses = courses,
@@ -240,6 +246,8 @@ class ScheduleViewModel(
                     todayDayOfWeek = todayDayOfWeek,        // [新功能]
                     weekStartDate = weekStartDate,          // [新功能] 当前周的周一日期
                     waterCourseNames = waterCourses,        // [新功能] 水课列表
+                    displayCourses = initialDisplayCourses,           // [优化] 缓存
+                    coursesByWeek = initialCoursesByWeek,             // [优化] 缓存
                     isLoading = false
                 )
             }
@@ -332,10 +340,16 @@ class ScheduleViewModel(
             }
             AppLogger.d("ScheduleViewModel", "[新功能] 切换到周$newWeek, 周一日期: $weekStartDate")
 
+            // [优化] 从缓存获取 displayCourses，避免重新过滤
+            val allCourses = _uiState.value.courses
+            val cachedDisplayCourses = _uiState.value.coursesByWeek[newWeek]
+                ?: allCourses.filter { it.isWeekInRange(newWeek) }
+
             _uiState.update {
                 it.copy(
                     currentWeek = newWeek,
-                    weekStartDate = weekStartDate
+                    weekStartDate = weekStartDate,
+                    displayCourses = cachedDisplayCourses  // [优化] 使用缓存
                 )
             }
         }

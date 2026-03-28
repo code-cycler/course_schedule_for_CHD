@@ -140,38 +140,38 @@ object TimeUtils {
 
     /**
      * 找出所有存在冲突的课程
+     * [优化] 按星期分桶，只比较同一天的课程，复杂度从 O(n^2) 降为 O(n^2/7)
      *
      * @param courses 课程列表
      * @return Map<Long, List<Long>> key 为冲突课程ID，value 为与之冲突的其他课程ID列表
      */
     fun findConflicts(courses: List<Course>): Map<Long, List<Long>> {
-        AppLogger.i(TAG, "========== [TimeUtils] findConflicts 开始 ==========")
-        AppLogger.i(TAG, "输入课程数: ${courses.size}")
+        if (courses.size < 2) return emptyMap()
+
+        // [优化] 按星期分桶，只有同一天的课程才可能时间冲突
+        val byDay = courses.groupBy { it.dayOfWeek }
 
         val conflicts = mutableMapOf<Long, MutableList<Long>>()
-        var checkCount = 0
         var conflictCount = 0
 
-        for (i in courses.indices) {
-            for (j in i + 1 until courses.size) {
-                checkCount++
-                val c1 = courses[i]
-                val c2 = courses[j]
-
-                if (c1.hasTimeConflict(c2)) {
-                    conflictCount++
-                    AppLogger.i(TAG, "[冲突发现] '${c1.name}'(id=${c1.id}) <-> '${c2.name}'(id=${c2.id})")
-                    AppLogger.i(TAG, "  课程1: 周${c1.dayOfWeek.value} 第${c1.startNode}-${c1.endNode}节 周${c1.startWeek}-${c1.endWeek}")
-                    AppLogger.i(TAG, "  课程2: 周${c2.dayOfWeek.value} 第${c2.startNode}-${c2.endNode}节 周${c2.startWeek}-${c2.endWeek}")
-
-                    conflicts.getOrPut(c1.id) { mutableListOf() }.add(c2.id)
-                    conflicts.getOrPut(c2.id) { mutableListOf() }.add(c1.id)
+        for ((_, dayCourses) in byDay) {
+            if (dayCourses.size < 2) continue
+            for (i in dayCourses.indices) {
+                for (j in i + 1 until dayCourses.size) {
+                    val c1 = dayCourses[i]
+                    val c2 = dayCourses[j]
+                    if (c1.hasTimeConflict(c2)) {
+                        conflictCount++
+                        conflicts.getOrPut(c1.id) { mutableListOf() }.add(c2.id)
+                        conflicts.getOrPut(c2.id) { mutableListOf() }.add(c1.id)
+                    }
                 }
             }
         }
 
-        AppLogger.i(TAG, "检测结果: 检查${checkCount}对, 发现${conflictCount}对冲突, 涉及${conflicts.size}门课程")
-        AppLogger.i(TAG, "========== [TimeUtils] findConflicts 结束 ==========")
+        if (conflictCount > 0) {
+            AppLogger.i(TAG, "findConflicts: ${courses.size}门课, ${conflictCount}对冲突, 涉及${conflicts.size}门课程")
+        }
         return conflicts
     }
 
@@ -194,19 +194,10 @@ object TimeUtils {
      * @return 冲突课程ID映射
      */
     fun findConflictsForWeek(courses: List<Course>, week: Int): Map<Long, List<Long>> {
-        AppLogger.i(TAG, "========== [TimeUtils] findConflictsForWeek 开始 ==========")
-        AppLogger.i(TAG, "参数: 课程数=${courses.size}, 检测周次=$week")
-
         val weekCourses = courses.filter { it.isWeekInRange(week) }
-        AppLogger.i(TAG, "当前周有课的课程数: ${weekCourses.size}")
+        if (weekCourses.size < 2) return emptyMap()
 
-        // 打印该周有课的课程列表
-        weekCourses.forEachIndexed { index, course ->
-            AppLogger.i(TAG, "  [$index] ${course.name}: 周${course.dayOfWeek.value} 第${course.startNode}-${course.endNode}节 周${course.startWeek}-${course.endWeek}")
-        }
-
-        val result = findConflicts(weekCourses)
-        AppLogger.i(TAG, "========== [TimeUtils] findConflictsForWeek 结束 ==========")
-        return result
+        AppLogger.d(TAG, "findConflictsForWeek: 周$week, ${weekCourses.size}门课")
+        return findConflicts(weekCourses)
     }
 }

@@ -548,11 +548,13 @@ class CourseRepositoryImpl(
         var totalConflicts = 0
 
         for (week in 1..maxWeek) {
-            val conflicts = TimeUtils.findConflictsForWeek(courses, week)
+            val weekCourses = courses.filter { it.isWeekInRange(week) }
+            if (weekCourses.size < 2) continue
+
+            val conflicts = TimeUtils.findConflicts(weekCourses)
             if (conflicts.isNotEmpty()) {
                 conflictCache[week] = conflicts.keys
                 totalConflicts += conflicts.keys.size
-                AppLogger.d(REPO_TAG, "周$week: ${conflicts.keys.size} 门课程有冲突")
             }
         }
 

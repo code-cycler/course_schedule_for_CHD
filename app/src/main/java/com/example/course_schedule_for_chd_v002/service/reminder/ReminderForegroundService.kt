@@ -9,17 +9,17 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.course_schedule_for_chd_v002.MainActivity
 import com.example.course_schedule_for_chd_v002.R
 import com.example.course_schedule_for_chd_v002.data.local.database.AppDatabase
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -50,7 +50,7 @@ class ReminderForegroundService : Service() {
             } else {
                 context.startService(intent)
             }
-            Log.d(TAG, "启动提醒前台服务")
+            AppLogger.d(TAG, "启动提醒前台服务")
         }
 
         /**
@@ -59,30 +59,35 @@ class ReminderForegroundService : Service() {
         fun stop(context: Context) {
             val intent = Intent(context, ReminderForegroundService::class.java)
             context.stopService(intent)
-            Log.d(TAG, "停止提醒前台服务")
+            AppLogger.d(TAG, "停止提醒前台服务")
         }
     }
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO)
+    // [优化] 使用 SupervisorJob 确保子协程失败不会影响其他协程
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "服务创建")
+        AppLogger.d(TAG, "服务创建")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "服务启动命令收到")
+        AppLogger.d(TAG, "服务启动命令收到")
 
         // 启动前台服务
         startForegroundService()
 
-        // 初始化提醒
-        initializeReminders()
-
-        // 服务完成后自动停止
+        // [优化] 在初始化完成后自动停止服务（移除固定5秒延迟）
         serviceScope.launch {
-            delay(5000) // 5秒后自动停止
-            stopSelf()
+            try {
+                initializeReminders()
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "初始化提醒异常", e)
+            } finally {
+                // 确保初始化完成后（无论成功失败）才停止服务
+                stopSelf()
+            }
         }
 
         return START_NOT_STICKY
@@ -94,8 +99,8 @@ class ReminderForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        serviceScope.cancel()
-        Log.d(TAG, "服务销毁")
+        serviceJob.cancel()
+        AppLogger.d(TAG, "服务销毁")
     }
 
     /**
@@ -107,7 +112,7 @@ class ReminderForegroundService : Service() {
         val notification = createForegroundNotification()
 
         startForeground(NOTIFICATION_ID, notification)
-        Log.d(TAG, "已启动前台服务")
+        AppLogger.d(TAG, "已启动前台服务")
     }
 
     /**
@@ -126,7 +131,6 @@ class ReminderForegroundService : Service() {
 
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager.createNotificationChannel(channel)
-            Log.d(TAG, "已创建通知渠道")
         }
     }
 
@@ -152,43 +156,42 @@ class ReminderForegroundService : Service() {
 
     /**
      * 初始化提醒
+     * [优化] 改为 suspend 函数，让调用者等待完成
      */
-    private fun initializeReminders() {
-        serviceScope.launch {
-            try {
-                val userPreferences = UserPreferences(this@ReminderForegroundService)
-                val settings = userPreferences.getReminderSettingsOnce()
+    private suspend fun initializeReminders() {
+        try {
+            val userPreferences = UserPreferences(this@ReminderForegroundService)
+            val settings = userPreferences.getReminderSettingsOnce()
 
-                // 获取学期开始日期和当前周次
-                val semesterStartDate = userPreferences.getSemesterStartDateOnce()
-                val currentWeek = userPreferences.getCurrentWeekOnce()
-                val campus = Campus.fromName(userPreferences.getCampusOnce())
+            // 获取学期开始日期和当前周次
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            val currentWeek = userPreferences.getCurrentWeekOnce()
+            val campus = Campus.fromName(userPreferences.getCampusOnce())
 
-                // 创建提醒管理器
-                val reminderManager = ReminderManager(this@ReminderForegroundService)
+            // 创建提醒管理器
+            val reminderManager = ReminderManager(this@ReminderForegroundService)
 
-                // 调度早八提醒
-                if (settings.earlyMorningReminderEnabled) {
-                    reminderManager.scheduleEarlyMorningReminder(settings)
-                    Log.d(TAG, "已调度早八提醒")
-                }
-
-                // 调度上课前提醒
-                if (settings.beforeClassReminderEnabled && semesterStartDate != null && currentWeek != null) {
-                    // 获取课程数据
-                    val database = AppDatabase.getDatabase(this@ReminderForegroundService)
-                    val semester = userPreferences.currentSemester.first()
-                    val courses = database.courseDao().getCoursesBySemesterSync(semester)
-                        .map { it.toDomainModel() }
-
-                    reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek, campus)
-                    Log.d(TAG, "已调度上课前提醒， 共${courses.size} 节课")
-                }
-
-                Log.d(TAG, "提醒初始化完成")
-            } catch (e: Exception) {
-                Log.e(TAG, "初始化提醒失败", e)
+            // 调度早八提醒
+            if (settings.earlyMorningReminderEnabled) {
+                reminderManager.scheduleEarlyMorningReminder(settings)
+                AppLogger.d(TAG, "已调度早八提醒")
             }
+
+            // 调度上课前提醒
+            if (settings.beforeClassReminderEnabled && semesterStartDate != null && currentWeek != null) {
+                // 获取课程数据
+                val database = AppDatabase.getDatabase(this@ReminderForegroundService)
+                val semester = userPreferences.currentSemester.first()
+                val courses = database.courseDao().getCoursesBySemesterSync(semester)
+                    .map { it.toDomainModel() }
+
+                reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, currentWeek, campus)
+                AppLogger.d(TAG, "已调度上课前提醒，共${courses.size}节课")
+            }
+
+            AppLogger.d(TAG, "提醒初始化完成")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "初始化提醒失败", e)
         }
     }
 }
