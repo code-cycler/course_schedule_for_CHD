@@ -2,6 +2,7 @@ package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
+import com.example.course_schedule_for_chd_v002.domain.model.CourseType
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.util.AppLogger
@@ -76,7 +77,19 @@ data class ScheduleUiState(
 
     // [优化] 预计算缓存
     val displayCourses: List<Course> = emptyList(),       // 当前周的课程缓存
-    val coursesByWeek: Map<Int, List<Course>> = emptyMap() // 按周索引的课程缓存（供 HorizontalPager 使用）
+    val coursesByWeek: Map<Int, List<Course>> = emptyMap(), // 按周索引的课程缓存（供 HorizontalPager 使用）
+
+    // ================ 课程编辑相关 ================
+
+    // 当前正在编辑的同名课程组
+    val editCourseGroup: CourseEditGroup? = null,
+
+    // 编辑建议列表（从已有课程中提取）
+    val suggestedTeachers: List<String> = emptyList(),
+    val suggestedLocations: List<String> = emptyList(),
+
+    // 编辑时的冲突检测结果
+    val editConflicts: List<CourseConflictInfo> = emptyList()
 ) {
     /**
      * [新功能] 判断课程是否为水课
@@ -131,3 +144,24 @@ data class ScheduleUiState(
         return "Week $currentWeek / $maxWeeks"
     }
 }
+
+/**
+ * 同名课程编辑组
+ * 表示一门课程的所有上课时段
+ */
+data class CourseEditGroup(
+    val courseName: String,
+    val semester: String,
+    val instances: List<Course>,
+    val courseType: CourseType,
+    val credit: Double
+)
+
+/**
+ * 课程冲突信息
+ */
+data class CourseConflictInfo(
+    val course1: Course,
+    val course2: Course,
+    val overlappingWeeks: List<Int>
+)

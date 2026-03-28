@@ -578,4 +578,30 @@ class CourseRepositoryImpl(
     override suspend fun getConflictCache(semester: String): Map<Int, Set<Long>> {
         return userPreferences.getConflictCache(semester)
     }
+
+    // ================ 课程编辑相关 ================
+
+    override suspend fun updateCourse(course: Course) {
+        courseDao.update(CourseEntity.fromDomainModel(course))
+    }
+
+    override suspend fun deleteCourseById(id: Long) {
+        courseDao.deleteById(id)
+    }
+
+    override suspend fun insertCourse(course: Course): Long {
+        return courseDao.insertAndGetId(CourseEntity.fromDomainModel(course))
+    }
+
+    override suspend fun getCoursesByName(semester: String, name: String): List<Course> {
+        return courseDao.getCoursesByName(semester, name).map { it.toDomainModel() }
+    }
+
+    override suspend fun getDistinctTeachers(semester: String): List<String> {
+        return courseDao.getDistinctTeachers(semester)
+    }
+
+    override suspend fun getDistinctLocations(semester: String): List<String> {
+        return courseDao.getDistinctLocations(semester)
+    }
 }

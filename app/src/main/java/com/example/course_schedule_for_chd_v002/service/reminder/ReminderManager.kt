@@ -41,6 +41,9 @@ class ReminderManager(private val context: Context) {
 
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
+    // 跟踪已调度的上课前提醒 notificationId，用于取消
+    private val scheduledBeforeClassIds = mutableSetOf<Int>()
+
     /**
      * 调度次日早八提醒
      *
@@ -196,6 +199,7 @@ class ReminderManager(private val context: Context) {
         settings: ReminderSettings
     ) {
         val notificationId = (course.id.toInt() and 0xFFFF) + PENDING_INTENT_ID_BEFORE_CLASS_BASE
+        scheduledBeforeClassIds.add(notificationId)
 
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_BEFORE_CLASS_REMINDER
@@ -246,9 +250,19 @@ class ReminderManager(private val context: Context) {
      * 取消所有上课前提醒
      */
     fun cancelAllBeforeClassReminders() {
-        // 由于我们为每个课程使用了不同的 requestCode， 这里我们无法一次性取消所有
-        // 但是当新的提醒被调度时，旧的 PendingIntent 会被更新
-        Log.d(TAG, "已请求取消所有上课前提醒")
+        val ids = scheduledBeforeClassIds.toList()
+        ids.forEach { id ->
+            val intent = Intent(context, ReminderReceiver::class.java).apply {
+                action = ReminderReceiver.ACTION_BEFORE_CLASS_REMINDER
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context, id, intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarmManager.cancel(pendingIntent)
+        }
+        scheduledBeforeClassIds.clear()
+        Log.d(TAG, "已取消 ${ids.size} 个上课前提醒")
     }
 
     /**

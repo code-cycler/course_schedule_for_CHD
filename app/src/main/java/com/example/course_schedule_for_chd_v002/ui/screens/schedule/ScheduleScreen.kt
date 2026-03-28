@@ -45,6 +45,7 @@ import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
 import com.example.course_schedule_for_chd_v002.ui.components.WeekSelector
 import com.example.course_schedule_for_chd_v002.ui.components.SettingsDrawer
 import com.example.course_schedule_for_chd_v002.ui.components.LogExportDialog
+import com.example.course_schedule_for_chd_v002.ui.components.edit.CourseEditorSheet
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.LogExporter
 // [v96] 移除不再需要的协程导入（防抖已取消）
@@ -679,7 +680,25 @@ fun ScheduleScreen(
             course = course,
             isWaterCourse = uiState.isWaterCourse(course.name),  // [新功能]
             onToggleWaterCourse = viewModel::toggleWaterCourse,  // [新功能]
+            onEditCourse = {
+                viewModel.onCourseSelected(null)  // 关闭详情弹窗
+                viewModel.openCourseEditor(course.name)  // 打开编辑器
+            },
             onDismiss = { viewModel.onCourseSelected(null) }
+        )
+    }
+
+    // [课程编辑] 课程编辑器 BottomSheet
+    uiState.editCourseGroup?.let { group ->
+        CourseEditorSheet(
+            editGroup = group,
+            suggestedTeachers = uiState.suggestedTeachers,
+            suggestedLocations = uiState.suggestedLocations,
+            editConflicts = uiState.editConflicts,
+            onUpdateInstance = viewModel::updateCourseInstance,
+            onDeleteInstance = viewModel::deleteCourseInstance,
+            onAddInstance = viewModel::addCourseInstance,
+            onDismiss = viewModel::dismissCourseEditor
         )
     }
 
@@ -725,6 +744,7 @@ private fun CourseDetailDialog(
     course: Course,
     isWaterCourse: Boolean,  // [新功能]
     onToggleWaterCourse: (String) -> Unit,  // [新功能]
+    onEditCourse: () -> Unit,  // [课程编辑] 编辑按钮回调
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -747,6 +767,17 @@ private fun CourseDetailDialog(
         },
         confirmButton = {
             Row {
+                // [课程编辑] 编辑课程按钮
+                TextButton(
+                    onClick = {
+                        onEditCourse()
+                    }
+                ) {
+                    Text(
+                        text = "编辑课程",
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
                 // [新功能] 水课标注按钮
                 TextButton(
                     onClick = {

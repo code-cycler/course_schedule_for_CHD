@@ -125,6 +125,49 @@ interface ICourseRepository {
      * @return Map<周次, Set<冲突课程ID>>，无缓存返回空 Map
      */
     suspend fun getConflictCache(semester: String): Map<Int, Set<Long>>
+
+    // ================ 课程编辑相关 ================
+
+    /**
+     * 更新单条课程
+     * @param course 课程领域模型
+     */
+    suspend fun updateCourse(course: Course)
+
+    /**
+     * 按ID删除单条课程
+     * @param id 课程ID
+     */
+    suspend fun deleteCourseById(id: Long)
+
+    /**
+     * 插入单条课程，返回生成的主键ID
+     * @param course 课程领域模型
+     * @return 生成的主键ID
+     */
+    suspend fun insertCourse(course: Course): Long
+
+    /**
+     * 按课程名查询同名课程的所有时段
+     * @param semester 学期标识
+     * @param name 课程名称
+     * @return 同名课程列表
+     */
+    suspend fun getCoursesByName(semester: String, name: String): List<Course>
+
+    /**
+     * 获取所有不重复的教师名（用于编辑建议）
+     * @param semester 学期标识
+     * @return 教师名列表
+     */
+    suspend fun getDistinctTeachers(semester: String): List<String>
+
+    /**
+     * 获取所有不重复的教室（用于编辑建议）
+     * @param semester 学期标识
+     * @return 教室列表
+     */
+    suspend fun getDistinctLocations(semester: String): List<String>
 }
 
 /**

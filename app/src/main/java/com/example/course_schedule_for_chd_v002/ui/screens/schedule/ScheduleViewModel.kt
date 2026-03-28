@@ -789,6 +789,185 @@ class ScheduleViewModel(
     fun canScheduleExactAlarms(): Boolean {
         return reminderManager.canScheduleExactAlarms()
     }
+
+    // ================ 课程编辑相关 ================
+
+    /**
+     * 打开课程编辑器
+     * 加载同名课程的所有时段和建议列表
+     * @param courseName 课程名称
+     */
+    fun openCourseEditor(courseName: String) {
+        viewModelScope.launch {
+            try {
+                val instances = repository.getCoursesByName(semester, courseName)
+                if (instances.isEmpty()) return@launch
+
+                val group = CourseEditGroup(
+                    courseName = courseName,
+                    semester = semester,
+                    instances = instances,
+                    courseType = instances.first().courseType,
+                    credit = instances.first().credit
+                )
+
+                val teachers = repository.getDistinctTeachers(semester)
+                val locations = repository.getDistinctLocations(semester)
+
+                _uiState.update {
+                    it.copy(
+                        editCourseGroup = group,
+                        suggestedTeachers = teachers,
+                        suggestedLocations = locations,
+                        editConflicts = emptyList()
+                    )
+                }
+
+                AppLogger.d("ScheduleViewModel", "[编辑] 打开课程编辑器: $courseName, ${instances.size} 个时段")
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[编辑] 打开编辑器失败", e)
+            }
+        }
+    }
+
+    /**
+     * 更新单个课程时段
+     * @param course 更新后的课程数据
+     */
+    fun updateCourseInstance(course: Course) {
+        viewModelScope.launch {
+            try {
+                repository.updateCourse(course)
+                AppLogger.d("ScheduleViewModel", "[编辑] 更新课程时段: id=${course.id}")
+                refreshAfterEdit()
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[编辑] 更新失败", e)
+            }
+        }
+    }
+
+    /**
+     * 添加新的课程时段
+     * @param course 新课程数据
+     */
+    fun addCourseInstance(course: Course) {
+        viewModelScope.launch {
+            try {
+                val newId = repository.insertCourse(course)
+                AppLogger.d("ScheduleViewModel", "[编辑] 添加课程时段: newId=$newId")
+                refreshAfterEdit()
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[编辑] 添加失败", e)
+            }
+        }
+    }
+
+    /**
+     * 删除单个课程时段
+     * @param courseId 课程ID
+     */
+    fun deleteCourseInstance(courseId: Long) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCourseById(courseId)
+                AppLogger.d("ScheduleViewModel", "[编辑] 删除课程时段: id=$courseId")
+                refreshAfterEdit()
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[编辑] 删除失败", e)
+            }
+        }
+    }
+
+    /**
+     * 关闭课程编辑器
+     */
+    fun dismissCourseEditor() {
+        _uiState.update {
+            it.copy(
+                editCourseGroup = null,
+                suggestedTeachers = emptyList(),
+                suggestedLocations = emptyList(),
+                editConflicts = emptyList()
+            )
+        }
+    }
+
+    /**
+     * 编辑后刷新数据
+     * 重新加载课程、重建缓存、重建冲突检测
+     */
+    private suspend fun refreshAfterEdit() {
+        val courses = repository.getLocalSchedule(semester)
+        val maxWeek = findMaxWeekWithCourse(courses)
+        val currentWeek = _uiState.value.currentWeek.coerceIn(1, maxWeek)
+
+        // 重建冲突缓存
+        if (courses.isNotEmpty()) {
+            repository.precomputeAndCacheConflicts(courses, semester)
+        }
+
+        // 从缓存获取当前周冲突
+        val conflicts = repository.getConflictsForWeek(semester, currentWeek) ?: emptySet()
+
+        // 重建预计算缓存
+        val displayCourses = courses.filter { it.isWeekInRange(currentWeek) }
+        val coursesByWeek = (1..maxWeek).associateWith { week ->
+            courses.filter { course -> course.isWeekInRange(week) }
+        }
+
+        // 更新建议列表
+        val teachers = repository.getDistinctTeachers(semester)
+        val locations = repository.getDistinctLocations(semester)
+
+        // 更新编辑器中的课程组（如果编辑器仍然打开）
+        val currentGroupName = _uiState.value.editCourseGroup?.courseName
+        val updatedGroup = if (currentGroupName != null) {
+            val instances = repository.getCoursesByName(semester, currentGroupName)
+            if (instances.isEmpty()) {
+                null  // 所有时段都被删除了，关闭编辑器
+            } else {
+                CourseEditGroup(
+                    courseName = currentGroupName,
+                    semester = semester,
+                    instances = instances,
+                    courseType = instances.first().courseType,
+                    credit = instances.first().credit
+                )
+            }
+        } else null
+
+        _uiState.update {
+            it.copy(
+                courses = courses,
+                conflictingCourseIds = conflicts,
+                maxWeeks = maxWeek,
+                displayCourses = displayCourses,
+                coursesByWeek = coursesByWeek,
+                suggestedTeachers = teachers,
+                suggestedLocations = locations,
+                editCourseGroup = updatedGroup,
+                editConflicts = emptyList()
+            )
+        }
+
+        // 重新调度提醒
+        val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+        val actualCurrentWeek = _uiState.value.actualCurrentWeek
+        val campus = _uiState.value.campus
+        if (semesterStartDate != null && actualCurrentWeek != null) {
+            val settings = _reminderSettings.value
+            reminderManager.scheduleBeforeClassReminders(courses, settings, semesterStartDate, actualCurrentWeek, campus)
+        }
+
+        // 重新同步日历（如果已启用）
+        val editSettings = _reminderSettings.value
+        if (editSettings.calendarSyncEnabled) {
+            AppLogger.d("ScheduleViewModel", "[编辑] 日历同步已启用，自动重新同步")
+            syncToCalendar()
+        }
+
+        AppLogger.d("ScheduleViewModel", "[编辑] 刷新完成, 课程数: ${courses.size}")
+    }
 }
 
 /**
