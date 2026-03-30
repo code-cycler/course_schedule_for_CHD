@@ -47,4 +47,8 @@
     <string name="campus_east">East Campus</string>
     <string name="campus_north">North Campus</string>
     <string name="campus_south">South Campus</string>
+
+    <!-- Conflict -->
+    <string name="conflict_title">Time Conflict</string>
+    <string name="conflict_desc">Conflicts with:</string>
 </resources>

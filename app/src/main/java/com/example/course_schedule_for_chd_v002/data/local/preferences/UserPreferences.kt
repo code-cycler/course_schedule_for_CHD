@@ -543,30 +543,20 @@ class UserPreferences(private val context: Context) {
     }
 
     /**
-     * [课程提醒] 更新提醒设置（部分更新）
+     * [日历同步] 更新日历同步设置（部分更新）
      */
-    suspend fun updateReminderSettings(
-        earlyMorningReminderEnabled: Boolean? = null,
-        earlyMorningReminderHour: Int? = null,
-        earlyMorningReminderMinute: Int? = null,
-        beforeClassReminderEnabled: Boolean? = null,
-        beforeClassReminderMinutes: Int? = null,
+    suspend fun updateCalendarSyncSettings(
         calendarSyncEnabled: Boolean? = null,
         calendarId: Long? = null,
-        reminderSoundEnabled: Boolean? = null,
-        reminderVibrationEnabled: Boolean? = null
+        calendarBeforeClassReminderEnabled: Boolean? = null,
+        calendarEarlyMorningReminderEnabled: Boolean? = null
     ) {
         val current = getReminderSettingsOnce()
         val updated = current.copy(
-            earlyMorningReminderEnabled = earlyMorningReminderEnabled ?: current.earlyMorningReminderEnabled,
-            earlyMorningReminderHour = earlyMorningReminderHour ?: current.earlyMorningReminderHour,
-            earlyMorningReminderMinute = earlyMorningReminderMinute ?: current.earlyMorningReminderMinute,
-            beforeClassReminderEnabled = beforeClassReminderEnabled ?: current.beforeClassReminderEnabled,
-            beforeClassReminderMinutes = beforeClassReminderMinutes ?: current.beforeClassReminderMinutes,
             calendarSyncEnabled = calendarSyncEnabled ?: current.calendarSyncEnabled,
             calendarId = calendarId ?: current.calendarId,
-            reminderSoundEnabled = reminderSoundEnabled ?: current.reminderSoundEnabled,
-            reminderVibrationEnabled = reminderVibrationEnabled ?: current.reminderVibrationEnabled
+            calendarBeforeClassReminderEnabled = calendarBeforeClassReminderEnabled ?: current.calendarBeforeClassReminderEnabled,
+            calendarEarlyMorningReminderEnabled = calendarEarlyMorningReminderEnabled ?: current.calendarEarlyMorningReminderEnabled
         )
         saveReminderSettings(updated)
     }

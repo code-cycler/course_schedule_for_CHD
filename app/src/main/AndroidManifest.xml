@@ -6,26 +6,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- [课程提醒] 日历权限 -->
+    <!-- 日历权限 -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
 
-    <!-- [课程提醒] 提醒相关权限 -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- [v104] 勿扰模式例外权限 - 允许提醒在勿扰模式下响铃 -->
-    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
-    <!-- 电池优化忽略权限 - 防止系统杀后台导致提醒失效 -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
-    <!-- [健壮性优化] 前台服务权限 -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
     <application
+        android:name=".CourseApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -49,54 +35,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- [课程提醒] 提醒广播接收器 -->
-        <receiver
-            android:name=".service.reminder.ReminderReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.example.course_schedule_for_chd_v002.EARLY_MORNING_REMINDER" />
-                <action android:name="com.example.course_schedule_for_chd_v002.BEFORE_CLASS_REMINDER" />
-            </intent-filter>
-        </receiver>
-
-        <!-- [课程提醒] 开机启动接收器 -->
-        <receiver
-            android:name=".service.reminder.BootReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- [健壮性优化] 屏幕亮起接收器 -->
-        <receiver
-            android:name=".service.reminder.ScreenOnReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.SCREEN_ON" />
-            </intent-filter>
-        </receiver>
-
-        <!-- [健壮性优化] 充电状态接收器 -->
-        <receiver
-            android:name=".service.reminder.ChargingReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- [健壮性优化] 前台服务 -->
-        <service
-            android:name=".service.reminder.ReminderForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse" />
 
         <!-- [日志导出] FileProvider 用于分享日志文件 -->
         <provider

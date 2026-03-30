@@ -4,24 +4,23 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border  // [v74] 末尾空节次按钮边框
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape  // [v74] 末尾空节次按钮边框
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-// [新功能] 回到当前周按钮图标 - 不使用 Today 图标
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.*
@@ -30,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -48,18 +49,13 @@ import com.example.course_schedule_for_chd_v002.ui.components.LogExportDialog
 import com.example.course_schedule_for_chd_v002.ui.components.edit.CourseEditorSheet
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.LogExporter
-// [v96] 移除不再需要的协程导入（防抖已取消）
+import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 import kotlinx.coroutines.launch
 
 /**
  * 课程表界面
- *
- * @param semester 学期
- * @param onLogout 登出回调
- * @param onNavigateToLogin 导航到登录页回调（用于同步数据）
- * @param viewModel 课程表ViewModel
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,61 +67,30 @@ fun ScheduleScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // [课程提醒] 侧边栏状态
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // [日志导出] 日志导出对话框状态
+    // 日志导出对话框状态
     var showLogExportDialog by remember { mutableStateOf(false) }
     var logExportResult by remember { mutableStateOf<LogExporter.ExportResult?>(null) }
     var isExportingLogs by remember { mutableStateOf(false) }
 
-    // [课程提醒] 提醒设置
+    // 日历同步设置
     val reminderSettings by viewModel.reminderSettings.collectAsStateWithLifecycle()
 
-    // [权限管理] 获取 Context
     val context = LocalContext.current
 
-    // [权限状态] 响应式权限状态 - 授权后即时更新 UI
-    var hasNotificationPerm by remember { mutableStateOf(false) }
-    var hasCalendarPerm by remember { mutableStateOf(false) }
-    var hasExactAlarmPerm by remember { mutableStateOf(false) }
-    var hasNotificationPolicyPerm by remember { mutableStateOf(false) }
-    var hasBatteryOptimizationPerm by remember { mutableStateOf(false) }
-
-    // [权限管理] 通知权限请求 Launcher
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        AppLogger.d("ScheduleScreen", "[权限] 通知权限结果: $isGranted")
-        hasNotificationPerm = isGranted  // [权限状态] 即时更新
-        viewModel.onNotificationPermissionResult(isGranted)
-    }
-
-    // [权限管理] 日历权限请求 Launcher
+    // 日历权限请求 Launcher
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val hasRead = permissions[Manifest.permission.READ_CALENDAR] == true
         val hasWrite = permissions[Manifest.permission.WRITE_CALENDAR] == true
         val hasCalendar = hasRead && hasWrite
-        AppLogger.d("ScheduleScreen", "[权限] 日历权限结果: read=$hasRead, write=$hasWrite, hasCalendar=$hasCalendar")
-        hasCalendarPerm = hasCalendar  // [权限状态] 即时更新
+        AppLogger.d("ScheduleScreen", "[权限] 日历权限结果: $hasCalendar")
         viewModel.onCalendarPermissionResult(hasCalendar)
     }
 
-    // [权限管理] 检查通知权限
-    fun hasNotificationPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true // Android 13 以下不需要运行时权限
-        }
-    }
-
-    // [权限管理] 检查日历权限
     fun hasCalendarPermission(): Boolean {
         val hasRead = ContextCompat.checkSelfPermission(
             context, Manifest.permission.READ_CALENDAR
@@ -136,36 +101,6 @@ fun ScheduleScreen(
         return hasRead && hasWrite
     }
 
-    // 检查勿扰权限
-    fun hasNotificationPolicyPermission(): Boolean {
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-        return notificationManager.isNotificationPolicyAccessGranted
-    }
-
-    // 检查电池优化忽略权限
-    fun hasBatteryOptimizationIgnored(): Boolean {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-        return powerManager.isIgnoringBatteryOptimizations(context.packageName)
-    }
-
-    // [权限状态] 刷新所有权限状态
-    fun refreshPermissionStates() {
-        hasNotificationPerm = hasNotificationPermission()
-        hasCalendarPerm = hasCalendarPermission()
-        hasExactAlarmPerm = viewModel.canScheduleExactAlarms()
-        hasNotificationPolicyPerm = hasNotificationPolicyPermission()
-        hasBatteryOptimizationPerm = hasBatteryOptimizationIgnored()
-    }
-
-    // [权限管理] 请求通知权限
-    fun requestNotificationPermission() {
-        AppLogger.d("ScheduleScreen", "[权限] 请求通知权限")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
-    // [权限管理] 请求日历权限
     fun requestCalendarPermission() {
         AppLogger.d("ScheduleScreen", "[权限] 请求日历权限")
         calendarPermissionLauncher.launch(
@@ -176,60 +111,19 @@ fun ScheduleScreen(
         )
     }
 
-    // [权限管理] 打开精确闹钟设置页面
-    fun openExactAlarmSettings() {
-        AppLogger.d("ScheduleScreen", "[权限] 打开精确闹钟设置页面")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                    data = Uri.parse("package:${context.packageName}")
-                }
-                context.startActivity(intent)
-            } catch (e: Exception) {
-                AppLogger.e("ScheduleScreen", "[权限] 打开精确闹钟设置失败", e)
-            }
-        }
-    }
-
-    // 打开勿扰权限设置页面
-    fun requestNotificationPolicyAccess() {
-        AppLogger.d("ScheduleScreen", "[权限] 打开勿扰权限设置页面")
-        try {
-            val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            AppLogger.e("ScheduleScreen", "[权限] 打开勿扰设置失败", e)
-        }
-    }
-
-    // 请求电池优化忽略权限
-    fun requestBatteryOptimization() {
-        AppLogger.d("ScheduleScreen", "[权限] 请求电池优化忽略权限")
-        try {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            AppLogger.e("ScheduleScreen", "[权限] 请求电池优化失败", e)
-        }
-    }
-
-    // [v24] 每次进入屏幕时重新加载数据
+    // 每次进入屏幕时重新加载数据
     LaunchedEffect(Unit) {
-        AppLogger.d("ScheduleScreen", "[v24] LaunchedEffect 触发，调用 reload()")
+        AppLogger.d("ScheduleScreen", "LaunchedEffect 触发，调用 reload()")
         viewModel.reload()
-        refreshPermissionStates()  // [权限状态] 初始化权限状态
     }
 
-    // [新功能] 监听生命周期，每次 onResume 时刷新当前时间和教学周
+    // 监听生命周期
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                AppLogger.d("ScheduleScreen", "[新功能] ON_RESUME 触发，刷新当前时间和教学周")
+                AppLogger.d("ScheduleScreen", "ON_RESUME 触发，刷新当前时间和教学周")
                 viewModel.refreshCurrentTimeInfo()
-                refreshPermissionStates()  // [权限状态] 从设置页返回时即时刷新
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -245,81 +139,26 @@ fun ScheduleScreen(
         }
     }
 
-    AppLogger.d("ScheduleScreen", "[Debug] SettingsDrawer 组件初始化, settings=$reminderSettings")
-
     SettingsDrawer(
         drawerState = drawerState,
         settings = reminderSettings,
-        hasNotificationPermission = hasNotificationPerm,
-        hasCalendarPermission = hasCalendarPerm,
-        hasExactAlarmPermission = hasExactAlarmPerm,
-        hasNotificationPolicyPermission = hasNotificationPolicyPerm,
-        hasBatteryOptimizationIgnored = hasBatteryOptimizationPerm,
-        calendarSyncState = uiState.calendarSyncState,  // [v100] 日历同步状态
+        calendarSyncState = uiState.calendarSyncState,
         onSettingsChange = {
-            AppLogger.d("ScheduleScreen", "[Debug] 设置变化: $it")
+            AppLogger.d("ScheduleScreen", "设置变化: $it")
             viewModel.updateReminderSettings(it)
         },
         onCalendarSyncClick = {
-            AppLogger.d("ScheduleScreen", "[Debug] 日历同步按钮被点击")
-            // 先检查日历权限
             if (!hasCalendarPermission()) {
-                AppLogger.d("ScheduleScreen", "[Debug] 没有日历权限，先请求权限")
                 requestCalendarPermission()
             } else {
-                AppLogger.d("ScheduleScreen", "[Debug] 已有日历权限，直接同步")
                 viewModel.syncToCalendar()
             }
         },
-        onDeleteCalendarClick = {  // [v98] 删除日历事件
-            AppLogger.d("ScheduleScreen", "[Debug] 删除日历按钮被点击")
+        onDeleteCalendarClick = {
             viewModel.deleteCalendarEvents()
         },
         onRequestCalendarPermission = {
-            AppLogger.d("ScheduleScreen", "[Debug] 请求日历权限")
             requestCalendarPermission()
-        },
-        onRequestNotificationPermission = {
-            AppLogger.d("ScheduleScreen", "[Debug] 请求通知权限")
-            requestNotificationPermission()
-        },
-        onRequestExactAlarmPermission = {
-            AppLogger.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
-            openExactAlarmSettings()
-        },
-        onRequestNotificationPolicyPermission = {
-            AppLogger.d("ScheduleScreen", "[Debug] 请求勿扰权限")
-            requestNotificationPolicyAccess()
-        },
-        onRequestBatteryOptimization = {
-            AppLogger.d("ScheduleScreen", "[Debug] 请求电池优化忽略权限")
-            requestBatteryOptimization()
-        },
-        onRequestAllPermissions = {
-            AppLogger.d("ScheduleScreen", "[Debug] 一键请求所有权限")
-            // [权限管理] 依次请求缺失的权限
-            when {
-                !hasNotificationPermission() -> {
-                    AppLogger.d("ScheduleScreen", "[Debug] 请求通知权限")
-                    requestNotificationPermission()
-                }
-                !hasCalendarPermission() -> {
-                    AppLogger.d("ScheduleScreen", "[Debug] 请求日历权限")
-                    requestCalendarPermission()
-                }
-                !viewModel.canScheduleExactAlarms() -> {
-                    AppLogger.d("ScheduleScreen", "[Debug] 请求精确闹钟权限")
-                    openExactAlarmSettings()
-                }
-                !hasNotificationPolicyPermission() -> {
-                    AppLogger.d("ScheduleScreen", "[Debug] 请求勿扰权限")
-                    requestNotificationPolicyAccess()
-                }
-                !hasBatteryOptimizationIgnored() -> {
-                    AppLogger.d("ScheduleScreen", "[Debug] 请求电池优化忽略权限")
-                    requestBatteryOptimization()
-                }
-            }
         }
     ) {
         Scaffold(
@@ -327,7 +166,6 @@ fun ScheduleScreen(
                 TopAppBar(
                     navigationIcon = {
                         IconButton(onClick = {
-                            AppLogger.d("ScheduleScreen", "[Debug] 设置按钮被点击, 尝试打开侧边栏")
                             scope.launch { drawerState.open() }
                         }) {
                             Icon(
@@ -337,358 +175,350 @@ fun ScheduleScreen(
                         }
                     },
                     title = {
-                    // [新功能] 显示当前教学周（永远显示现实世界的周次）
-                    Column {
-                        Text(
-                            text = uiState.getTitleText(),
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        // [新功能] 如果不在当前周，显示副标题
-                        uiState.getSubtitleText()?.let { subtitle ->
+                        Column {
                             Text(
-                                text = subtitle,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = uiState.getTitleText(),
+                                style = MaterialTheme.typography.titleMedium
                             )
-                        }
-                    }
-                },
-                actions = {
-                    // [日志导出] 日志导出按钮（在同步按钮左侧）
-                    // [日志导出] 日志导出按钮（使用 Info 图标区分于设置）
-                    IconButton(
-                        onClick = { showLogExportDialog = true }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = "导出日志"
-                        )
-                    }
-
-                    // [新功能] "回到当前周"按钮（移到 actions 区域）
-                    if (!uiState.isViewingCurrentWeek() && uiState.actualCurrentWeek != null) {
-                        TextButton(
-                            onClick = { viewModel.goToCurrentWeek() }
-                        ) {
-                            Text(
-                                text = "回到第${uiState.actualCurrentWeek}周",
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-                    // [v96] 同步按钮（带文字），取消防抖
-                    TextButton(
-                        onClick = {
-                            onNavigateToLogin()
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.sync))
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // [v44] 周末折叠状态 - 在 ScheduleScreen 管理
-            var isWeekendExpanded by remember { mutableStateOf(false) }
-
-            // [v61] 校区切换状态
-            var showCampusDialog by remember { mutableStateOf(false) }
-
-            // [v46] 从缓存获取当前周课程，并分别检测周六和周日是否有课
-            val displayCourses = uiState.displayCourses
-            val hasSaturdayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SATURDAY }
-            val hasSundayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SUNDAY }
-            val hasWeekendCourses = hasSaturdayCourses || hasSundayCourses
-
-            // [v47] 当周次变化时，根据当前周是否有周末课程自动切换折叠状态
-            LaunchedEffect(uiState.currentWeek, hasWeekendCourses) {
-                isWeekendExpanded = hasWeekendCourses
-            }
-
-            // [v44] Week selector row - 添加周末折叠按钮和校区切换
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp, horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // [v61] 左侧：校区切换按钮
-                FilterChip(
-                    selected = false,
-                    onClick = { showCampusDialog = true },
-                    label = {
-                        Text(
-                            text = uiState.campus.displayName,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
-                        )
-                    }
-                )
-
-                // 中间：周数选择器
-                WeekSelector(
-                    currentWeek = uiState.currentWeek,
-                    maxWeeks = uiState.maxWeeks,
-                    onWeekSelected = viewModel::onWeekSelected,
-                    modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally)
-                )
-
-                // [v45] 右侧：周末折叠按钮 - 带周六/周日指示器
-                // [v75] 固定宽度以更直观显示有课的周末 [v83] 增加宽度并改周六指示器为方形
-                FilterChip(
-                    selected = isWeekendExpanded,
-                    onClick = { isWeekendExpanded = !isWeekendExpanded },
-                    modifier = Modifier.width(96.dp),  // [v83] 增加宽度 80->96
-                    label = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.weekend),
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1
-                            )
-                            // [v45] 周六指示器 [v83] 改为方形
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(
-                                        color = if (hasSaturdayCourses)
-                                            MaterialTheme.colorScheme.primary
-                                        else
-                                            MaterialTheme.colorScheme.outlineVariant,
-                                        shape = RoundedCornerShape(2.dp)  // [v83] 方形
-                                    )
-                            )
-                            // [v45] 周日指示器
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(
-                                        color = if (hasSundayCourses)
-                                            MaterialTheme.colorScheme.primary
-                                        else
-                                            MaterialTheme.colorScheme.outlineVariant,
-                                        shape = CircleShape
-                                    )
-                            )
-                        }
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = if (isWeekendExpanded)
-                                Icons.Filled.KeyboardArrowDown
-                            else
-                                Icons.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
-                    )
-                )
-            }
-
-            // [v61] 校区选择对话框
-            if (showCampusDialog) {
-                AlertDialog(
-                onDismissRequest = { showCampusDialog = false },
-                title = { Text(stringResource(R.string.select_campus)) },
-                text = {
-                    Column {
-                        Campus.entries.forEach { campus ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        viewModel.onCampusChanged(campus)
-                                        showCampusDialog = false
-                                    }
-                                    .padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = campus == uiState.campus,
-                                    onClick = {
-                                        viewModel.onCampusChanged(campus)
-                                        showCampusDialog = false
-                                    }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(campus.displayName)
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showCampusDialog = false }) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                }
-            )
-            }
-
-            // Loading state
-            if (uiState.isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-            // Empty state
-            else if (uiState.courses.isEmpty()) {
-                // [v37] 删除 Sync Data 按钮，只显示提示信息
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.no_courses_found),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            text = stringResource(R.string.please_login),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-            // Schedule grid
-            else {
-                // [v57] 使用 HorizontalPager 实现跟手滑动
-                val pagerState = rememberPagerState(
-                    initialPage = (uiState.currentWeek - 1).coerceIn(0, (uiState.maxWeeks - 1).coerceAtLeast(0)),
-                    pageCount = { uiState.maxWeeks }
-                )
-
-                // [v57] 同步 pagerState -> ViewModel (滑动切换时)
-                LaunchedEffect(pagerState.currentPage) {
-                    val newWeek = pagerState.currentPage + 1
-                    if (newWeek != uiState.currentWeek) {
-                        viewModel.onWeekSelected(newWeek)
-                    }
-                }
-
-                // [v57] 同步 ViewModel -> pagerState (周选择器点击时)
-                // [v58] 优化跳转逻辑：大距离跳转使用瞬间切换，小距离使用动画
-                LaunchedEffect(uiState.currentWeek) {
-                    val targetPage = uiState.currentWeek - 1
-                    if (pagerState.currentPage != targetPage && !pagerState.isScrollInProgress) {
-                        val distance = kotlin.math.abs(pagerState.currentPage - targetPage)
-                        if (distance >= 3) {
-                            // [v58] 大距离跳转：瞬间切换，避免停在两页之间
-                            pagerState.scrollToPage(targetPage)
-                        } else {
-                            // [v58] 小距离跳转：平滑动画
-                            pagerState.animateScrollToPage(targetPage)
-                        }
-                    }
-                }
-
-                // [v57] HorizontalPager 替代 AnimatedContent
-                // [v73] 添加 pageSpacing 分隔表格
-                HorizontalPager(
-                    state = pagerState,
-                    pageSpacing = 16.dp,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 8.dp)
-                ) { page ->
-                    val week = page + 1  // 周次 = 页码 + 1
-                    val weekCourses = uiState.coursesByWeek[week] ?: emptyList()
-
-                    if (weekCourses.isEmpty()) {
-                        // [v57] 该周没有课程，显示提示
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                            uiState.getSubtitleText()?.let { subtitle ->
                                 Text(
-                                    text = stringResource(R.string.no_courses_in_week, week),
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    text = stringResource(R.string.try_another_week),
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    text = subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
-                    } else {
-                        ScheduleGrid(
-                            courses = weekCourses,
-                            conflictingCourseIds = uiState.conflictingCourseIds,
-                            waterCourseNames = uiState.waterCourseNames,  // [新功能] 传递水课列表
-                            onCourseClick = { course -> viewModel.onCourseSelected(course) },
-                            isWeekendExpanded = isWeekendExpanded,
-                            campus = uiState.campus,  // [v61] 传递校区参数
-                            todayDayOfWeek = uiState.todayDayOfWeek,  // [新功能] 传递今日星期几
-                            isCurrentWeek = week == uiState.actualCurrentWeek,  // [新功能 fix] 只有当前周才高亮
-                            weekStartDate = uiState.weekStartDate,  // [新功能] 传递周开始日期
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-            }
+                    },
+                    actions = {
+                        // 日志导出按钮
+                        IconButton(
+                            onClick = { showLogExportDialog = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Info,
+                                contentDescription = "导出日志"
+                            )
+                        }
 
-            // Error message
-            uiState.errorMessage?.let { error ->
-                Snackbar(
-                    modifier = Modifier.padding(16.dp),
-                    action = {
-                        TextButton(onClick = { viewModel.dismissError() }) {
-                            Text(stringResource(R.string.dismiss))
+                        // 回到当前周按钮
+                        if (!uiState.isViewingCurrentWeek() && uiState.actualCurrentWeek != null) {
+                            TextButton(
+                                onClick = { viewModel.goToCurrentWeek() }
+                            ) {
+                                Text(
+                                    text = "回到第${uiState.actualCurrentWeek}周",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+
+                        // 同步按钮
+                        TextButton(
+                            onClick = { onNavigateToLogin() }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(R.string.sync))
                         }
                     }
+                )
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                var isWeekendExpanded by remember { mutableStateOf(false) }
+                var showCampusDialog by remember { mutableStateOf(false) }
+
+                val displayCourses = uiState.displayCourses
+                val hasSaturdayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SATURDAY }
+                val hasSundayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SUNDAY }
+                val hasWeekendCourses = hasSaturdayCourses || hasSundayCourses
+
+                LaunchedEffect(uiState.currentWeek, hasWeekendCourses) {
+                    isWeekendExpanded = hasWeekendCourses
+                }
+
+                // 周选择行
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(error)
+                    // 校区切换按钮
+                    FilterChip(
+                        selected = false,
+                        onClick = { showCampusDialog = true },
+                        label = {
+                            Text(
+                                text = uiState.campus.displayName,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        }
+                    )
+
+                    // 周数选择器
+                    WeekSelector(
+                        currentWeek = uiState.currentWeek,
+                        maxWeeks = uiState.maxWeeks,
+                        onWeekSelected = viewModel::onWeekSelected,
+                        modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally)
+                    )
+
+                    // 周末折叠按钮
+                    FilterChip(
+                        selected = isWeekendExpanded,
+                        onClick = { isWeekendExpanded = !isWeekendExpanded },
+                        modifier = Modifier.width(96.dp),
+                        label = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.weekend),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(
+                                            color = if (hasSaturdayCourses)
+                                                MaterialTheme.colorScheme.primary
+                                            else
+                                                MaterialTheme.colorScheme.outlineVariant,
+                                            shape = RoundedCornerShape(2.dp)
+                                        )
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(
+                                            color = if (hasSundayCourses)
+                                                MaterialTheme.colorScheme.primary
+                                            else
+                                                MaterialTheme.colorScheme.outlineVariant,
+                                            shape = CircleShape
+                                        )
+                                )
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (isWeekendExpanded)
+                                    Icons.Filled.KeyboardArrowDown
+                                else
+                                    Icons.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    )
+                }
+
+                // 校区选择对话框
+                if (showCampusDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showCampusDialog = false },
+                        title = { Text(stringResource(R.string.select_campus)) },
+                        text = {
+                            Column {
+                                Campus.entries.forEach { campus ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                viewModel.onCampusChanged(campus)
+                                                showCampusDialog = false
+                                            }
+                                            .padding(vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = campus == uiState.campus,
+                                            onClick = {
+                                                viewModel.onCampusChanged(campus)
+                                                showCampusDialog = false
+                                            }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(campus.displayName)
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showCampusDialog = false }) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
+                    )
+                }
+
+                // Loading state
+                if (uiState.isLoading) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                // Empty state
+                else if (uiState.courses.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.no_courses_found),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = stringResource(R.string.please_login),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                // Schedule grid
+                else {
+                    val pagerState = rememberPagerState(
+                        initialPage = (uiState.currentWeek - 1).coerceIn(0, (uiState.maxWeeks - 1).coerceAtLeast(0)),
+                        pageCount = { uiState.maxWeeks }
+                    )
+
+                    LaunchedEffect(pagerState.currentPage) {
+                        val newWeek = pagerState.currentPage + 1
+                        if (newWeek != uiState.currentWeek) {
+                            viewModel.onWeekSelected(newWeek)
+                        }
+                    }
+
+                    LaunchedEffect(uiState.currentWeek) {
+                        val targetPage = uiState.currentWeek - 1
+                        if (pagerState.currentPage != targetPage && !pagerState.isScrollInProgress) {
+                            val distance = kotlin.math.abs(pagerState.currentPage - targetPage)
+                            if (distance >= 3) {
+                                pagerState.scrollToPage(targetPage)
+                            } else {
+                                pagerState.animateScrollToPage(targetPage)
+                            }
+                        }
+                    }
+
+                    HorizontalPager(
+                        state = pagerState,
+                        pageSpacing = 16.dp,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 8.dp)
+                    ) { page ->
+                        val week = page + 1
+                        val weekCourses = uiState.coursesByWeek[week] ?: emptyList()
+
+                        if (weekCourses.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.no_courses_in_week, week),
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.try_another_week),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            ScheduleGrid(
+                                courses = weekCourses,
+                                conflictingCourseIds = uiState.conflictingCourseIds,
+                                waterCourseNames = uiState.waterCourseNames,
+                                onCourseClick = { course -> viewModel.onCourseSelected(course) },
+                                isWeekendExpanded = isWeekendExpanded,
+                                campus = uiState.campus,
+                                todayDayOfWeek = uiState.todayDayOfWeek,
+                                isCurrentWeek = week == uiState.actualCurrentWeek,
+                                weekStartDate = uiState.weekStartDate,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
+
+                // Error message
+                uiState.errorMessage?.let { error ->
+                    Snackbar(
+                        modifier = Modifier.padding(16.dp),
+                        action = {
+                            TextButton(onClick = { viewModel.dismissError() }) {
+                                Text(stringResource(R.string.dismiss))
+                            }
+                        }
+                    ) {
+                        Text(error)
+                    }
                 }
             }
         }
-    }
     }  // SettingsDrawer end
 
-    // Course detail dialog
+    // 课程详情弹窗
     uiState.selectedCourse?.let { course ->
+        val weekCourses = uiState.coursesByWeek[uiState.currentWeek] ?: emptyList()
+
+        // 实时计算当前课程与哪些课程冲突
+        val conflictingCourses = remember(course.id, weekCourses) {
+            val conflictMap = TimeUtils.findConflicts(weekCourses)
+            val conflictIds = conflictMap[course.id] ?: emptyList()
+            val courseMap = weekCourses.associateBy { it.id }
+            conflictIds.mapNotNull { courseMap[it] }
+        }
+
         CourseDetailDialog(
             course = course,
-            isWaterCourse = uiState.isWaterCourse(course.name),  // [新功能]
-            onToggleWaterCourse = viewModel::toggleWaterCourse,  // [新功能]
+            isWaterCourse = uiState.isWaterCourse(course.name),
+            conflictingCourses = conflictingCourses,
+            onToggleWaterCourse = viewModel::toggleWaterCourse,
             onEditCourse = {
-                viewModel.onCourseSelected(null)  // 关闭详情弹窗
-                viewModel.openCourseEditor(course.name)  // 打开编辑器
+                viewModel.onCourseSelected(null)
+                viewModel.openCourseEditor(course.name)
+            },
+            onConflictCourseClick = { conflictCourse ->
+                viewModel.onCourseSelected(conflictCourse)
             },
             onDismiss = { viewModel.onCourseSelected(null) }
         )
     }
 
-    // [课程编辑] 课程编辑器 BottomSheet
+    // 课程编辑器
     uiState.editCourseGroup?.let { group ->
         CourseEditorSheet(
             editGroup = group,
@@ -702,7 +532,7 @@ fun ScheduleScreen(
         )
     }
 
-    // [日志导出] 日志导出对话框
+    // 日志导出对话框
     if (showLogExportDialog) {
         LogExportDialog(
             isExporting = isExportingLogs,
@@ -733,18 +563,15 @@ fun ScheduleScreen(
 
 /**
  * 课程详情弹窗
- *
- * @param course 课程数据
- * @param isWaterCourse 是否为水课 [新功能]
- * @param onToggleWaterCourse 切换水课标注回调 [新功能]
- * @param onDismiss 关闭回调
  */
 @Composable
 private fun CourseDetailDialog(
     course: Course,
-    isWaterCourse: Boolean,  // [新功能]
-    onToggleWaterCourse: (String) -> Unit,  // [新功能]
-    onEditCourse: () -> Unit,  // [课程编辑] 编辑按钮回调
+    isWaterCourse: Boolean,
+    conflictingCourses: List<Course>,
+    onToggleWaterCourse: (String) -> Unit,
+    onEditCourse: () -> Unit,
+    onConflictCourseClick: (Course) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -760,25 +587,98 @@ private fun CourseDetailDialog(
                     Text(stringResource(R.string.location, course.location))
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                Text(course.getWeeksDisplayText())  // [v94] 使用位图精确显示周次
+                Text(course.getWeeksDisplayText())
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(stringResource(R.string.time, course.startNode, course.endNode))
+
+                // 冲突详情区域
+                if (conflictingCourses.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.conflict_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.conflict_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    conflictingCourses.forEach { conflictCourse ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            onClick = { onConflictCourseClick(conflictCourse) }
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = conflictCourse.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    val details = buildList {
+                                        if (conflictCourse.teacher.isNotBlank()) add(conflictCourse.teacher)
+                                        if (conflictCourse.location.isNotBlank()) add(conflictCourse.location)
+                                    }
+                                    Text(
+                                        text = details.joinToString(" | "),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = getDayDisplayName(conflictCourse.dayOfWeek) +
+                                                " 第${conflictCourse.startNode}-${conflictCourse.endNode}节",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Row {
-                // [课程编辑] 编辑课程按钮
                 TextButton(
-                    onClick = {
-                        onEditCourse()
-                    }
+                    onClick = { onEditCourse() }
                 ) {
                     Text(
                         text = "编辑课程",
                         color = MaterialTheme.colorScheme.tertiary
                     )
                 }
-                // [新功能] 水课标注按钮
                 TextButton(
                     onClick = {
                         onToggleWaterCourse(course.name)
@@ -803,4 +703,16 @@ private fun CourseDetailDialog(
             }
         }
     )
+}
+
+private fun getDayDisplayName(day: DayOfWeek): String {
+    return when (day) {
+        DayOfWeek.MONDAY -> "周一"
+        DayOfWeek.TUESDAY -> "周二"
+        DayOfWeek.WEDNESDAY -> "周三"
+        DayOfWeek.THURSDAY -> "周四"
+        DayOfWeek.FRIDAY -> "周五"
+        DayOfWeek.SATURDAY -> "周六"
+        DayOfWeek.SUNDAY -> "周日"
+    }
 }

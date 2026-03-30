@@ -33,6 +33,17 @@ import java.util.Locale
  */
 object LogExporter {
 
+    /**
+     * 崩溃报告摘要数据
+     */
+    data class CrashLogSummary(
+        val hasCrash: Boolean,
+        val crashStackTrace: String?,
+        val previousSessionLog: String?,
+        val availableSessions: Int,
+        val crashTimestamp: String?
+    )
+
     private const val TAG = "LogExporter"
 
     // [v107] 需要收集的日志 TAG（用于 logcat 回退方案）
@@ -127,6 +138,136 @@ object LogExporter {
                 fileSize = 0
             )
         }
+    }
+
+    /**
+     * 导出崩溃日志（崩溃堆栈 + 上次会话日志）
+     *
+     * 将崩溃堆栈和上次会话的完整日志合并导出为一个文件
+     */
+    suspend fun exportCrashLogs(context: Context): ExportResult {
+        return try {
+            Log.d(TAG, "开始导出崩溃日志...")
+
+            val crashStackTrace = AppLogger.getLatestCrashStackTrace()
+            val previousSessionLog = AppLogger.getPreviousSessionLog()
+
+            val fullContent = buildString {
+                // 文件头
+                appendLine("========================================")
+                appendLine("CHD 课程表 - 崩溃日志报告")
+                appendLine("导出时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}")
+
+                val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                val versionName = packageInfo.versionName ?: "未知"
+                val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    packageInfo.longVersionCode
+                } else {
+                    @Suppress("DEPRECATION")
+                    packageInfo.versionCode.toLong()
+                }
+                appendLine("应用版本: $versionName ($versionCode)")
+                appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})")
+                appendLine("========================================")
+                appendLine()
+
+                // 崩溃堆栈部分
+                appendLine("========== 崩溃堆栈 ==========")
+                if (crashStackTrace != null) {
+                    appendLine(crashStackTrace)
+                } else {
+                    appendLine("(未找到崩溃堆栈文件)")
+                }
+                appendLine()
+
+                // 上次会话日志
+                appendLine("========== 上次会话日志 ==========")
+                if (previousSessionLog != null) {
+                    appendLine(previousSessionLog)
+                } else {
+                    appendLine("(未找到上次会话日志)")
+                }
+            }
+
+            if (fullContent.isBlank()) {
+                return ExportResult(
+                    success = false,
+                    file = null,
+                    error = "未找到崩溃日志数据",
+                    lineCount = 0,
+                    fileSize = 0
+                )
+            }
+
+            // 写入文件
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            val fileName = "chd_crash_log_$timestamp.txt"
+            val file = getCrashLogFile(context, fileName)
+            file.parentFile?.mkdirs()
+
+            FileWriter(file).use { writer ->
+                writer.write(fullContent)
+            }
+
+            val lineCount = fullContent.count { it == '\n' }
+            val fileSize = file.length()
+
+            Log.i(TAG, "崩溃日志导出成功: ${file.absolutePath}, 大小: ${formatFileSize(fileSize)}")
+
+            ExportResult(
+                success = true,
+                file = file,
+                error = null,
+                lineCount = lineCount,
+                fileSize = fileSize
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "导出崩溃日志失败", e)
+            ExportResult(
+                success = false,
+                file = null,
+                error = "导出失败: ${e.message}",
+                lineCount = 0,
+                fileSize = 0
+            )
+        }
+    }
+
+    /**
+     * 获取崩溃日志摘要（供 UI 展示用）
+     */
+    fun getCrashLogSummary(context: Context): CrashLogSummary {
+        val crashStackTrace = AppLogger.getLatestCrashStackTrace()
+        val previousSessionLog = AppLogger.getPreviousSessionLog()
+        val sessionIds = AppLogger.getAllSessionIds()
+
+        // 从崩溃堆栈中提取时间戳
+        val crashTimestamp = try {
+            crashStackTrace?.let { trace ->
+                val timeLine = trace.lines().firstOrNull { it.startsWith("Time:") }
+                timeLine?.removePrefix("Time:")?.trim()
+            }
+        } catch (_: Exception) { null }
+
+        return CrashLogSummary(
+            hasCrash = crashStackTrace != null,
+            crashStackTrace = crashStackTrace,
+            previousSessionLog = previousSessionLog,
+            availableSessions = sessionIds.size,
+            crashTimestamp = crashTimestamp
+        )
+    }
+
+    /**
+     * 获取崩溃日志文件路径
+     */
+    private fun getCrashLogFile(context: Context, fileName: String): File {
+        // 优先使用公共下载目录
+        val publicFile = getPublicLogFile(fileName)
+        if (publicFile != null) return publicFile
+
+        // 回退到私有目录
+        return getPrivateLogFile(context, fileName)
     }
 
     /**

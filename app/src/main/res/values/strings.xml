@@ -51,4 +51,8 @@
     <!-- [新功能] 水课标注 -->
     <string name="mark_as_water_course">标注为水课</string>
     <string name="unmark_water_course">取消水课</string>
+
+    <!-- 冲突课程 -->
+    <string name="conflict_title">时间冲突</string>
+    <string name="conflict_desc">与以下课程时间冲突：</string>
 </resources>
