@@ -46,13 +46,17 @@ import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
 import com.example.course_schedule_for_chd_v002.ui.components.WeekSelector
 import com.example.course_schedule_for_chd_v002.ui.components.SettingsDrawer
 import com.example.course_schedule_for_chd_v002.ui.components.LogExportDialog
+import com.example.course_schedule_for_chd_v002.ui.components.CourseReportDialog
 import com.example.course_schedule_for_chd_v002.ui.components.edit.CourseEditorSheet
 import com.example.course_schedule_for_chd_v002.util.AppLogger
+import com.example.course_schedule_for_chd_v002.util.HtmlCache
 import com.example.course_schedule_for_chd_v002.util.LogExporter
+import com.example.course_schedule_for_chd_v002.util.ReportGenerator
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * 课程表界面
@@ -79,6 +83,53 @@ fun ScheduleScreen(
     val reminderSettings by viewModel.reminderSettings.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+
+    // SAF 保存状态
+    var pendingSaveFile by remember { mutableStateOf<File?>(null) }
+
+    // 报告保存 Launcher (SAF CreateDocument)
+    val reportSaveLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        uri?.let {
+            val file = pendingSaveFile
+            if (file != null && file.exists()) {
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { output: java.io.OutputStream ->
+                        file.inputStream().use { input: java.io.InputStream ->
+                            input.copyTo(output)
+                        }
+                    }
+                    AppLogger.i("ScheduleScreen", "[保存] 报告已保存到: $uri")
+                } catch (e: Exception) {
+                    AppLogger.e("ScheduleScreen", "[保存] 保存报告失败", e)
+                }
+            }
+            pendingSaveFile = null
+        }
+    }
+
+    // 日志保存 Launcher (SAF CreateDocument)
+    val logSaveLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        uri?.let {
+            val file = pendingSaveFile
+            if (file != null && file.exists()) {
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { output: java.io.OutputStream ->
+                        file.inputStream().use { input: java.io.InputStream ->
+                            input.copyTo(output)
+                        }
+                    }
+                    AppLogger.i("ScheduleScreen", "[保存] 日志已保存到: $uri")
+                } catch (e: Exception) {
+                    AppLogger.e("ScheduleScreen", "[保存] 保存日志失败", e)
+                }
+            }
+            pendingSaveFile = null
+        }
+    }
 
     // 日历权限请求 Launcher
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
@@ -511,6 +562,11 @@ fun ScheduleScreen(
                 viewModel.onCourseSelected(null)
                 viewModel.openCourseEditor(course.name)
             },
+            onReportError = {
+                AppLogger.d("ScheduleViewModel", "[报告] 课程详情'报告错误'按钮被点击: course=${course.name}")
+                viewModel.onCourseSelected(null)
+                viewModel.onReportFromCourseDetail(course)
+            },
             onConflictCourseClick = { conflictCourse ->
                 viewModel.onCourseSelected(conflictCourse)
             },
@@ -553,10 +609,42 @@ fun ScheduleScreen(
                     AppLogger.e("ScheduleScreen", "分享日志失败", e)
                 }
             },
+            onSave = { file ->
+                pendingSaveFile = file
+                logSaveLauncher.launch(file.name)
+            },
             onDismiss = {
                 showLogExportDialog = false
                 logExportResult = null
             }
+        )
+    }
+
+    // 课程识别错误报告对话框
+    if (uiState.showCourseReport) {
+        AppLogger.d("ScheduleViewModel", "[报告] CourseReportDialog 渲染中, reportState=${uiState.reportState}, targetCourse=${uiState.reportTargetCourse?.name}")
+        CourseReportDialog(
+            targetCourse = uiState.reportTargetCourse,
+            semester = uiState.semester,
+            courseCount = uiState.courses.size,
+            reportState = uiState.reportState,
+            onGenerate = { description, target, incCourses, incHtml, incLogs ->
+                AppLogger.d("ScheduleViewModel", "[报告] onGenerate 回调触发: desc='${description.take(30)}', target=${target?.name}, incCourses=$incCourses, incHtml=$incHtml, incLogs=$incLogs")
+                viewModel.generateReport(context, description, target, incCourses, incHtml, incLogs)
+            },
+            onShare = { file ->
+                try {
+                    val shareIntent = com.example.course_schedule_for_chd_v002.util.ReportGenerator.shareReport(context, file)
+                    context.startActivity(Intent.createChooser(shareIntent, "分享课程识别错误报告"))
+                } catch (e: Exception) {
+                    AppLogger.e("ScheduleScreen", "分享报告失败", e)
+                }
+            },
+            onSave = { file ->
+                pendingSaveFile = file
+                reportSaveLauncher.launch(file.name)
+            },
+            onDismiss = viewModel::dismissCourseReport
         )
     }
 }
@@ -571,6 +659,7 @@ private fun CourseDetailDialog(
     conflictingCourses: List<Course>,
     onToggleWaterCourse: (String) -> Unit,
     onEditCourse: () -> Unit,
+    onReportError: () -> Unit,
     onConflictCourseClick: (Course) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -671,6 +760,14 @@ private fun CourseDetailDialog(
         },
         confirmButton = {
             Row {
+                TextButton(
+                    onClick = { onReportError() }
+                ) {
+                    Text(
+                        text = "报告错误",
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
                 TextButton(
                     onClick = { onEditCourse() }
                 ) {

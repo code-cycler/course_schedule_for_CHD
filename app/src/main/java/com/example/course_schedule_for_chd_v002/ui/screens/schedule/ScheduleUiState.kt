@@ -5,6 +5,7 @@ import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.CourseType
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.util.AppLogger
+import java.io.File
 
 /**
  * 日历同步状态
@@ -50,7 +51,12 @@ data class ScheduleUiState(
     val editCourseGroup: CourseEditGroup? = null,
     val suggestedTeachers: List<String> = emptyList(),
     val suggestedLocations: List<String> = emptyList(),
-    val editConflicts: List<CourseConflictInfo> = emptyList()
+    val editConflicts: List<CourseConflictInfo> = emptyList(),
+
+    // 课程识别错误报告
+    val showCourseReport: Boolean = false,
+    val reportTargetCourse: Course? = null,
+    val reportState: ReportState = ReportState.Idle
 ) {
     fun isWaterCourse(courseName: String): Boolean {
         return courseName in waterCourseNames
@@ -104,3 +110,13 @@ data class CourseConflictInfo(
     val course2: Course,
     val overlappingWeeks: List<Int>
 )
+
+/**
+ * 报告生成状态
+ */
+sealed class ReportState {
+    object Idle : ReportState()
+    object Generating : ReportState()
+    data class Success(val file: File) : ReportState()
+    data class Error(val message: String) : ReportState()
+}

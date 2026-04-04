@@ -11,6 +11,7 @@ import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncSer
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import com.example.course_schedule_for_chd_v002.util.AppLogger
+import com.example.course_schedule_for_chd_v002.util.ReportGenerator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -686,6 +687,98 @@ class ScheduleViewModel(
         }
 
         AppLogger.d("ScheduleViewModel", "[编辑] 刷新完成, 课程数: ${courses.size}")
+    }
+
+    // ================ 课程识别错误报告相关 ================
+
+    /**
+     * 从课程详情发起报告
+     */
+    fun onReportFromCourseDetail(course: Course) {
+        AppLogger.d("ScheduleViewModel", "[报告] onReportFromCourseDetail: course=${course.name}")
+        _uiState.update {
+            it.copy(
+                showCourseReport = true,
+                reportTargetCourse = course,
+                reportState = ReportState.Idle
+            )
+        }
+    }
+
+    /**
+     * 从设置发起报告（无指定课程）
+     */
+    fun onReportFromSettings() {
+        AppLogger.d("ScheduleViewModel", "[报告] onReportFromSettings")
+        _uiState.update {
+            it.copy(
+                showCourseReport = true,
+                reportTargetCourse = null,
+                reportState = ReportState.Idle
+            )
+        }
+    }
+
+    /**
+     * 关闭报告对话框
+     */
+    fun dismissCourseReport() {
+        _uiState.update {
+            it.copy(
+                showCourseReport = false,
+                reportTargetCourse = null,
+                reportState = ReportState.Idle
+            )
+        }
+    }
+
+    /**
+     * 生成课程识别错误报告
+     */
+    fun generateReport(
+        context: android.content.Context,
+        userDescription: String,
+        targetCourse: Course?,
+        includeCourses: Boolean,
+        includeHtml: Boolean,
+        includeLogs: Boolean
+    ) {
+        AppLogger.d("ScheduleViewModel", "[报告] generateReport 开始: description='${userDescription.take(50)}', targetCourse=${targetCourse?.name}, includeCourses=$includeCourses, includeHtml=$includeHtml, includeLogs=$includeLogs")
+        viewModelScope.launch {
+            _uiState.update { it.copy(reportState = ReportState.Generating) }
+
+            try {
+                val courses = repository.getLocalSchedule(semester)
+                AppLogger.d("ScheduleViewModel", "[报告] 本地课程数: ${courses.size}")
+
+                val config = ReportGenerator.ReportConfig(
+                    semester = semester,
+                    userDescription = userDescription,
+                    targetCourse = targetCourse,
+                    includeCourses = includeCourses,
+                    includeHtml = includeHtml,
+                    includeLogs = includeLogs
+                )
+
+                val result = ReportGenerator.generateReport(context, courses, config)
+                AppLogger.d("ScheduleViewModel", "[报告] 生成结果: success=${result.success}, file=${result.file?.absolutePath}, error=${result.error}")
+
+                if (result.success) {
+                    _uiState.update {
+                        it.copy(reportState = ReportState.Success(result.file!!))
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(reportState = ReportState.Error(result.error ?: "生成失败"))
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[报告] 生成报告异常: ${e.message}", e)
+                _uiState.update {
+                    it.copy(reportState = ReportState.Error(e.message ?: "未知错误"))
+                }
+            }
+        }
     }
 }
 

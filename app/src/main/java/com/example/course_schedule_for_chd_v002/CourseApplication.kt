@@ -7,6 +7,7 @@ import com.example.course_schedule_for_chd_v002.di.databaseModule
 import com.example.course_schedule_for_chd_v002.di.networkModule
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.CrashHandler
+import com.example.course_schedule_for_chd_v002.util.HtmlCache
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
@@ -65,5 +66,8 @@ class CourseApplication : Application() {
             )
         }
         AppLogger.i(TAG, "Koin 依赖注入初始化完成")
+
+        // 5. 初始化 HtmlCache（不能通过 Koin single 懒加载，必须在 App 启动时初始化）
+        HtmlCache.init(this)
     }
 }

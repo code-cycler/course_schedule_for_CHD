@@ -17,6 +17,11 @@
 
     <!-- 外部存储公共下载目录 (Android 10+) -->
     <external-path
-        name="downloads"
-        path="Download/CHD课程表/logs/" />
+        name="chd_downloads"
+        path="Download/CHD课程表/" />
+
+    <!-- 报告文件目录 -->
+    <external-files-path
+        name="reports"
+        path="reports/" />
 </paths>

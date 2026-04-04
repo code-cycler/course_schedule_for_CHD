@@ -12,6 +12,7 @@ import com.example.course_schedule_for_chd_v002.domain.repository.ICourseReposit
 import com.example.course_schedule_for_chd_v002.domain.repository.LoginResult
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.Constants
+import com.example.course_schedule_for_chd_v002.util.HtmlCache
 import com.example.course_schedule_for_chd_v002.util.JsonUtils
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import com.example.course_schedule_for_chd_v002.util.WebViewLogger
@@ -318,6 +319,9 @@ class CourseRepositoryImpl(
         return try {
             WebViewLogger.logParseDetail("=== parseHtmlToCourses 开始 ===")
 
+            // 缓存原始 HTML 供错误报告使用
+            HtmlCache.save(semester, html)
+
             // [v53] 检测输入格式
             val entities = if (html.startsWith("JSON:")) {
                 val json = html.removePrefix("JSON:")
@@ -379,6 +383,10 @@ class CourseRepositoryImpl(
 
             // 解析 HTML（支持原始 HTML 中的 TaskActivity 数据和渲染后的 infoTitle 单元格）
             AppLogger.d(REPO_TAG, "解析 HTML...")
+
+            // 缓存原始 HTML 供错误报告使用
+            HtmlCache.save(semester, html)
+
             val entities = htmlParser.parse(html, semester)
 
             // 转换为领域模型

@@ -29,6 +29,7 @@ fun LogExportDialog(
     result: LogExporter.ExportResult?,
     onExport: () -> Unit,
     onShare: (File) -> Unit,
+    onSave: (File) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -106,9 +107,14 @@ fun LogExportDialog(
                     // 导出中，不显示按钮
                 }
                 result != null && result.success && result.file != null -> {
-                    // 成功后显示分享按钮
-                    TextButton(onClick = { onShare(result.file!!) }) {
-                        Text("分享")
+                    // 成功后显示保存和分享按钮
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onSave(result.file!!) }) {
+                            Text("保存到...")
+                        }
+                        TextButton(onClick = { onShare(result.file!!) }) {
+                            Text("分享")
+                        }
                     }
                 }
                 else -> {
