@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "course_schedule_for_CHD_v0.0.2"
+rootProject.name = "course_schedule_for_CHD"
 include(":app")
  

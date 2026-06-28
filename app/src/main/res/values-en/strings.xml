@@ -42,9 +42,4 @@
     <string name="please_login_system">Please login in the page above, course data will be fetched automatically</string>
     <string name="please_login_prompt">Please login</string>
 
-    <!-- Campus Names -->
-    <string name="campus_main">Main Campus</string>
-    <string name="campus_east">East Campus</string>
-    <string name="campus_north">North Campus</string>
-    <string name="campus_south">South Campus</string>
 </resources>
