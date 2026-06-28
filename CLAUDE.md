@@ -40,7 +40,7 @@ util/      ScriptInjector / TimeUtils / JsonUtils / Constants / WebViewLogger ..
 ## ⚠ 改代码前必知的坑
 
 1. **周次位图是周次判断的真值来源**。`Course.remark` 里存 `weeksBitmap:0101…`（53 位）。**bitmap[0] = 第 0 周（预备周），位图下标即周次**。`Course.isWeekInRange/hasTimeConflict/getWeeksDisplayText` 都从它提取；改 `ScheduleHtmlParser.parseWeeksBitmap` 和 `Course` 的周次逻辑前，务必先看 `docs/DESIGN.md` §6 的「位图偏移」。
-2. **登录只走 WebView**。`AppNavigation` 的 Login 路由直接渲染 `WebViewScreen`；`LoginScreen.kt` + `LoginViewModel.login()` 表单登录路径是**未接入的死代码**。别在表单登录上加功能。
+2. **登录只走 WebView**。`AppNavigation` 的 Login 路由直接渲染 `WebViewScreen`；账号密码表单登录（`LoginScreen` / `CasApi`）已作为死代码移除。别重新引入表单登录分支。
 3. **网络全是 OkHttp**（`EamsClient` 封装，绑 `CookieManager` 作 CookieJar）。没有 Retrofit——别找 Retrofit 接口（曾经有 `EamsService` 空壳和 Retrofit 依赖，已删除）。
 4. **两套版本号**：发布版（git tag `v2.x`）≠ 代码注释里的内部迭代号 `[v97]`。后者只追踪开发改动。
 ## 文档导航

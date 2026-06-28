@@ -3,19 +3,11 @@
 未决问题的 living list。每条有可逆的当前处置和明确的 revisit 触发条件——让"以后再说"不变成"永远没说"。
 
 > **已解决 / 已决策（已移出本清单，详见 git log）：**
-> - 未用 Retrofit 依赖 + 空 `EamsService.kt` — 2026-06 第二轮 grill 删除（grep 证代码零引用）
-> - GeckoView 注释残留 — 2026-06 第二轮 grill 清理（`CourseRepositoryImpl` / `ICourseRepository` / `AppNavigation` / `build.gradle.kts` 的误导注释；`WebViewScreen` 的 UA 字符串 `Mozilla/5.0…Gecko…` 属正常，保留）
-> - 默认学期硬编码 `"2024-2025-1"` — 决策用「切换学期功能」顺带解决，功能设计见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)（已决策，待有编译环境后实现）
-
----
-
-## LoginScreen + 表单登录是死代码 — 未接入导航，实际只走 WebView
-
-**Status:** deferred
-**Why deferred:** experience gap（删除前需确认 `LoginViewModel.login()` / `onWebViewLoginSuccess()` / `onFetchCourseTable()` 等表单时代方法确实无人调用；且牵涉 `ICourseRepository.login` 接口与 `CasApi` 整个类的连带删除，无编译验证下风险偏高）
-**Current placeholder:** `LoginScreen.kt`（全英文账号密码表单）及其触发的 `CasApi.login()` 表单登录路径保留不动。经 grep 确认 `LoginScreen` 在 `app/src/main` 内零调用——`AppNavigation` 的 Login 路由直接渲染 `WebViewScreen`。README/DESIGN/CLAUDE 如实说明"唯一登录路径是 WebView CAS 登录"。
-**Reversibility:** 高 — 删死代码零功能影响，但需顺手清 `LoginViewModel` 里无人调用的方法、`ICourseRepository.login`、`CasApi` 与对应 DI 配置。
-**Trigger — revisit when:** 有可用的编译环境（解决 AGP 9.0 命令行构建问题）后，或下次清理登录模块时。
+> - 未用 Retrofit 依赖 + 空 `EamsService.kt` — 2026-06 删除（grep 证零引用）
+> - GeckoView 注释残留 — 2026-06 清理
+> - 默认学期硬编码 `"2024-2025-1"` — 决策用「切换学期功能」顺带解决，设计见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)（待实现）
+> - LoginScreen + 表单登录死代码 — 2026-06 删除（`LoginScreen.kt` / `CasApi.kt` / `CasLoginPage.kt` + `LoginViewModel` 表单方法 + `ICourseRepository.login` + `LoginResult` + 对应测试）。命令行编译验证通过。
+> - AGP 9.0 命令行构建失败 — 2026-06 解决。根因：Gradle daemon 缓存了旧 JVM 的代理配置（`127.0.0.1:7890`）；处置：`./gradlew --stop` 重启 daemon + `settings.gradle.kts` 加阿里云镜像 + 补 `local.properties`（SDK 路径，gitignore）。
 
 ---
 
@@ -36,3 +28,13 @@
 **Current placeholder:** 代码注释里的 `[v25]…[v97]` 内部增量编号保留不动；README/DESIGN 明确区分「发布版本 v2.2（git tag）」与「内部迭代号 v97（代码注释，仅追踪开发改动）」是两套独立体系。
 **Reversibility:** 高 — 只是注释/文档表述，随时可改。
 **Trigger — revisit when:** 版本号混淆导致维护困难，或决定正式废弃内部号、改用 git commit 追踪改动。
+
+---
+
+## ScheduleViewModelTest 测试套件腐烂 — 基于 v37/v61 之前的旧 API，无法编译
+
+**Status:** deferred
+**Why deferred:** experience gap（整个文件基于旧 API：构造缺 `userPreferences`（v61 加）、调 `refreshSchedule()`（v37 已删）、引用 `isRefreshing` 字段（已移除）；修复 = 基于当前 `ScheduleViewModel` 重写整套测试，需先理清 `loadSchedule` 的冲突缓存/教学周/校区逻辑再逐个 mock，工作量较大）
+**Current placeholder:** `ScheduleViewModelTest.kt` 保留不动。**注意：这会导致 `./gradlew compileDebugUnitTestKotlin`（unit test 编译）失败**；但 `./gradlew assembleDebug`（main + APK）不受影响、编译通过，`CourseRepositoryImplTest` 等其它测试也正常。
+**Reversibility:** 高 — 纯测试代码，重写不影响任何功能。
+**Trigger — revisit when:** 想恢复 unit test 覆盖（如接 CI 跑 test），或下次大改 `ScheduleViewModel` 时顺手重写。

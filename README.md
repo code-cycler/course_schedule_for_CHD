@@ -75,6 +75,7 @@ app/src/main/java/com/example/course_schedule_for_chd_v002/
 ## 环境要求
 
 - Android Studio（需支持 **AGP 9.0** 的较新版本）
+- 命令行构建：已配阿里云镜像（`settings.gradle.kts`）；首次需 `local.properties` 指向 Android SDK（已 gitignore）
 - JDK 17
 - Android SDK 36（Android 15）
 - 最低支持：Android 12（API 31）

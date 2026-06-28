@@ -71,7 +71,7 @@
 
 ```
 ui/            ← Compose 屏幕 + ViewModel（状态用 StateFlow）
-  screens/login/    WebViewScreen（登录+抓取）、LoginScreen（⚠死代码，见§6）、LoginViewModel
+  screens/login/    WebViewScreen（登录入口）、LoginViewModel、LoginUiState
   screens/schedule/ ScheduleScreen、ScheduleViewModel、ScheduleUiState
   components/       ScheduleGrid、CourseCard、WeekSelector
   navigation/       AppNavigation（起始目的地=Schedule）、Screen
@@ -159,9 +159,8 @@ CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView �
 
 - **位图偏移（v96 反复修正过）**：学校系统位图 **bitmap[0] = 第 0 周（预备周）**，不是第 1 周。所以解析时 `week = index + 1` 后还要 `-1` 修正；`Course.isWeekInRange()` 直接用 `bitmap[week]`（因为 bitmap 下标即周次）。改这块务必看 `ScheduleHtmlParser.parseWeeksBitmap` 和 `Course.isWeekInRange` 的注释。
 - **`unitCount` = 11，但 `CourseTable` 默认 77**：学校每天 11 节课，解析固定用 11；`ScriptInjector` 里 `CourseTable` 构造的 `unitCounts || 77` 是占位，实际靠 `window.unitCount = 11`。
-- **`LoginScreen` + 表单登录是死代码**：`LoginScreen.kt`（全英文表单）和 `LoginViewModel.login()` 路径**没接入导航**（`AppNavigation` 直接用 `WebViewScreen`）。实际登录只走 WebView。
 - **默认学期硬编码 `2024-2025-1`**：散落在 `AppNavigation` / `LoginViewModel`，是「未登录时的占位」。登录后会被首页解析出的真实学期覆盖。只有首次未登录启动才会用到这个过时值。
-- **i18n 不完整**：`LoginScreen` 全英文、`values-en/strings.xml` 缺水课字符串、实际界面以中文为主。
+- **i18n 不完整**：`values-en/strings.xml` 缺水课等字符串，英文环境下回退中文；实际界面以中文为主。
 
 ---
 
