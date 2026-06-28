@@ -228,17 +228,17 @@ class CourseRepositoryImpl(
      * 验证 WebView 登录状态
      * 从 WebView 同步 Cookie 后验证登录状态
      *
-     * 注意：GeckoView 和 OkHttp 有独立的 Cookie 存储，无法同步。
-     * 对于 GeckoView 场景，我们假设用户已登录（因为他们已在 GeckoView 中看到课表页面）
+     * 注意：WebView 和 OkHttp 有独立的 Cookie 存储，无法同步。
+     * 对于 WebView 场景，我们假设用户已登录（因为他们已在 WebView 中看到课表页面）
      * 并直接尝试获取课表数据。
      */
     override suspend fun verifyWebViewLogin(): Boolean {
         android.util.Log.d(REPO_TAG, "=== verifyWebViewLogin 开始 ===")
 
-        // 对于 GeckoView 场景：
-        // 由于 GeckoView 和 OkHttp 的 Cookie 存储完全隔离，
-        // syncFromWebView 无法获取 GeckoView 的 Cookie。
-        // 但是，用户已经通过 GeckoView 登录并看到了课表页面，
+        // 对于 WebView 场景：
+        // 由于 WebView 和 OkHttp 的 Cookie 存储完全隔离，
+        // syncFromWebView 无法获取 WebView 的 Cookie。
+        // 但是，用户已经通过 WebView 登录并看到了课表页面，
         // 所以我们假设用户已登录，直接尝试获取课表。
 
         // 尝试同步 Cookie（可能失败，但不影响后续操作）
@@ -266,9 +266,9 @@ class CourseRepositoryImpl(
             )
             android.util.Log.i(REPO_TAG, "[OK] 登录状态已保存")
         } else {
-            // GeckoView 场景：即使用 OkHttp 验证失败，用户也可能已在 GeckoView 中登录
+            // WebView 场景：即使用 OkHttp 验证失败，用户也可能已在 WebView 中登录
             // 保存登录状态，允许用户继续操作
-            android.util.Log.w(REPO_TAG, "OkHttp 验证失败，但用户可能已在 GeckoView 中登录，保存登录状态")
+            android.util.Log.w(REPO_TAG, "OkHttp 验证失败，但用户可能已在 WebView 中登录，保存登录状态")
             userPreferences.saveLoginState(
                 isLoggedIn = true,
                 username = "",
@@ -277,7 +277,7 @@ class CourseRepositoryImpl(
             )
         }
 
-        return true  // GeckoView 场景下始终返回 true
+        return true  // WebView 场景下始终返回 true
     }
 
     /**
@@ -363,9 +363,9 @@ class CourseRepositoryImpl(
         android.util.Log.d(REPO_TAG, "=== fetchRemoteSchedule 开始, semester=$semester ===")
 
         return try {
-            // GeckoView 场景：跳过登录状态检查，直接尝试获取课表
-            // 因为 GeckoView 的 Cookie 和 OkHttp 隔离，Cookie 检查会失败
-            // 但用户可能已在 GeckoView 中登录，所以直接尝试获取
+            // WebView 场景：跳过登录状态检查，直接尝试获取课表
+            // 因为 WebView 的 Cookie 和 OkHttp 隔离，Cookie 检查会失败
+            // 但用户可能已在 WebView 中登录，所以直接尝试获取
 
             // 获取课表 HTML - 使用 GET 请求直接获取课表页面
             android.util.Log.d(REPO_TAG, "获取课表 HTML (GET)...")

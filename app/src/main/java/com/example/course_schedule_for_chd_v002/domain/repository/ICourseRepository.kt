@@ -22,7 +22,7 @@ interface ICourseRepository {
 
     /**
      * 从 WebView 同步 Cookie 到 OkHttp
-     * 用于 GeckoView 登录场景
+     * 用于 WebView 登录场景
      * @param url 当前页面 URL
      * @param cookies Cookie 字符串
      * @return 是否同步成功
@@ -58,7 +58,7 @@ interface ICourseRepository {
 
     /**
      * 直接解析 HTML 内容为课程列表
-     * 用于 GeckoView 场景，从渲染后的 HTML 解析课程
+     * 用于 WebView 场景，从渲染后的 HTML 解析课程
      * @param html 渲染后的 HTML 内容
      * @param semester 学期标识
      * @return 解析出的课程列表

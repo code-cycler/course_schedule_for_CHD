@@ -54,7 +54,7 @@ android {
             excludes += setOf("lib/armeabi-v7a/**", "lib/x86/**", "lib/x86_64/**")
         }
 
-        // 排除 GeckoView 中不必要的资源文件以减小 APK 体积
+        // 排除不必要的资源文件以减小 APK 体积（多语言 values-* / 其它架构）
         resources {
             excludes += setOf(
                 // 排除多语言支持（只保留中文和英文）
@@ -204,8 +204,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
 
     // 网络请求
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.converter.scalars)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.jsoup)
