@@ -184,7 +184,7 @@ class ScheduleHtmlParser {
                 // [v26] 提取教室名称和周数位图
                 // 格式: "...,"教室名","周数位图","..."
                 // 教室名可以以 * 或 # 开头（*普通教室 #实验室）
-                val roomAndWeeksPattern = ""","([*#]?[^",]*)","([01]{53})",""".toRegex()
+                val roomAndWeeksPattern = ""","([*#]?[^",]*)","([01]{53})"""".toRegex()
                 val roomWeeksMatch = roomAndWeeksPattern.find(activityBlock)
 
                 // [v26] 使用 var 以便备用模式可以更新
@@ -336,19 +336,16 @@ class ScheduleHtmlParser {
 
         for ((index, char) in bitmap.withIndex()) {
             if (char == '1') {
-                // [v36] 原逻辑: week = index + 1
-                // 但学校系统位图有+1偏移，需要减1修正
-                val week = index + 1
-                activeWeeks.add(week)
-                // [v88] 打印每个活跃周的提取过程
-                android.util.Log.v("CHD_WeekType", "  index=$index, char='$char' -> week=$week")
+                // 位图语义：bitmap[index] = 第 index 周（bitmap[0]=第0周/预备周，bitmap[1]=第1周…）
+                // 与 Course.getActiveWeeks / isWeekInRange 保持一致
+                activeWeeks.add(index)
+                android.util.Log.v("CHD_WeekType", "  index=$index, char='$char' -> 第${index}周")
             }
         }
 
-        // [v88] 打印活跃周列表（使用 Log.i 强制显示）
         if (activeWeeks.isNotEmpty()) {
             val weekStr = activeWeeks.joinToString(",")
-            android.util.Log.i("CHD_WeekType", "活跃周列表(index+1): [$weekStr]")
+            android.util.Log.i("CHD_WeekType", "活跃周列表: [$weekStr]")
             android.util.Log.i("CHD_WeekType", "活跃周数量: ${activeWeeks.size}")
         }
 
@@ -359,27 +356,19 @@ class ScheduleHtmlParser {
 
         val startWeek = activeWeeks.minOrNull()!!
         val endWeek = activeWeeks.maxOrNull()!!
-        android.util.Log.i("CHD_WeekType", "原始范围(修正前): $startWeek-$endWeek")
 
-        // [v87] 识别单双周模式
+        // 识别单双周模式（用实际周次 index 判断奇偶）
         val weekType = determineWeekType(activeWeeks)
-
-        // [v96] 恢复偏移修正：学校系统位图有+1偏移
-        // 位图结构：bitmap[0]=第0周(预备周), bitmap[1]=第1周, ...
-        // 解析时 week = index + 1，所以 bitmap[1] -> week=2
-        // 需要减1修正为实际的第1周
-        val correctedStartWeek = startWeek - 1
-        val correctedEndWeek = endWeek - 1
 
         val typeStr = when (weekType) {
             WeekType.ODD -> "单周"
             WeekType.EVEN -> "双周"
             WeekType.ALL -> "每周"
         }
-        android.util.Log.i("CHD_WeekType", "最终结果: 修正后=$correctedStartWeek-$correctedEndWeek, 类型=$typeStr")
+        android.util.Log.i("CHD_WeekType", "最终结果: 第${startWeek}-${endWeek}周, 类型=$typeStr")
         android.util.Log.i("CHD_WeekType", "========== 周数解析结束 ==========")
 
-        return WeekParseResult(correctedStartWeek, correctedEndWeek, weekType)
+        return WeekParseResult(startWeek, endWeek, weekType)
     }
 
     /**
@@ -523,10 +512,10 @@ class ScheduleHtmlParser {
             )
         }
 
-        // [v96] 计算合并后的周范围（恢复偏移修正）
+        // 合并后的周范围（活跃周即位图 index = 实际周次）
         val sortedWeeks = allActiveWeeks.sorted()
-        val mergedStartWeek = sortedWeeks.first() - 1  // 应用偏移修正
-        val mergedEndWeek = sortedWeeks.last() - 1
+        val mergedStartWeek = sortedWeeks.first()
+        val mergedEndWeek = sortedWeeks.last()
 
         // 重新判断周类型
         val weekType = determineWeekType(sortedWeeks)
@@ -536,11 +525,11 @@ class ScheduleHtmlParser {
             WeekType.ALL -> ""
         }
 
-        // 构建合并后的位图
+        // 构建合并后的位图（bitmap[index] = 周次 index）
         val mergedBitmap = CharArray(53) { '0' }
         for (week in sortedWeeks) {
-            if (week in 1..53) {
-                mergedBitmap[week - 1] = '1'
+            if (week in 0..52) {
+                mergedBitmap[week] = '1'
             }
         }
 
@@ -578,7 +567,7 @@ class ScheduleHtmlParser {
             val bitmap = bitmapMatch.groupValues[1]
             for ((index, char) in bitmap.withIndex()) {
                 if (char == '1') {
-                    activeWeeks.add(index + 1)  // 1-indexed
+                    activeWeeks.add(index)  // bitmap[index] = 第 index 周
                 }
             }
         }
