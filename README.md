@@ -55,8 +55,7 @@ app/src/main/java/com/example/course_schedule_for_chd_v002/
 │   │   ├── api/                    # CasApi、EamsApi（OkHttp 裸调）
 │   │   ├── client/                 # EamsClient（OkHttp 封装）、CookieManager
 │   │   ├── dto/                    # CasLoginPage
-│   │   ├── parser/                 # ScheduleHtmlParser
-│   │   └── EamsService.kt          # （空壳，未使用）
+│   │   └── parser/                 # ScheduleHtmlParser
 │   └── repository/                 # CourseRepositoryImpl
 ├── di/                             # Koin：AppModule / NetworkModule / DatabaseModule
 ├── domain/

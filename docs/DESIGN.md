@@ -133,8 +133,8 @@ DONE             回调 onCasLoginSuccess(课表HTML, 首页HTML)
 ### 5.1 为什么用 WebView + 脚本注入，而不是纯接口抓课表？
 CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView 里手动登录最可靠**，登录后 WebView 已经是「已登录 + 已渲染」的状态，直接抠 HTML 即可。外部 JS 加载不全就**自己写一套假环境**（`ScriptInjector`：jQuery + beangle(bg) + underscore(_) + CourseTable + TaskActivity）注入进去骗页面渲染。这是个 hack，但有效。
 
-### 5.2 为什么网络层用 OkHttp 裸调（`EamsClient`），不用 Retrofit？
-历史原因：`EamsService.kt` 当初规划用 Retrofit（现在还是 `// TODO: 阶段二实现` 的空壳），但实际网络全是 OkHttp 手写 `Request`（`CasApi`/`EamsApi`）。**Retrofit 依赖引了却没用**。详见 [OPEN-DECISIONS](./OPEN-DECISIONS.md#未用的-retrofit-依赖--空-eamsservicekt--引了却没用)。
+### 5.2 网络层就是 OkHttp（`EamsClient`）
+当初规划过用 Retrofit（曾有个 `EamsService` 接口），但实际网络全是 OkHttp 手写 `Request`（`CasApi` / `EamsApi`，经 `EamsClient` 统一封装并绑 `CookieManager`）。文档治理后 Retrofit 依赖与空壳 `EamsService` 已删除——网络层没有别的抽象，改网络请求直接看 `data/remote/api/` 和 `client/EamsClient.kt`。
 
 ### 5.3 为什么周次信息塞在 `remark` 字段里当位图，不展开成行？
 教务系统原始数据就是 53 位周位图（`000000001111111111000…`，每位代表一周）。展开成多行会丢掉「单双周 / 非连续周」的精确信息。**保留位图**才能精确判断「第 X 周是否有这门课」「两门课周次是否真的重叠」。代价是 `Course` 的多个方法都要从 `remark` 里正则抽数据——略丑但正确。
@@ -159,10 +159,8 @@ CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView �
 
 - **位图偏移（v96 反复修正过）**：学校系统位图 **bitmap[0] = 第 0 周（预备周）**，不是第 1 周。所以解析时 `week = index + 1` 后还要 `-1` 修正；`Course.isWeekInRange()` 直接用 `bitmap[week]`（因为 bitmap 下标即周次）。改这块务必看 `ScheduleHtmlParser.parseWeeksBitmap` 和 `Course.isWeekInRange` 的注释。
 - **`unitCount` = 11，但 `CourseTable` 默认 77**：学校每天 11 节课，解析固定用 11；`ScriptInjector` 里 `CourseTable` 构造的 `unitCounts || 77` 是占位，实际靠 `window.unitCount = 11`。
-- **GeckoView 注释残留**：`ICourseRepository` / `CourseRepositoryImpl` / `AppNavigation` / `build.gradle.kts:57` 还写着「GeckoView 场景」，但 v47 早就改用系统 WebView 了——别被误导。
 - **`LoginScreen` + 表单登录是死代码**：`LoginScreen.kt`（全英文表单）和 `LoginViewModel.login()` 路径**没接入导航**（`AppNavigation` 直接用 `WebViewScreen`）。实际登录只走 WebView。
 - **默认学期硬编码 `2024-2025-1`**：散落在 `AppNavigation` / `LoginViewModel`，是「未登录时的占位」。登录后会被首页解析出的真实学期覆盖。只有首次未登录启动才会用到这个过时值。
-- **`EamsService.kt` 空壳 + Retrofit 依赖未用**：见 §5.2。
 - **i18n 不完整**：`LoginScreen` 全英文、`values-en/strings.xml` 缺水课字符串、实际界面以中文为主。
 
 ---
