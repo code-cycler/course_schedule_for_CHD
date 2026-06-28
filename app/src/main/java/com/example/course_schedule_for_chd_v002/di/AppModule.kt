@@ -24,7 +24,6 @@ val appModule = module {
     // Repository
     single<ICourseRepository> {
         CourseRepositoryImpl(
-            casApi = get(),
             eamsApi = get(),
             cookieManager = get(),
             htmlParser = get(),

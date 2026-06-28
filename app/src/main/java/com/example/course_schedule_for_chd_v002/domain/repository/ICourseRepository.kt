@@ -7,8 +7,6 @@ import com.example.course_schedule_for_chd_v002.domain.model.Course
  * 定义数据访问的抽象接口，由 Data 层实现
  */
 interface ICourseRepository {
-    // 登录相关
-    suspend fun login(username: String, password: String): Result<LoginResult>
     suspend fun isLoggedIn(): Boolean
     suspend fun logout()
 
@@ -126,13 +124,3 @@ interface ICourseRepository {
      */
     suspend fun getConflictCache(semester: String): Map<Int, Set<Long>>
 }
-
-/**
- * 登录结果
- */
-data class LoginResult(
-    val success: Boolean,
-    val studentName: String? = null,
-    val studentId: String? = null,
-    val errorMessage: String? = null
-)

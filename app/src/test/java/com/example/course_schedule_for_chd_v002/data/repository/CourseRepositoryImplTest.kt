@@ -3,8 +3,6 @@ package com.example.course_schedule_for_chd_v002.data.repository
 import com.example.course_schedule_for_chd_v002.data.local.database.CourseDao
 import com.example.course_schedule_for_chd_v002.data.local.database.entity.CourseEntity
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
-import com.example.course_schedule_for_chd_v002.data.remote.api.CasApi
-import com.example.course_schedule_for_chd_v002.data.remote.dto.CasLoginPage
 import com.example.course_schedule_for_chd_v002.data.remote.api.EamsApi
 import com.example.course_schedule_for_chd_v002.data.remote.client.CookieManager
 import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
@@ -22,11 +20,13 @@ import org.junit.Test
 /**
  * CourseRepositoryImpl 单元测试
  * 测试 Repository 层的业务逻辑整合
+ *
+ * 注：账号密码表单登录（login/CasApi/LoginResult）已随 LoginScreen 死代码一并移除，
+ * 对应测试同步删除。WebView 登录路径由 WebViewScreen + LoginViewModel.onCasLoginSuccess 覆盖。
  */
 class CourseRepositoryImplTest {
 
     // Mock 依赖
-    private lateinit var mockCasApi: CasApi
     private lateinit var mockEamsApi: EamsApi
     private lateinit var mockCookieManager: CookieManager
     private lateinit var mockHtmlParser: ScheduleHtmlParser
@@ -40,7 +40,6 @@ class CourseRepositoryImplTest {
     fun setup() {
         MockKAnnotations.init(this)
 
-        mockCasApi = mockk()
         mockEamsApi = mockk()
         mockCookieManager = mockk()
         mockHtmlParser = mockk()
@@ -48,7 +47,6 @@ class CourseRepositoryImplTest {
         mockCourseDao = mockk()
 
         repository = CourseRepositoryImpl(
-            casApi = mockCasApi,
             eamsApi = mockEamsApi,
             cookieManager = mockCookieManager,
             htmlParser = mockHtmlParser,
@@ -60,114 +58,6 @@ class CourseRepositoryImplTest {
     @After
     fun teardown() {
         unmockkAll()
-    }
-
-    // ================ 登录测试 ================
-
-    @Test
-    fun login_success_returnsSuccessResult() = runTest {
-        // Given
-        val loginPage = CasLoginPage(
-            lt = "LT-test",
-            execution = "e1s1",
-            eventId = "submit"
-        )
-
-        coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.login(any(), any(), any(), any()) } returns Result.success(true)
-        coEvery { mockEamsApi.accessHomePage() } returns Result.success(true)
-        coEvery { mockEamsApi.getStudentName() } returns Result.success("张三")
-        coEvery { mockEamsApi.getStudentId() } returns Result.success(20240001L)
-        coEvery { mockUserPreferences.saveLoginState(any(), any(), any(), any()) } just Runs
-
-        // When
-        val result = repository.login("20240001", "password")
-
-        // Then
-        assertTrue(result.isSuccess)
-        val loginResult = result.getOrNull()
-        assertTrue(loginResult?.success == true)
-        assertEquals("张三", loginResult?.studentName)
-        assertEquals("20240001", loginResult?.studentId)
-    }
-
-    @Test
-    fun login_getLoginPageFailure_returnsFailureResult() = runTest {
-        // Given
-        coEvery { mockCasApi.getLoginPage(any()) } returns Result.failure(Exception("Network error"))
-
-        // When
-        val result = repository.login("20240001", "password")
-
-        // Then
-        assertTrue(result.isSuccess)
-        assertFalse(result.getOrNull()?.success == true)
-        assertTrue(result.getOrNull()?.errorMessage?.contains("Cannot get login page") == true)
-    }
-
-    @Test
-    fun login_loginFailure_returnsFailureResult() = runTest {
-        // Given
-        val loginPage = CasLoginPage(
-            lt = "LT-test",
-            execution = "e1s1",
-            eventId = "submit"
-        )
-
-        coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.login(any(), any(), any(), any()) } returns Result.failure(Exception("Wrong password"))
-
-        // When
-        val result = repository.login("20240001", "wrong")
-
-        // Then
-        assertTrue(result.isSuccess)
-        assertFalse(result.getOrNull()?.success == true)
-    }
-
-    @Test
-    fun login_verificationFailure_returnsFailureResult() = runTest {
-        // Given
-        val loginPage = CasLoginPage(
-            lt = "LT-test",
-            execution = "e1s1",
-            eventId = "submit"
-        )
-
-        coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.login(any(), any(), any(), any()) } returns Result.success(true)
-        coEvery { mockEamsApi.accessHomePage() } returns Result.success(false)
-
-        // When
-        val result = repository.login("20240001", "password")
-
-        // Then
-        assertTrue(result.isSuccess)
-        assertFalse(result.getOrNull()?.success == true)
-        assertTrue(result.getOrNull()?.errorMessage?.contains("Login verification failed") == true)
-    }
-
-    @Test
-    fun login_savesUserPreferences() = runTest {
-        // Given
-        val loginPage = CasLoginPage(
-            lt = "LT-test",
-            execution = "e1s1",
-            eventId = "submit"
-        )
-
-        coEvery { mockCasApi.getLoginPage(any()) } returns Result.success(loginPage)
-        coEvery { mockCasApi.login(any(), any(), any(), any()) } returns Result.success(true)
-        coEvery { mockEamsApi.accessHomePage() } returns Result.success(true)
-        coEvery { mockEamsApi.getStudentName() } returns Result.success("张三")
-        coEvery { mockEamsApi.getStudentId() } returns Result.success(20240001L)
-        coEvery { mockUserPreferences.saveLoginState(any(), any(), any(), any()) } just Runs
-
-        // When
-        repository.login("20240001", "password")
-
-        // Then
-        coVerify { mockUserPreferences.saveLoginState(true, "20240001", "20240001", "张三") }
     }
 
     // ================ 登录状态检查测试 ================
@@ -268,19 +158,6 @@ class CourseRepositoryImplTest {
         // Then
         assertTrue(result.isSuccess)
         assertEquals(2, result.getOrNull()?.size)
-    }
-
-    @Test
-    fun fetchRemoteSchedule_notLoggedIn_returnsFailure() = runTest {
-        // Given
-        every { mockUserPreferences.isLoggedIn } returns flowOf(false)
-
-        // When
-        val result = repository.fetchRemoteSchedule("2024-2025-1")
-
-        // Then
-        assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull()?.message?.contains("Please login first") == true)
     }
 
     @Test
