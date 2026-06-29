@@ -117,6 +117,11 @@ fun AppNavigation(
             android.util.Log.i(TAG, "=== 进入 Schedule 屏幕, semester=$semester ===")
             ScheduleScreen(
                 semester = semester,
+                onNavigateToSemester = { newSemester ->
+                    navController.navigate(Screen.Schedule.createRoute(newSemester)) {
+                        launchSingleTop = true
+                    }
+                },
                 onLogout = {
                     android.util.Log.i(TAG, "[NAV] 登出，返回 Login")
                     // 登出后返回登录界面，清除所有返回栈

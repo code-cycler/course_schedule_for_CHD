@@ -93,6 +93,9 @@ class ScheduleViewModel(
             val courses = repository.getLocalSchedule(semester)
             android.util.Log.i("CHD_CurrentWeek", "[Step1] 本地课程数: ${courses.size}")
 
+            // [切换学期] 加载本地所有学期（供学期选择器）
+            val allSemesters = repository.getAllSemesters()
+
             // [v35] 计算最大周数
             val maxWeek = findMaxWeekWithCourse(courses)
             android.util.Log.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
@@ -178,6 +181,7 @@ class ScheduleViewModel(
                     actualCurrentWeek = actualCurrentWeek,  // [新功能]
                     todayDayOfWeek = todayDayOfWeek,        // [新功能]
                     waterCourseNames = waterCourses,        // [新功能] 水课列表
+                    allSemesters = allSemesters,            // [切换学期] 本地所有学期
                     isLoading = false
                 )
             }

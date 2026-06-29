@@ -45,7 +45,10 @@ data class ScheduleUiState(
     val todayDayOfWeek: DayOfWeek? = null,
 
     // [新功能] 水课名称集合（用于 UI 标记）
-    val waterCourseNames: Set<String> = emptySet()
+    val waterCourseNames: Set<String> = emptySet(),
+
+    // [切换学期] 本地已存的所有学期（供学期选择器列出）
+    val allSemesters: List<String> = emptyList()
 ) {
     /**
      * [新功能] 判断课程是否为水课

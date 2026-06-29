@@ -46,6 +46,7 @@ fun ScheduleScreen(
     semester: String,
     onLogout: () -> Unit,
     onNavigateToLogin: () -> Unit,
+    onNavigateToSemester: (String) -> Unit,
     viewModel: ScheduleViewModel = koinViewModel { parametersOf(semester) }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -136,6 +137,9 @@ fun ScheduleScreen(
             // [v61] 校区切换状态
             var showCampusDialog by remember { mutableStateOf(false) }
 
+            // [切换学期] 学期选择对话框状态
+            var showSemesterDialog by remember { mutableStateOf(false) }
+
             // [v46] 获取当前周的课程，并分别检测周六和周日是否有课
             val displayCourses = uiState.getDisplayCourses()
             val hasSaturdayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SATURDAY }
@@ -155,18 +159,36 @@ fun ScheduleScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // [v61] 左侧：校区切换按钮
-                FilterChip(
-                    selected = false,
-                    onClick = { showCampusDialog = true },
-                    label = {
-                        Text(
-                            text = uiState.campus.displayName,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1
-                        )
-                    }
-                )
+                // 左侧：学期 + 校区切换
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // [切换学期] 学期切换
+                    FilterChip(
+                        selected = false,
+                        onClick = { showSemesterDialog = true },
+                        label = {
+                            Text(
+                                text = semester,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        }
+                    )
+                    // [v61] 校区切换按钮
+                    FilterChip(
+                        selected = false,
+                        onClick = { showCampusDialog = true },
+                        label = {
+                            Text(
+                                text = uiState.campus.displayName,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        }
+                    )
+                }
 
                 // 中间：周数选择器
                 WeekSelector(
@@ -272,6 +294,53 @@ fun ScheduleScreen(
                     }
                 }
             )
+            }
+
+            // [切换学期] 学期选择对话框
+            if (showSemesterDialog) {
+                AlertDialog(
+                    onDismissRequest = { showSemesterDialog = false },
+                    title = { Text("选择学期") },
+                    text = {
+                        Column {
+                            uiState.allSemesters.forEach { sem ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onNavigateToSemester(sem)
+                                            showSemesterDialog = false
+                                        }
+                                        .padding(vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = sem == semester,
+                                        onClick = {
+                                            onNavigateToSemester(sem)
+                                            showSemesterDialog = false
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(sem)
+                                }
+                            }
+                            if (uiState.allSemesters.isEmpty()) {
+                                Text(
+                                    text = "暂无本地学期，请点「同步」获取当前学期课表",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 12.dp)
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showSemesterDialog = false }) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                    }
+                )
             }
 
             // Loading state
