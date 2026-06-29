@@ -31,10 +31,10 @@
 
 ---
 
-## ScheduleViewModelTest 测试套件腐烂 — 基于 v37/v61 之前的旧 API，无法编译
+## ScheduleViewModelTest 测试套件腐烂 — 基于 v37/v61 之前的旧 API
 
 **Status:** deferred
 **Why deferred:** experience gap（整个文件基于旧 API：构造缺 `userPreferences`（v61 加）、调 `refreshSchedule()`（v37 已删）、引用 `isRefreshing` 字段（已移除）；修复 = 基于当前 `ScheduleViewModel` 重写整套测试，需先理清 `loadSchedule` 的冲突缓存/教学周/校区逻辑再逐个 mock，工作量较大）
-**Current placeholder:** `ScheduleViewModelTest.kt` 保留不动。**注意：这会导致 `./gradlew compileDebugUnitTestKotlin`（unit test 编译）失败**；但 `./gradlew assembleDebug`（main + APK）不受影响、编译通过，`CourseRepositoryImplTest` 等其它测试也正常。
-**Reversibility:** 高 — 纯测试代码，重写不影响任何功能。
-**Trigger — revisit when:** 想恢复 unit test 覆盖（如接 CI 跑 test），或下次大改 `ScheduleViewModel` 时顺手重写。
+**Current placeholder:** 整个类 `@Ignore`（保留文件占位，不阻塞 test 编译/运行）。`./gradlew testDebugUnitTest` 现已全绿（`ScheduleHtmlParserTest` 含单双周回归、`CourseRepositoryImplTest` 等均通过）。
+**Reversibility:** 高 — 纯测试代码，重写后去掉 `@Ignore` 即可。
+**Trigger — revisit when:** 想恢复 `ScheduleViewModel` 的 unit test 覆盖，或下次大改 `ScheduleViewModel` 时顺手重写。
