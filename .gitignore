@@ -147,3 +147,6 @@ physical_phone_debug/
 
 # 课表识别错误报告（含脱敏后的设备/学号信息，不入库）
 user_report/
+
+# 本地敏感数据（CAS 账号密码等，绝不入库）
+.secrets/
