@@ -146,7 +146,7 @@ class CourseRepositoryImplTest {
         every { mockUserPreferences.isLoggedIn } returns flowOf(true)
         every { mockCookieManager.hasSessionCookie() } returns true
         coEvery { mockEamsApi.accessHomePage() } returns Result.success(true)
-        coEvery { mockEamsApi.getCourseTableHtml(semester) } returns Result.success(html)
+        coEvery { mockEamsApi.getCourseTablePage() } returns Result.success(html)
         every { mockHtmlParser.parse(html, semester) } returns entities
         coEvery { mockCourseDao.deleteBySemester(semester) } just Runs
         coEvery { mockCourseDao.insertAll(any<List<CourseEntity>>()) } just Runs
@@ -166,7 +166,7 @@ class CourseRepositoryImplTest {
         every { mockUserPreferences.isLoggedIn } returns flowOf(true)
         every { mockCookieManager.hasSessionCookie() } returns true
         coEvery { mockEamsApi.accessHomePage() } returns Result.success(true)
-        coEvery { mockEamsApi.getCourseTableHtml(any()) } returns Result.failure(Exception("Network error"))
+        coEvery { mockEamsApi.getCourseTablePage() } returns Result.failure(Exception("Network error"))
 
         // When
         val result = repository.fetchRemoteSchedule("2024-2025-1")
@@ -185,7 +185,7 @@ class CourseRepositoryImplTest {
         every { mockUserPreferences.isLoggedIn } returns flowOf(true)
         every { mockCookieManager.hasSessionCookie() } returns true
         coEvery { mockEamsApi.accessHomePage() } returns Result.success(true)
-        coEvery { mockEamsApi.getCourseTableHtml(semester) } returns Result.success(html)
+        coEvery { mockEamsApi.getCourseTablePage() } returns Result.success(html)
         every { mockHtmlParser.parse(html, semester) } returns entities
         coEvery { mockCourseDao.deleteBySemester(semester) } just Runs
         coEvery { mockCourseDao.insertAll(any<List<CourseEntity>>()) } just Runs

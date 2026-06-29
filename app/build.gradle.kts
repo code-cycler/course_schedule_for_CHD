@@ -48,6 +48,13 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests {
+            // parser 用了 android.util.Log，单元测试（JVM）里让它返回默认值而非抛异常
+            isReturnDefaultValues = true
+        }
+    }
+
     // 只保留arm64-v8a架构，排除其他所有架构
     packaging {
         jniLibs {

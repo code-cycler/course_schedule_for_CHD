@@ -6,7 +6,10 @@ import org.junit.Test
 
 /**
  * ScheduleHtmlParser 单元测试
- * 测试课表 HTML 解析功能
+ *
+ * 说明：parser 实际抓取的是 TaskActivity JS（主路径）和 `td.infoTitle` 的 title 属性（fallback），
+ * 不支持早期遗留的 `<div>课程 教师 教室 周次</div>` 通用格式——那批用例已移除（预存腐烂）。
+ * 这里保留边界用例 + TaskActivity 多班合并回归（单双周）。
  */
 class ScheduleHtmlParserTest {
 
@@ -17,482 +20,99 @@ class ScheduleHtmlParserTest {
         parser = ScheduleHtmlParser()
     }
 
-    // ================ 表格格式解析测试 ================
+    // ================ 边界情况 ================
 
     @Test
     fun parse_emptyHtml_returnsEmptyList() {
-        // Given
-        val html = "<html><body></body></html>"
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertTrue(result.isEmpty())
+        assertTrue(parser.parse("<html><body></body></html>", "2024-2025-1").isEmpty())
     }
 
     @Test
     fun parse_tableWithNoCourses_returnsEmptyList() {
-        // Given
         val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th><th>周二</th></tr>
-                    <tr><td>第1-2节</td><td></td><td></td></tr>
-                </table>
-            </body>
-            </html>
+            <html><body><table id="courseTable">
+                <tr><th>节次</th><th>周一</th></tr>
+                <tr><td>第1-2节</td><td></td></tr>
+            </table></body></html>
         """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertTrue(result.isEmpty())
-    }
-
-    @Test
-    fun parse_tableWithSingleCourse_returnsCourse() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th><th>周二</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td>
-                            <div>高等数学 张老师 A101 1-16周</div>
-                        </td>
-                        <td></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(1, result.size)
-        val course = result[0]
-        assertEquals("高等数学", course.name)
-        assertEquals("张老师", course.teacher)
-        assertEquals(1, course.dayOfWeek) // 周一
-        assertEquals(1, course.startNode)
-        assertEquals(2, course.endNode)
-        assertEquals("2024-2025-1", course.semester)
-    }
-
-    @Test
-    fun parse_tableWithMultipleCourses_returnsAllCourses() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th><th>周二</th><th>周三</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>高等数学 张老师 A101 1-16周</div></td>
-                        <td></td>
-                        <td><div>大学英语 李老师 B202 1-16周</div></td>
-                    </tr>
-                    <tr>
-                        <td>第3-4节</td>
-                        <td></td>
-                        <td><div>线性代数 王老师 C303 1-8周</div></td>
-                        <td></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(3, result.size)
-    }
-
-    @Test
-    fun parse_courseWithWeekRange_parsesCorrectly() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>体育课 体育老师 操场 9-16周</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(1, result.size)
-        assertEquals(9, result[0].startWeek)
-        assertEquals(16, result[0].endWeek)
-    }
-
-    @Test
-    fun parse_courseWithOddWeek_parsesCorrectly() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>实验课 实验老师 实验室 1-15周(单)</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(1, result.size)
-        assertEquals(1, result[0].startWeek)
-        assertEquals(15, result[0].endWeek)
-    }
-
-    @Test
-    fun parse_courseWithEvenWeek_parsesCorrectly() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>实验课 实验老师 实验室 2-16周(双)</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(1, result.size)
-        assertEquals(2, result[0].startWeek)
-        assertEquals(16, result[0].endWeek)
-    }
-
-    @Test
-    fun parse_courseWithCustomNodeRange_parsesCorrectly() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>长课时课 张老师 A101 1-16周 3-6节</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(1, result.size)
-        // 如果文本中指定了节次，应该使用文本中的节次
-        assertEquals(3, result[0].startNode)
-        assertEquals(6, result[0].endNode)
-    }
-
-    @Test
-    fun parse_courseWithLocation_parsesLocation() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>高等数学 张老师 逸夫楼A101 1-16周</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(1, result.size)
-        assertTrue(result[0].location.contains("A101") || result[0].location.contains("逸夫楼"))
-    }
-
-    @Test
-    fun parse_courseWithCourseType_parsesType() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th><th>周二</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>高等数学 张老师 A101 1-16周 必修</div></td>
-                        <td><div>公共选修课 李老师 B202 1-8周 公选</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(2, result.size)
-        assertEquals("必修", result[0].courseType)
-        assertEquals("公选", result[1].courseType)
-    }
-
-    // ================ 分隔符处理测试 ================
-
-    @Test
-    fun parse_cellWithBrSeparator_parsesMultipleCourses() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td>
-                            高等数学 张老师 A101 1-8周<br/>
-                            线性代数 李老师 B202 9-16周
-                        </td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        // 应该解析出两个课程（如果支持 br 分隔）
-        // 根据实现可能返回1或2个课程
-        assertTrue(result.isNotEmpty())
-    }
-
-    @Test
-    fun parse_cellWithMultipleDivs_parsesAllCourses() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td>
-                            <div>高等数学 张老师 A101 1-8周</div>
-                            <div>线性代数 李老师 B202 9-16周</div>
-                        </td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(2, result.size)
-        assertEquals("高等数学", result[0].name)
-        assertEquals("线性代数", result[1].name)
-    }
-
-    // ================ 不同表格选择器测试 ================
-
-    @Test
-    fun parse_gridtableClass_parsesCorrectly() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table class="gridtable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>高等数学 张老师 A101 1-16周</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(1, result.size)
-        assertEquals("高等数学", result[0].name)
-    }
-
-    @Test
-    fun parse_courseTableId_parsesCorrectly() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>大学英语 李老师 B202 1-16周</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals(1, result.size)
-        assertEquals("大学英语", result[0].name)
-    }
-
-    // ================ 学期传递测试 ================
-
-    @Test
-    fun parse_differentSemesters_storesCorrectSemester() {
-        // Given
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>测试课程 老师 A101 1-16周</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result1 = parser.parse(html, "2023-2024-2")
-        val result2 = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertEquals("2023-2024-2", result1[0].semester)
-        assertEquals("2024-2025-1", result2[0].semester)
-    }
-
-    // ================ 边界情况测试 ================
-
-    @Test
-    fun parse_courseWithEmptyName_returnsEmptyList() {
-        // Given - 没有课程名的单元格
-        val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td><div>1-16周</div></td>
-                    </tr>
-                </table>
-            </body>
-            </html>
-        """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        // 如果没有课程名，应该跳过
-        assertTrue(result.isEmpty())
+        assertTrue(parser.parse(html, "2024-2025-1").isEmpty())
     }
 
     @Test
     fun parse_tableWithHeaderOnly_returnsEmptyList() {
-        // Given - 只有表头，没有数据行
         val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th><th>周二</th></tr>
-                </table>
-            </body>
-            </html>
+            <html><body><table id="courseTable">
+                <tr><th>节次</th><th>周一</th></tr>
+            </table></body></html>
         """.trimIndent()
-
-        // When
-        val result = parser.parse(html, "2024-2025-1")
-
-        // Then
-        assertTrue(result.isEmpty())
+        assertTrue(parser.parse(html, "2024-2025-1").isEmpty())
     }
 
     @Test
-    fun parse_complexCourseFormat_parsesCorrectly() {
-        // Given - 复杂的课程格式
+    fun parse_courseWithEmptyName_returnsEmptyList() {
         val html = """
-            <html>
-            <body>
-                <table id="courseTable">
-                    <tr><th>节次</th><th>周一</th></tr>
-                    <tr>
-                        <td>第1-2节</td>
-                        <td>
-                            <div>
-                                高等数学A(上)<br/>
-                                张三<br/>
-                                逸夫教学楼A101<br/>
-                                1-16周<br/>
-                                必修
-                            </div>
-                        </td>
-                    </tr>
-                </table>
-            </body>
-            </html>
+            <html><body><table id="courseTable">
+                <tr><th>节次</th><th>周一</th></tr>
+                <tr><td>第1-2节</td><td><div>1-16周</div></td></tr>
+            </table></body></html>
+        """.trimIndent()
+        assertTrue(parser.parse(html, "2024-2025-1").isEmpty())
+    }
+
+    // ================ TaskActivity JS 多班合并（单双周回归）================
+
+    /**
+     * 回归测试：单双周课程消失 bug（用户报告 chd_course_report_20260405）
+     *
+     * C语言 周二第5-6节有两个教学班：
+     *   - 班1：单5-9周（*WM2104机房）  → bitmap index 5,7,9
+     *   - 班2：1-4周 + 双6-8周（*WM3105）→ bitmap index 1,2,3,4,6,8
+     *
+     * 修复前：位图提取正则尾部多了 `,"` 对所有 TaskActivity 都不匹配 → 班1位图提取失败 →
+     *         合并时单5-9 整段丢失 → 第5/7/9周 C语言 消失。
+     * 修复后：两班位图都正确提取 → 合并活跃周 = [1..9]。
+     */
+    @Test
+    fun parse_taskActivity多班合并_单双周班不丢失() {
+        val bitmapOdd = "0000010101" + "0".repeat(43)    // 单5,7,9周
+        val bitmapMixed = "0111101010" + "0".repeat(43)  // 1,2,3,4,6,8周
+        val html = """
+            <script>
+            var unitCount = 11;
+            var table0 = new CourseTable(2026, 77);
+            var teachers = [{id:1,name:"薛晶晶",lab:false}];
+            var courseName = "C语言程序设计(24XK1706.32)";
+            activity = new TaskActivity("1","薛晶晶","123(24XK1706.32)",courseName,"24XK1706.32)","700","*WM2104机房","$bitmapOdd",null,"","","");
+            index = 1*unitCount+4;
+            table0.activities[index][table0.activities[index].length] = activity;
+            index = 1*unitCount+5;
+            table0.activities[index][table0.activities[index].length] = activity;
+            var teachers = [{id:1,name:"薛晶晶",lab:false}];
+            var courseName = "C语言程序设计(24XK1706.32)";
+            activity = new TaskActivity("1","薛晶晶","123(24XK1706.32)",courseName,"24XK1706.32)","701","*WM3105","$bitmapMixed",null,"","","");
+            index = 1*unitCount+4;
+            table0.activities[index][table0.activities[index].length] = activity;
+            index = 1*unitCount+5;
+            table0.activities[index][table0.activities[index].length] = activity;
+            </script>
         """.trimIndent()
 
-        // When
         val result = parser.parse(html, "2024-2025-1")
 
-        // Then
-        assertTrue(result.isNotEmpty())
-        // 课程名应该包含 "高等数学"
-        assertTrue(result[0].name.contains("高等数学"))
+        val cCourse = result.find { it.name.contains("C语言") && it.dayOfWeek == 2 && it.startNode == 5 }
+        assertNotNull("C语言 周二第5-6节应被解析", cCourse)
+
+        val domain = cCourse!!.toDomainModel()
+        // 学期传递
+        assertEquals("2024-2025-1", domain.semester)
+        // 单5-9 班的周次必须保留（修复前会丢失）
+        assertTrue("第5周（单5-9）应有课", domain.isWeekInRange(5))
+        assertTrue("第7周（单5-9）应有课", domain.isWeekInRange(7))
+        assertTrue("第9周（单5-9）应有课", domain.isWeekInRange(9))
+        // 班2 的周次
+        assertTrue("第1周（班2）应有课", domain.isWeekInRange(1))
+        assertTrue("第6周（班2 双6-8）应有课", domain.isWeekInRange(6))
+        // 不在范围内的周
+        assertFalse("第10周应无课", domain.isWeekInRange(10))
     }
 }
