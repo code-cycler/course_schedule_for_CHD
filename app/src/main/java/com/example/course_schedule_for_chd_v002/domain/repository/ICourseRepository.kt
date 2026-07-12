@@ -1,13 +1,14 @@
 package com.example.course_schedule_for_chd_v002.domain.repository
 
 import com.example.course_schedule_for_chd_v002.domain.model.Course
-import com.example.course_schedule_for_chd_v002.domain.model.SemesterOption
 
 /**
  * 课程仓库接口
  * 定义数据访问的抽象接口，由 Data 层实现
  */
 interface ICourseRepository {
+    // 登录相关
+    suspend fun login(username: String, password: String): Result<LoginResult>
     suspend fun isLoggedIn(): Boolean
     suspend fun logout()
 
@@ -21,7 +22,7 @@ interface ICourseRepository {
 
     /**
      * 从 WebView 同步 Cookie 到 OkHttp
-     * 用于 WebView 登录场景
+     * 用于 GeckoView 登录场景
      * @param url 当前页面 URL
      * @param cookies Cookie 字符串
      * @return 是否同步成功
@@ -57,7 +58,7 @@ interface ICourseRepository {
 
     /**
      * 直接解析 HTML 内容为课程列表
-     * 用于 WebView 场景，从渲染后的 HTML 解析课程
+     * 用于 GeckoView 场景，从渲染后的 HTML 解析课程
      * @param html 渲染后的 HTML 内容
      * @param semester 学期标识
      * @return 解析出的课程列表
@@ -69,21 +70,6 @@ interface ICourseRepository {
     suspend fun saveSchedule(courses: List<Course>)
     suspend fun deleteSchedule(semester: String)
     suspend fun getAllSemesters(): List<String>
-
-    // [获取新学期] 远程学期抓取相关
-    /**
-     * [获取新学期] 拉取教务系统的学期选项（含教务系统 semester.id + 显示文本）
-     * 失败返回 failure（通常是 Cookie 过期 / 未登录）
-     */
-    suspend fun getRemoteSemesterOptions(): Result<List<SemesterOption>>
-
-    /**
-     * [获取新学期] 抓取指定学期的课表并入库
-     * @param remoteId 教务系统 semester.id
-     * @param localSemester 本地学期串（"YYYY-YYYY-N"）
-     * @return 入库后的课程数；失败返回 failure（含 Cookie 过期）
-     */
-    suspend fun fetchSpecifiedSemester(remoteId: String, localSemester: String): Result<Int>
 
     // 导入导出相关
     /**
@@ -183,3 +169,13 @@ interface ICourseRepository {
      */
     suspend fun getDistinctLocations(semester: String): List<String>
 }
+
+/**
+ * 登录结果
+ */
+data class LoginResult(
+    val success: Boolean,
+    val studentName: String? = null,
+    val studentId: String? = null,
+    val errorMessage: String? = null
+)

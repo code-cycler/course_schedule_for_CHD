@@ -157,11 +157,8 @@ fun AppNavigation(
             AppLogger.i(TAG, "=== 进入 Schedule 屏幕, semester=$semester ===")
             ScheduleScreen(
                 semester = semester,
-                onNavigateToSemester = { newSemester ->
-                    navController.navigate(Screen.Schedule.createRoute(newSemester)) {
-                        launchSingleTop = true
-                    }
-                },
+                // TODO[merge移植]: 切换学期/获取新学期功能待从 master(74930a0) 移植到 dev 的 ScheduleScreen
+                // 原方案用 onNavigateToSemester 导航重建 ViewModel 切学期，dev 的 ScheduleScreen 暂无此参数
                 onLogout = {
                     AppLogger.i(TAG, "[NAV] 登出，返回 Login")
                     navController.navigate(Screen.Login.route) {

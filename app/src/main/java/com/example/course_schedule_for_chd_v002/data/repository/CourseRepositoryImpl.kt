@@ -3,11 +3,11 @@ package com.example.course_schedule_for_chd_v002.data.repository
 import com.example.course_schedule_for_chd_v002.data.local.database.CourseDao
 import com.example.course_schedule_for_chd_v002.data.local.database.entity.CourseEntity
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
+import com.example.course_schedule_for_chd_v002.data.remote.api.CasApi
 import com.example.course_schedule_for_chd_v002.data.remote.api.EamsApi
 import com.example.course_schedule_for_chd_v002.data.remote.client.CookieManager
 import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.domain.model.Course
-import com.example.course_schedule_for_chd_v002.domain.model.SemesterOption
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.domain.repository.LoginResult
 import com.example.course_schedule_for_chd_v002.util.AppLogger
@@ -31,12 +31,91 @@ import kotlinx.coroutines.flow.first
 private const val REPO_TAG = "CourseRepository"
 
 class CourseRepositoryImpl(
+    private val casApi: CasApi,
     private val eamsApi: EamsApi,
     private val cookieManager: CookieManager,
     private val htmlParser: ScheduleHtmlParser,
     private val userPreferences: UserPreferences,
     private val courseDao: CourseDao
 ) : ICourseRepository {
+
+    /**
+     * 用户登录
+     * @param username 用户名（学号）
+     * @param password 密码
+     * @return 登录结果
+     */
+    override suspend fun login(
+        username: String,
+        password: String
+    ): Result<LoginResult> {
+        return try {
+            // 1. 获取登录页面信息
+            val loginPage = casApi.getLoginPage(Constants.CasUrls.LOGIN_SERVICE).getOrNull()
+                ?: return Result.success(
+                    LoginResult(
+                        success = false,
+                        errorMessage = "[X] Cannot get login page"
+                    )
+                )
+
+            // 2. 提交登录
+            val loginResult = casApi.login(
+                username = username,
+                password = password,
+                loginPage = loginPage,
+                serviceUrl = Constants.CasUrls.LOGIN_SERVICE
+            )
+
+            if (loginResult.isFailure) {
+                return Result.success(
+                    LoginResult(
+                        success = false,
+                        errorMessage = loginResult.exceptionOrNull()?.message ?: "[X] Login failed"
+                    )
+                )
+            }
+
+            // 3. 验证登录状态
+            val isLoggedIn = eamsApi.accessHomePage().getOrDefault(false)
+
+            if (!isLoggedIn) {
+                return Result.success(
+                    LoginResult(
+                        success = false,
+                        errorMessage = "[X] Login verification failed, please retry"
+                    )
+                )
+            }
+
+            // 4. 获取学生信息
+            val studentName = eamsApi.getStudentName().getOrDefault("")
+            val studentId = eamsApi.getStudentId().getOrDefault(0L)
+
+            // 5. 保存登录状态
+            userPreferences.saveLoginState(
+                isLoggedIn = true,
+                username = username,
+                studentId = studentId.toString(),
+                studentName = studentName
+            )
+
+            Result.success(
+                LoginResult(
+                    success = true,
+                    studentName = studentName,
+                    studentId = studentId.toString()
+                )
+            )
+        } catch (e: Exception) {
+            Result.success(
+                LoginResult(
+                    success = false,
+                    errorMessage = e.message ?: "[X] Login error"
+                )
+            )
+        }
+    }
 
     /**
      * 检查登录状态
@@ -151,17 +230,17 @@ class CourseRepositoryImpl(
      * 验证 WebView 登录状态
      * 从 WebView 同步 Cookie 后验证登录状态
      *
-     * 注意：WebView 和 OkHttp 有独立的 Cookie 存储，无法同步。
-     * 对于 WebView 场景，我们假设用户已登录（因为他们已在 WebView 中看到课表页面）
+     * 注意：GeckoView 和 OkHttp 有独立的 Cookie 存储，无法同步。
+     * 对于 GeckoView 场景，我们假设用户已登录（因为他们已在 GeckoView 中看到课表页面）
      * 并直接尝试获取课表数据。
      */
     override suspend fun verifyWebViewLogin(): Boolean {
         AppLogger.d(REPO_TAG, "=== verifyWebViewLogin 开始 ===")
 
-        // 对于 WebView 场景：
-        // 由于 WebView 和 OkHttp 的 Cookie 存储完全隔离，
-        // syncFromWebView 无法获取 WebView 的 Cookie。
-        // 但是，用户已经通过 WebView 登录并看到了课表页面，
+        // 对于 GeckoView 场景：
+        // 由于 GeckoView 和 OkHttp 的 Cookie 存储完全隔离，
+        // syncFromWebView 无法获取 GeckoView 的 Cookie。
+        // 但是，用户已经通过 GeckoView 登录并看到了课表页面，
         // 所以我们假设用户已登录，直接尝试获取课表。
 
         // 尝试同步 Cookie（可能失败，但不影响后续操作）
@@ -189,9 +268,9 @@ class CourseRepositoryImpl(
             )
             AppLogger.i(REPO_TAG, "[OK] 登录状态已保存")
         } else {
-            // WebView 场景：即使用 OkHttp 验证失败，用户也可能已在 WebView 中登录
+            // GeckoView 场景：即使用 OkHttp 验证失败，用户也可能已在 GeckoView 中登录
             // 保存登录状态，允许用户继续操作
-            AppLogger.w(REPO_TAG, "OkHttp 验证失败，但用户可能已在 WebView 中登录，保存登录状态")
+            AppLogger.w(REPO_TAG, "OkHttp 验证失败，但用户可能已在 GeckoView 中登录，保存登录状态")
             userPreferences.saveLoginState(
                 isLoggedIn = true,
                 username = "",
@@ -200,7 +279,7 @@ class CourseRepositoryImpl(
             )
         }
 
-        return true  // WebView 场景下始终返回 true
+        return true  // GeckoView 场景下始终返回 true
     }
 
     /**
@@ -289,9 +368,9 @@ class CourseRepositoryImpl(
         AppLogger.d(REPO_TAG, "=== fetchRemoteSchedule 开始, semester=$semester ===")
 
         return try {
-            // WebView 场景：跳过登录状态检查，直接尝试获取课表
-            // 因为 WebView 的 Cookie 和 OkHttp 隔离，Cookie 检查会失败
-            // 但用户可能已在 WebView 中登录，所以直接尝试获取
+            // GeckoView 场景：跳过登录状态检查，直接尝试获取课表
+            // 因为 GeckoView 的 Cookie 和 OkHttp 隔离，Cookie 检查会失败
+            // 但用户可能已在 GeckoView 中登录，所以直接尝试获取
 
             // 获取课表 HTML - 使用 GET 请求直接获取课表页面
             AppLogger.d(REPO_TAG, "获取课表 HTML (GET)...")
@@ -400,52 +479,6 @@ class CourseRepositoryImpl(
         }
 
         return courses.size
-    }
-
-    // ================ [获取新学期] 远程学期抓取 ================
-
-    /**
-     * [获取新学期] 拉取教务系统学期选项，过滤掉 label 非标准的项
-     */
-    override suspend fun getRemoteSemesterOptions(): Result<List<SemesterOption>> {
-        return try {
-            eamsApi.getSemesterOptions().map { options ->
-                // 只保留 label 能解析为标准本地学期串的（过滤非标准/异常选项）
-                options.filter { ScheduleHtmlParser.parseSemesterString(it.label) != null }
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * [获取新学期] 抓取指定学期课表并入库
-     * Cookie 过期（HTML 重定向到登录页）返回 failure；该学期真无课返回 success(0)
-     */
-    override suspend fun fetchSpecifiedSemester(remoteId: String, localSemester: String): Result<Int> {
-        return try {
-            val html = eamsApi.getCourseTableHtml(remoteId, null).getOrNull()
-                ?: return Result.failure(Exception("无法获取课表（Cookie 可能已过期）"))
-            val entities = htmlParser.parse(html, localSemester)
-            if (entities.isEmpty()) {
-                // 空结果：可能是 Cookie 过期重定向到登录页，也可能是该学期真无课
-                val looksLikeLoginPage = html.contains("登录") || html.contains("cas")
-                        || (!html.contains("TaskActivity") && !html.contains("table0"))
-                return if (looksLikeLoginPage) {
-                    Result.failure(Exception("登录已过期，请重新同步"))
-                } else {
-                    Result.success(0)
-                }
-            }
-            courseDao.deleteBySemester(localSemester)
-            courseDao.insertAll(entities)
-            val courses = entities.map { it.toDomainModel() }
-            precomputeAndCacheConflicts(courses, localSemester)
-            userPreferences.saveCurrentSemester(localSemester)
-            Result.success(courses.size)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
     }
 
     /**

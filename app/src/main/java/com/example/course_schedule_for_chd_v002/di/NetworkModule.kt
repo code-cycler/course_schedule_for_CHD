@@ -1,5 +1,6 @@
 package com.example.course_schedule_for_chd_v002.di
 
+import com.example.course_schedule_for_chd_v002.data.remote.api.CasApi
 import com.example.course_schedule_for_chd_v002.data.remote.api.EamsApi
 import com.example.course_schedule_for_chd_v002.data.remote.client.CookieManager
 import com.example.course_schedule_for_chd_v002.data.remote.client.EamsClient
@@ -18,6 +19,9 @@ val networkModule = module {
 
     // OkHttp 客户端
     single { get<EamsClient>().okHttpClient }
+
+    // CAS 认证 API
+    single { CasApi(get()) }
 
     // 教务系统 API
     single { EamsApi(get()) }
