@@ -3,6 +3,7 @@ package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
+import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
@@ -108,6 +109,9 @@ class ScheduleViewModel(
             val courses = repository.getLocalSchedule(semester)
             AppLogger.i("CHD_CurrentWeek", "[Step1] 本地课程数: ${courses.size}")
 
+            // [切换学期] 加载本地所有学期（供学期选择器）
+            val allSemesters = repository.getAllSemesters()
+
             val maxWeek = findMaxWeekWithCourse(courses)
             AppLogger.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
 
@@ -188,6 +192,7 @@ class ScheduleViewModel(
                     todayDayOfWeek = todayDayOfWeek,
                     weekStartDate = weekStartDate,
                     waterCourseNames = waterCourses,
+                    allSemesters = allSemesters,
                     displayCourses = initialDisplayCourses,
                     coursesByWeek = initialCoursesByWeek,
                     isLoading = false
@@ -778,6 +783,60 @@ class ScheduleViewModel(
                     it.copy(reportState = ReportState.Error(e.message ?: "未知错误"))
                 }
             }
+        }
+    }
+
+    // ================ [获取新学期] 远程学期抓取 ================
+
+    /**
+     * [获取新学期] 拉取教务系统候选学期（智能筛选前2+当前+往后1）
+     */
+    fun fetchRemoteSemesterOptions() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isFetchingSemester = true, fetchSemesterError = null, remoteSemesterOptions = emptyList())
+            }
+            repository.getRemoteSemesterOptions()
+                .onSuccess { allOptions ->
+                    val cal = java.util.Calendar.getInstance()
+                    val year = cal.get(java.util.Calendar.YEAR)
+                    val month = cal.get(java.util.Calendar.MONTH) + 1
+                    val current = inferCurrentSemester(year, month)
+                    val ordered = candidateSemesters(current).mapNotNull { wantedLocal ->
+                        allOptions.find { ScheduleHtmlParser.parseSemesterString(it.label) == wantedLocal }
+                    }
+                    _uiState.update {
+                        it.copy(remoteSemesterOptions = ordered, isFetchingSemester = false)
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(isFetchingSemester = false, fetchSemesterError = e.message ?: "获取失败")
+                    }
+                }
+        }
+    }
+
+    /**
+     * [获取新学期] 抓取单个学期并入库，成功后回调 onDone 触发导航切换 + Toast
+     */
+    fun fetchSpecifiedSemester(remoteId: String, localSemester: String, onDone: (String, Int) -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isFetchingSemester = true, fetchSemesterError = null) }
+            repository.fetchSpecifiedSemester(remoteId, localSemester)
+                .onSuccess { count ->
+                    _uiState.update { it.copy(isFetchingSemester = false) }
+                    if (count > 0) {
+                        onDone(localSemester, count)
+                    } else {
+                        _uiState.update { it.copy(fetchSemesterError = "该学期暂无课程") }
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(isFetchingSemester = false, fetchSemesterError = e.message ?: "登录已过期")
+                    }
+                }
         }
     }
 }
