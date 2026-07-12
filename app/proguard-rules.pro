@@ -81,6 +81,12 @@
 -keep class com.example.course_schedule_for_chd_v002.di.** { *; }
 
 # ============================================================
+# Crash Handler & Application
+# ============================================================
+-keep class com.example.course_schedule_for_chd_v002.CourseApplication { *; }
+-keep class com.example.course_schedule_for_chd_v002.util.CrashHandler { *; }
+
+# ============================================================
 # Kotlin & Coroutines
 # ============================================================
 # Kotlin

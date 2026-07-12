@@ -59,4 +59,8 @@
     <string name="exporting_schedule">正在生成图片...</string>
     <string name="export_failed">导出失败，请稍后再试</string>
     <string name="export_share_title">分享课表</string>
+
+    <!-- 冲突课程 -->
+    <string name="conflict_title">时间冲突</string>
+    <string name="conflict_desc">与以下课程时间冲突：</string>
 </resources>

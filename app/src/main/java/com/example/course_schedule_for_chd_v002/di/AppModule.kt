@@ -4,6 +4,7 @@ import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPrefe
 import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.data.repository.CourseRepositoryImpl
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncService
 import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleViewModel
 import org.koin.android.ext.koin.androidContext
@@ -21,6 +22,9 @@ val appModule = module {
     // HTML 解析器
     single { ScheduleHtmlParser() }
 
+    // 日历同步服务
+    single { CalendarSyncService(androidContext()) }
+
     // Repository
     single<ICourseRepository> {
         CourseRepositoryImpl(
@@ -33,7 +37,6 @@ val appModule = module {
     }
 
     // ViewModels
-    viewModel { LoginViewModel(get(), get()) }  // 添加 UserPreferences 参数
-    // [v61] ScheduleViewModel 需要 userPreferences 参数
-    viewModel { params -> ScheduleViewModel(get(), get(), params.get()) }
+    viewModel { LoginViewModel(get(), get()) }
+    viewModel { params -> ScheduleViewModel(get(), get(), params.get(), get()) }
 }

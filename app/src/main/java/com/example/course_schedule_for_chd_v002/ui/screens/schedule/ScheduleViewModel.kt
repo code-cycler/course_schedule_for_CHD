@@ -3,12 +3,15 @@ package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
-import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
+import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncService
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
+import com.example.course_schedule_for_chd_v002.util.AppLogger
+import com.example.course_schedule_for_chd_v002.util.ReportGenerator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,169 +23,173 @@ import kotlinx.coroutines.launch
  * 管理课程表显示、周次选择、刷新等逻辑
  *
  * @param repository 课程仓库接口
- * @param userPreferences 用户偏好设置 [v61]
+ * @param userPreferences 用户偏好设置
  * @param semester 当前学期
+ * @param calendarSyncService 日历同步服务
  */
 class ScheduleViewModel(
     private val repository: ICourseRepository,
-    private val userPreferences: UserPreferences,  // [v61] 新增
-    private val semester: String
+    private val userPreferences: UserPreferences,
+    private val semester: String,
+    private val calendarSyncService: CalendarSyncService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScheduleUiState(semester = semester))
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
 
+    // 日历同步设置状态
+    private val _reminderSettings = MutableStateFlow<ReminderSettings>(ReminderSettings())
+
+    /**
+     * 获取日历同步设置
+     */
+    val reminderSettings: StateFlow<ReminderSettings> = _reminderSettings.asStateFlow()
+
     // [v37] 添加初始化保护，防止启动崩溃
     init {
         try {
-            android.util.Log.d("ScheduleViewModel", "[v37] 初始化，学期: $semester")
-            loadCampus()  // [v61] 先加载校区设置
+            AppLogger.d("ScheduleViewModel", "[v37] 初始化,学期: $semester")
+            loadCampus()
             loadSchedule()
+            loadReminderSettings()
         } catch (e: Exception) {
-            android.util.Log.e("ScheduleViewModel", "[v37] 初始化失败: ${e.message}", e)
+            AppLogger.e("ScheduleViewModel", "[v37] 初始化失败: ${e.message}", e)
             _uiState.update { it.copy(isLoading = false, errorMessage = "初始化失败: ${e.message}") }
         }
     }
 
     /**
      * 重新加载课程数据
-     * 用于从登录页返回后刷新数据
      */
     fun reload() {
-        android.util.Log.d("ScheduleViewModel", "[v24] reload() 被调用")
+        AppLogger.d("ScheduleViewModel", "[v24] reload() 被调用")
         loadSchedule()
     }
 
     /**
-     * [v61] 加载保存的校区设置
+     * 加载保存的校区设置
      */
     private fun loadCampus() {
         viewModelScope.launch {
             val campusName = userPreferences.getCampusOnce()
             val campus = Campus.fromName(campusName)
-            android.util.Log.d("ScheduleViewModel", "[v61] 加载校区: $campusName")
+            AppLogger.d("ScheduleViewModel", "加载校区: $campusName")
             _uiState.update { it.copy(campus = campus) }
         }
     }
 
     /**
-     * [v61] 切换校区
-     * @param campus 新的校区
+     * 切换校区
      */
     fun onCampusChanged(campus: Campus) {
         viewModelScope.launch {
-            android.util.Log.d("ScheduleViewModel", "[v61] 切换校区: ${campus.name}")
+            AppLogger.d("ScheduleViewModel", "切换校区: ${campus.name}")
+            val oldSettings = _reminderSettings.value
             userPreferences.saveCampus(campus.name)
             _uiState.update { it.copy(campus = campus) }
+
+            // 如果日历同步已启用，自动重新同步
+            if (oldSettings.calendarSyncEnabled) {
+                AppLogger.i("ScheduleViewModel", "校区变更，自动重新同步日历")
+                syncToCalendar()
+            }
         }
     }
 
     /**
      * 加载本地课表
-     * [v35] 加载后自动选择第一个有课的周次，动态设置最大周数
-     * [v89] 改为按当前周次计算冲突，而非全局冲突
-     * [新增] 优先使用保存的当前教学周
-     * [v74] 优先从缓存获取冲突，无缓存时实时计算并缓存
-     * [新功能] 计算当前实际教学周，并自动跳转
      */
     private fun loadSchedule() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 开始 ==========")
+            AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 开始 ==========")
 
             val courses = repository.getLocalSchedule(semester)
-            android.util.Log.i("CHD_CurrentWeek", "[Step1] 本地课程数: ${courses.size}")
+            AppLogger.i("CHD_CurrentWeek", "[Step1] 本地课程数: ${courses.size}")
 
-            // [切换学期] 加载本地所有学期（供学期选择器）
-            val allSemesters = repository.getAllSemesters()
-
-            // [v35] 计算最大周数
             val maxWeek = findMaxWeekWithCourse(courses)
-            android.util.Log.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
 
-            // [新功能] 计算当前实际教学周
             val semesterStartDate = userPreferences.getSemesterStartDateOnce()
             val lastParsedWeek = userPreferences.getLastParsedWeekOnce()
-            android.util.Log.i("CHD_CurrentWeek", "[Step3] 学期开始日期: $semesterStartDate, 上次解析周次: $lastParsedWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step3] 学期开始日期: $semesterStartDate, 上次解析周次: $lastParsedWeek")
 
-            // [新功能] 优先使用学期开始日期计算，否则使用上次解析的周次
             val actualCurrentWeek = when {
                 semesterStartDate != null -> TimeUtils.calculateCurrentWeek(semesterStartDate)
                 lastParsedWeek != null && lastParsedWeek in 1..maxWeek -> lastParsedWeek
                 else -> null
             }
-            android.util.Log.i("CHD_CurrentWeek", "[Step4] 实际当前教学周: $actualCurrentWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step4] 实际当前教学周: $actualCurrentWeek")
 
-            // [新功能] 获取今天星期几
             val todayDayOfWeek = TimeUtils.getTodayDayOfWeek()
-            android.util.Log.i("CHD_CurrentWeek", "[Step5] 今天是: $todayDayOfWeek")
+            AppLogger.i("CHD_CurrentWeek", "[Step5] 今天是: $todayDayOfWeek")
 
-            // [新功能] 加载水课列表
             val waterCourses = userPreferences.getWaterCoursesForSemester(semester)
-            android.util.Log.d("ScheduleViewModel", "[新功能] 水课数量: ${waterCourses.size}")
+            AppLogger.d("ScheduleViewModel", "水课数量: ${waterCourses.size}")
 
-            // 决定初始显示周次：
-            // 1. 如果有实际当前周且在有效范围内，使用实际当前周
-            // 2. 否则使用保存的当前周
-            // 3. 最后回退到第一个有课的周
             val savedCurrentWeek = userPreferences.getCurrentWeekOnce()
             val initialWeek = when {
                 actualCurrentWeek != null && actualCurrentWeek in 1..maxWeek -> {
-                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 使用实际当前周: $actualCurrentWeek")
+                    AppLogger.i("CHD_CurrentWeek", "[Step6] 使用实际当前周: $actualCurrentWeek")
                     actualCurrentWeek
                 }
                 savedCurrentWeek in 1..maxWeek -> {
-                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 使用保存的周次: $savedCurrentWeek")
+                    AppLogger.i("CHD_CurrentWeek", "[Step6] 使用保存的周次: $savedCurrentWeek")
                     savedCurrentWeek
                 }
                 else -> {
                     val firstWeek = findFirstWeekWithCourse(courses)
-                    android.util.Log.i("CHD_CurrentWeek", "[Step6] 回退到第一个有课周次: $firstWeek")
+                    AppLogger.i("CHD_CurrentWeek", "[Step6] 回退到第一个有课周次: $firstWeek")
                     firstWeek
                 }
             }
 
-            // [v74] 优先从缓存获取冲突，无缓存或缓存不完整时预计算
-            // [v74 fix] 检查缓存是否完整（需要覆盖最大周次）
+            // 冲突缓存
             if (courses.isNotEmpty()) {
                 val cache = repository.getConflictCache(semester)
                 val cachedMaxWeek = cache.keys.maxOrNull() ?: 0
                 val isComplete = cache.isNotEmpty() && cachedMaxWeek >= maxWeek
 
                 if (!isComplete) {
-                    android.util.Log.i("CHD_Conflict", "[v74 fix] 缓存不完整: 缓存覆盖周1-$cachedMaxWeek, 需要1-$maxWeek, 重新预计算...")
+                    AppLogger.i("CHD_Conflict", "缓存不完整: 缓存覆盖周1-$cachedMaxWeek, 需要1-$maxWeek, 重新预计算...")
                     repository.precomputeAndCacheConflicts(courses, semester)
                 } else {
-                    android.util.Log.i("CHD_Conflict", "[v74 fix] 缓存完整: 覆盖周1-$cachedMaxWeek")
+                    AppLogger.i("CHD_Conflict", "缓存完整: 覆盖周1-$cachedMaxWeek")
                 }
             }
 
-            // 从缓存获取当前周的冲突
             val conflicts = repository.getConflictsForWeek(semester, initialWeek)
-            val conflictIds: Set<Long> = if (conflicts != null) {
-                android.util.Log.i("CHD_Conflict", "[Step7] 周$initialWeek 从缓存获取冲突: ${conflicts.size} 门")
-                conflicts
-            } else {
-                // 缓存中该周无冲突记录，返回空集
-                android.util.Log.i("CHD_Conflict", "[Step7] 周$initialWeek 缓存中无冲突记录")
-                emptySet()
-            }
-            android.util.Log.i("CHD_Conflict", "[Step7.1] 周$initialWeek 最终冲突数: ${conflictIds.size}")
+            val conflictIds: Set<Long> = conflicts ?: emptySet()
+            AppLogger.i("CHD_Conflict", "[Step7] 周$initialWeek 最终冲突数: ${conflictIds.size}")
 
-            android.util.Log.i("CHD_CurrentWeek", "[Step8] 最终显示周次: $initialWeek")
-            android.util.Log.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
+            AppLogger.i("CHD_CurrentWeek", "[Step8] 最终显示周次: $initialWeek")
+
+            val weekStartDate = if (semesterStartDate != null) {
+                TimeUtils.calculateWeekStartDate(semesterStartDate, initialWeek)
+            } else {
+                null
+            }
+
+            AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
+
+            val initialDisplayCourses = courses.filter { it.isWeekInRange(initialWeek) }
+            val initialCoursesByWeek = (1..maxWeek).associateWith { week ->
+                courses.filter { course -> course.isWeekInRange(week) }
+            }
 
             _uiState.update {
                 it.copy(
                     courses = courses,
                     conflictingCourseIds = conflictIds,
                     currentWeek = initialWeek,
-                    maxWeeks = maxWeek,  // [v35] 动态设置最大周数
-                    actualCurrentWeek = actualCurrentWeek,  // [新功能]
-                    todayDayOfWeek = todayDayOfWeek,        // [新功能]
-                    waterCourseNames = waterCourses,        // [新功能] 水课列表
-                    allSemesters = allSemesters,            // [切换学期] 本地所有学期
+                    maxWeeks = maxWeek,
+                    actualCurrentWeek = actualCurrentWeek,
+                    todayDayOfWeek = todayDayOfWeek,
+                    weekStartDate = weekStartDate,
+                    waterCourseNames = waterCourses,
+                    displayCourses = initialDisplayCourses,
+                    coursesByWeek = initialCoursesByWeek,
                     isLoading = false
                 )
             }
@@ -190,119 +197,124 @@ class ScheduleViewModel(
     }
 
     /**
-     * [v89] 根据周次更新冲突课程ID
-     * [v74] 优先从缓存获取，无缓存时实时计算
-     * [v74 fix] 缓存已在 loadSchedule 中确保完整，直接从缓存读取
-     * @param week 周次
+     * 根据周次更新冲突课程ID
      */
     private fun updateConflictsForWeek(week: Int) {
         viewModelScope.launch {
-            // [v74 fix] 直接从缓存获取，不再实时计算
             val conflicts = repository.getConflictsForWeek(semester, week)
             val conflictIds: Set<Long> = conflicts ?: emptySet()
-
-            android.util.Log.d("ScheduleViewModel", "[v74 fix] updateConflictsForWeek: 周$week, 缓存获取 ${conflictIds.size} 个冲突")
-
+            AppLogger.d("ScheduleViewModel", "updateConflictsForWeek: 周$week, ${conflictIds.size} 个冲突")
             _uiState.update { it.copy(conflictingCourseIds = conflictIds) }
         }
     }
 
-    /**
-     * [v34] 找到应该显示的周次
-     * 忽略当前日期的影响，自动选择第一个有课的周次
-     * 如果没有任何课程，默认显示第一周
-     * [v95] 添加边界检查，确保周次至少为1
-     */
     private fun findFirstWeekWithCourse(courses: List<Course>): Int {
         if (courses.isEmpty()) {
-            android.util.Log.d("ScheduleViewModel", "[v35] 无课程，默认第一周")
             return 1
         }
-
-        // [v34] 找到所有课程中最早的开始周次
         var minStartWeek = Int.MAX_VALUE
         for (course in courses) {
             if (course.startWeek < minStartWeek) {
                 minStartWeek = course.startWeek
             }
         }
-
-        // [v95] 确保周次至少为1（防止旧数据中 startWeek=0 的情况）
-        val firstWeek = maxOf(1, if (minStartWeek == Int.MAX_VALUE) 1 else minStartWeek)
-        android.util.Log.d("ScheduleViewModel", "[v35] 第一个有课的周次: $firstWeek")
-        return firstWeek
+        return maxOf(1, if (minStartWeek == Int.MAX_VALUE) 1 else minStartWeek)
     }
 
-    /**
-     * [v35] 找到最后一个有课的周次
-     * 用于动态设置周选择器的最大值
-     */
     private fun findMaxWeekWithCourse(courses: List<Course>): Int {
         if (courses.isEmpty()) {
-            android.util.Log.d("ScheduleViewModel", "[v35] 无课程，默认最大25周")
             return Constants.Schedule.MAX_WEEKS
         }
-
         var maxEndWeek = 0
         for (course in courses) {
             if (course.endWeek > maxEndWeek) {
                 maxEndWeek = course.endWeek
             }
         }
-
-        val result = if (maxEndWeek == 0) Constants.Schedule.MAX_WEEKS else maxEndWeek
-        android.util.Log.d("ScheduleViewModel", "[v35] 最大周次: $result")
-        return result
+        return if (maxEndWeek == 0) Constants.Schedule.MAX_WEEKS else maxEndWeek
     }
 
-    /**
-     * 选择周次
-     * [v89] 切换周次时更新冲突标记
-     *
-     * @param week 周次 (1-16)
-     */
     fun onWeekSelected(week: Int) {
         val newWeek = week.coerceIn(1, _uiState.value.maxWeeks)
-        _uiState.update {
-            it.copy(currentWeek = newWeek)
+
+        viewModelScope.launch {
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            val weekStartDate = if (semesterStartDate != null) {
+                TimeUtils.calculateWeekStartDate(semesterStartDate, newWeek)
+            } else {
+                null
+            }
+
+            val allCourses = _uiState.value.courses
+            val cachedDisplayCourses = _uiState.value.coursesByWeek[newWeek]
+                ?: allCourses.filter { it.isWeekInRange(newWeek) }
+
+            _uiState.update {
+                it.copy(
+                    currentWeek = newWeek,
+                    weekStartDate = weekStartDate,
+                    displayCourses = cachedDisplayCourses
+                )
+            }
         }
-        // [v89] 切换周次时更新冲突
+
         updateConflictsForWeek(newWeek)
     }
 
-    /**
-     * [新功能] 跳转到当前教学周
-     */
     fun goToCurrentWeek() {
         val targetWeek = _uiState.value.actualCurrentWeek ?: return
         if (targetWeek in 1.._uiState.value.maxWeeks) {
-            android.util.Log.i("ScheduleViewModel", "[新功能] 跳转到当前教学周: $targetWeek")
+            AppLogger.i("ScheduleViewModel", "跳转到当前教学周: $targetWeek")
             onWeekSelected(targetWeek)
         }
     }
 
-    // [v37] 删除 refreshSchedule() 方法，不再需要刷新功能
-
     /**
-     * 选择课程（用于显示详情）
-     *
-     * @param course 选中的课程，null表示取消选择
+     * 刷新当前时间和教学周信息
      */
+    fun refreshCurrentTimeInfo() {
+        viewModelScope.launch {
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            val maxWeek = _uiState.value.maxWeeks
+            val currentDisplayWeek = _uiState.value.currentWeek
+
+            val actualCurrentWeek = when {
+                semesterStartDate != null -> TimeUtils.calculateCurrentWeek(semesterStartDate)
+                else -> null
+            }
+
+            val todayDayOfWeek = TimeUtils.getTodayDayOfWeek()
+
+            val weekStartDate = if (semesterStartDate != null) {
+                TimeUtils.calculateWeekStartDate(semesterStartDate, currentDisplayWeek)
+            } else {
+                null
+            }
+
+            _uiState.update { currentState ->
+                val shouldUpdateDisplayWeek = actualCurrentWeek != null &&
+                    actualCurrentWeek in 1..maxWeek &&
+                    currentState.currentWeek != actualCurrentWeek &&
+                    currentState.currentWeek == currentState.actualCurrentWeek
+
+                currentState.copy(
+                    actualCurrentWeek = actualCurrentWeek,
+                    todayDayOfWeek = todayDayOfWeek,
+                    weekStartDate = weekStartDate,
+                    currentWeek = if (shouldUpdateDisplayWeek) actualCurrentWeek else currentState.currentWeek
+                )
+            }
+        }
+    }
+
     fun onCourseSelected(course: Course?) {
         _uiState.update { it.copy(selectedCourse = course) }
     }
 
-    /**
-     * 关闭错误提示
-     */
     fun dismissError() {
         _uiState.update { it.copy(errorMessage = null) }
     }
 
-    /**
-     * [新功能] 切换水课标注状态
-     * @param courseName 课程名称
-     */
     fun toggleWaterCourse(courseName: String) {
         viewModelScope.launch {
             val isWaterCourse = courseName in _uiState.value.waterCourseNames
@@ -312,20 +324,15 @@ class ScheduleViewModel(
                 _uiState.update {
                     it.copy(waterCourseNames = it.waterCourseNames - courseName)
                 }
-                android.util.Log.d("ScheduleViewModel", "[新功能] 取消水课标注: $courseName")
             } else {
                 userPreferences.addWaterCourse(courseName, semester)
                 _uiState.update {
                     it.copy(waterCourseNames = it.waterCourseNames + courseName)
                 }
-                android.util.Log.d("ScheduleViewModel", "[新功能] 添加水课标注: $courseName")
             }
         }
     }
 
-    /**
-     * 登出
-     */
     fun logout() {
         viewModelScope.launch {
             repository.logout()
@@ -341,13 +348,9 @@ class ScheduleViewModel(
     private val _importResult = MutableStateFlow<ImportResult?>(null)
     val importResult: StateFlow<ImportResult?> = _importResult.asStateFlow()
 
-    /**
-     * 导出课表为 JSON
-     */
     fun exportSchedule() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-
             try {
                 val json = repository.exportScheduleToJson(semester)
                 _exportResult.value = ExportResult.Success(json)
@@ -359,19 +362,12 @@ class ScheduleViewModel(
         }
     }
 
-    /**
-     * 从 JSON 导入课表
-     * @param jsonString JSON 字符串
-     */
     fun importSchedule(jsonString: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-
             try {
                 val count = repository.importScheduleFromJson(jsonString, semester)
                 _importResult.value = ImportResult.Success(count)
-
-                // 重新加载课表
                 loadSchedule()
             } catch (e: Exception) {
                 _importResult.value = ImportResult.Error(e.message ?: "Import failed")
@@ -380,80 +376,408 @@ class ScheduleViewModel(
         }
     }
 
-    /**
-     * 清除导出结果
-     */
     fun clearExportResult() {
         _exportResult.value = null
     }
 
-    /**
-     * 清除导入结果
-     */
     fun clearImportResult() {
         _importResult.value = null
     }
 
-    // ================ [获取新学期] 远程学期抓取 ================
+    // ================ 日历同步设置相关 ================
 
     /**
-     * [获取新学期] 拉取教务系统候选学期（智能筛选前2+当前+往后1）
-     * 失败时写入 fetchSemesterError（通常 Cookie 过期）
+     * 加载日历同步设置
      */
-    fun fetchRemoteSemesterOptions() {
+    private fun loadReminderSettings() {
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isFetchingSemester = true,
-                    fetchSemesterError = null,
-                    remoteSemesterOptions = emptyList()
-                )
-            }
-            repository.getRemoteSemesterOptions()
-                .onSuccess { allOptions ->
-                    val cal = java.util.Calendar.getInstance()
-                    val year = cal.get(java.util.Calendar.YEAR)
-                    val month = cal.get(java.util.Calendar.MONTH) + 1
-                    val current = inferCurrentSemester(year, month)
-                    // 按 [前2,前1,当前,往后1] 的顺序，挑出教务系统实际返回的对应项
-                    val ordered = candidateSemesters(current).mapNotNull { wantedLocal ->
-                        allOptions.find { ScheduleHtmlParser.parseSemesterString(it.label) == wantedLocal }
-                    }
-                    _uiState.update {
-                        it.copy(remoteSemesterOptions = ordered, isFetchingSemester = false)
-                    }
-                }
-                .onFailure { e ->
-                    _uiState.update {
-                        it.copy(isFetchingSemester = false, fetchSemesterError = e.message ?: "获取失败")
-                    }
-                }
+            val settings = userPreferences.getReminderSettingsOnce()
+            _reminderSettings.value = settings
+            AppLogger.d("ScheduleViewModel", "加载日历同步设置: $settings")
         }
     }
 
     /**
-     * [获取新学期] 抓取单个学期并入库，成功后回调 onDone 触发导航切换 + Toast
-     * @param remoteId 教务系统 semester.id
-     * @param localSemester 本地学期串
-     * @param onDone 成功回调(localSemester, 课程数)
+     * 更新日历同步设置
      */
-    fun fetchSpecifiedSemester(remoteId: String, localSemester: String, onDone: (String, Int) -> Unit) {
+    fun updateReminderSettings(settings: ReminderSettings) {
+        val oldSettings = _reminderSettings.value
+
         viewModelScope.launch {
-            _uiState.update { it.copy(isFetchingSemester = true, fetchSemesterError = null) }
-            repository.fetchSpecifiedSemester(remoteId, localSemester)
-                .onSuccess { count ->
-                    _uiState.update { it.copy(isFetchingSemester = false) }
-                    if (count > 0) {
-                        onDone(localSemester, count)
-                    } else {
-                        _uiState.update { it.copy(fetchSemesterError = "该学期暂无课程") }
-                    }
+            _reminderSettings.value = settings
+            userPreferences.saveReminderSettings(settings)
+            AppLogger.d("ScheduleViewModel", "保存日历同步设置: $settings")
+
+            // 检查是否需要自动重新同步日历
+            if (settings.calendarSyncEnabled && shouldResyncCalendar(oldSettings, settings)) {
+                AppLogger.i("ScheduleViewModel", "日历提醒设置变更，自动重新同步")
+                syncToCalendar()
+            }
+        }
+    }
+
+    /**
+     * 判断是否需要重新同步日历
+     */
+    private fun shouldResyncCalendar(old: ReminderSettings, new: ReminderSettings): Boolean {
+        return old.calendarBeforeClassReminderEnabled != new.calendarBeforeClassReminderEnabled ||
+               old.calendarEarlyMorningReminderEnabled != new.calendarEarlyMorningReminderEnabled ||
+               old.beforeClassReminderMinutes != new.beforeClassReminderMinutes ||
+               old.earlyMorningReminderHour != new.earlyMorningReminderHour ||
+               old.earlyMorningReminderMinute != new.earlyMorningReminderMinute
+    }
+
+    /**
+     * 同步课程到日历
+     */
+    fun syncToCalendar() {
+        viewModelScope.launch {
+            AppLogger.i("CHD_CalendarDebug", "========== syncToCalendar 开始 ==========")
+
+            _uiState.update { it.copy(calendarSyncState = CalendarSyncState.Syncing) }
+
+            val courses = _uiState.value.courses
+            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            val campus = _uiState.value.campus
+            val reminderSettings = _reminderSettings.value
+
+            AppLogger.i("CHD_CalendarDebug", "课程数: ${courses.size}, 校区: ${campus.displayName}")
+
+            if (courses.isEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Error("没有课程可同步"),
+                        errorMessage = "没有课程可同步"
+                    )
                 }
-                .onFailure { e ->
+                return@launch
+            }
+
+            if (semesterStartDate == null) {
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Error("缺少学期开始日期，请先同步课表"),
+                        errorMessage = "缺少学期开始日期，请先同步课表"
+                    )
+                }
+                return@launch
+            }
+
+            try {
+                val result = calendarSyncService.syncCoursesToCalendar(
+                    courses,
+                    semesterStartDate,
+                    campus,
+                    reminderSettings
+                )
+                val statusMsg = buildString {
+                    append("同步完成: 成功 ${result.successCount} 节")
+                    if (result.failCount > 0) {
+                        append(", 失败 ${result.failCount} 节")
+                    }
+                    if (result.reminderCount > 0) {
+                        append(", 提醒 ${result.reminderCount} 个")
+                    }
+                    if (result.earlyMorningCount > 0) {
+                        append(", 早八提醒 ${result.earlyMorningCount} 个")
+                    }
+                    append(" (${campus.displayName})")
+                }
+
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Synced(result.successCount),
+                        errorMessage = statusMsg
+                    )
+                }
+                AppLogger.i("CHD_CalendarDebug", "同步完成: $result")
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Error(e.message ?: "同步失败"),
+                        errorMessage = "同步失败: ${e.message}"
+                    )
+                }
+                AppLogger.e("CHD_CalendarDebug", "同步失败", e)
+            }
+        }
+    }
+
+    /**
+     * 删除日历中的所有课程事件
+     */
+    fun deleteCalendarEvents() {
+        viewModelScope.launch {
+            AppLogger.d("ScheduleViewModel", "开始删除日历事件...")
+
+            _uiState.update { it.copy(calendarSyncState = CalendarSyncState.Deleting) }
+
+            try {
+                val deleted = calendarSyncService.deleteCalendar()
+                if (deleted) {
                     _uiState.update {
-                        it.copy(isFetchingSemester = false, fetchSemesterError = e.message ?: "登录已过期")
+                        it.copy(
+                            calendarSyncState = CalendarSyncState.Deleted,
+                            errorMessage = "已删除日历中的所有课程事件"
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            calendarSyncState = CalendarSyncState.Error("删除日历失败，请检查权限"),
+                            errorMessage = "删除日历失败，请检查权限"
+                        )
                     }
                 }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        calendarSyncState = CalendarSyncState.Error(e.message ?: "删除失败"),
+                        errorMessage = "删除失败: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 日历权限结果处理
+     */
+    fun onCalendarPermissionResult(isGranted: Boolean) {
+        AppLogger.d("ScheduleViewModel", "日历权限结果: $isGranted")
+        if (isGranted) {
+            syncToCalendar()
+        }
+    }
+
+    // ================ 课程编辑相关 ================
+
+    fun openCourseEditor(courseName: String) {
+        viewModelScope.launch {
+            try {
+                val instances = repository.getCoursesByName(semester, courseName)
+                if (instances.isEmpty()) return@launch
+
+                val group = CourseEditGroup(
+                    courseName = courseName,
+                    semester = semester,
+                    instances = instances,
+                    courseType = instances.first().courseType,
+                    credit = instances.first().credit
+                )
+
+                val teachers = repository.getDistinctTeachers(semester)
+                val locations = repository.getDistinctLocations(semester)
+
+                _uiState.update {
+                    it.copy(
+                        editCourseGroup = group,
+                        suggestedTeachers = teachers,
+                        suggestedLocations = locations,
+                        editConflicts = emptyList()
+                    )
+                }
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[编辑] 打开编辑器失败", e)
+            }
+        }
+    }
+
+    fun updateCourseInstance(course: Course) {
+        viewModelScope.launch {
+            try {
+                repository.updateCourse(course)
+                refreshAfterEdit()
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[编辑] 更新失败", e)
+            }
+        }
+    }
+
+    fun addCourseInstance(course: Course) {
+        viewModelScope.launch {
+            try {
+                repository.insertCourse(course)
+                refreshAfterEdit()
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[编辑] 添加失败", e)
+            }
+        }
+    }
+
+    fun deleteCourseInstance(courseId: Long) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCourseById(courseId)
+                refreshAfterEdit()
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[编辑] 删除失败", e)
+            }
+        }
+    }
+
+    fun dismissCourseEditor() {
+        _uiState.update {
+            it.copy(
+                editCourseGroup = null,
+                suggestedTeachers = emptyList(),
+                suggestedLocations = emptyList(),
+                editConflicts = emptyList()
+            )
+        }
+    }
+
+    /**
+     * 编辑后刷新数据
+     */
+    private suspend fun refreshAfterEdit() {
+        val courses = repository.getLocalSchedule(semester)
+        val maxWeek = findMaxWeekWithCourse(courses)
+        val currentWeek = _uiState.value.currentWeek.coerceIn(1, maxWeek)
+
+        if (courses.isNotEmpty()) {
+            repository.precomputeAndCacheConflicts(courses, semester)
+        }
+
+        val conflicts = repository.getConflictsForWeek(semester, currentWeek) ?: emptySet()
+
+        val displayCourses = courses.filter { it.isWeekInRange(currentWeek) }
+        val coursesByWeek = (1..maxWeek).associateWith { week ->
+            courses.filter { course -> course.isWeekInRange(week) }
+        }
+
+        val teachers = repository.getDistinctTeachers(semester)
+        val locations = repository.getDistinctLocations(semester)
+
+        val currentGroupName = _uiState.value.editCourseGroup?.courseName
+        val updatedGroup = if (currentGroupName != null) {
+            val instances = repository.getCoursesByName(semester, currentGroupName)
+            if (instances.isEmpty()) {
+                null
+            } else {
+                CourseEditGroup(
+                    courseName = currentGroupName,
+                    semester = semester,
+                    instances = instances,
+                    courseType = instances.first().courseType,
+                    credit = instances.first().credit
+                )
+            }
+        } else null
+
+        _uiState.update {
+            it.copy(
+                courses = courses,
+                conflictingCourseIds = conflicts,
+                maxWeeks = maxWeek,
+                displayCourses = displayCourses,
+                coursesByWeek = coursesByWeek,
+                suggestedTeachers = teachers,
+                suggestedLocations = locations,
+                editCourseGroup = updatedGroup,
+                editConflicts = emptyList()
+            )
+        }
+
+        // 重新同步日历（如果已启用）
+        val settings = _reminderSettings.value
+        if (settings.calendarSyncEnabled) {
+            AppLogger.d("ScheduleViewModel", "[编辑] 日历同步已启用，自动重新同步")
+            syncToCalendar()
+        }
+
+        AppLogger.d("ScheduleViewModel", "[编辑] 刷新完成, 课程数: ${courses.size}")
+    }
+
+    // ================ 课程识别错误报告相关 ================
+
+    /**
+     * 从课程详情发起报告
+     */
+    fun onReportFromCourseDetail(course: Course) {
+        AppLogger.d("ScheduleViewModel", "[报告] onReportFromCourseDetail: course=${course.name}")
+        _uiState.update {
+            it.copy(
+                showCourseReport = true,
+                reportTargetCourse = course,
+                reportState = ReportState.Idle
+            )
+        }
+    }
+
+    /**
+     * 从设置发起报告（无指定课程）
+     */
+    fun onReportFromSettings() {
+        AppLogger.d("ScheduleViewModel", "[报告] onReportFromSettings")
+        _uiState.update {
+            it.copy(
+                showCourseReport = true,
+                reportTargetCourse = null,
+                reportState = ReportState.Idle
+            )
+        }
+    }
+
+    /**
+     * 关闭报告对话框
+     */
+    fun dismissCourseReport() {
+        _uiState.update {
+            it.copy(
+                showCourseReport = false,
+                reportTargetCourse = null,
+                reportState = ReportState.Idle
+            )
+        }
+    }
+
+    /**
+     * 生成课程识别错误报告
+     */
+    fun generateReport(
+        context: android.content.Context,
+        userDescription: String,
+        targetCourse: Course?,
+        includeCourses: Boolean,
+        includeHtml: Boolean,
+        includeLogs: Boolean
+    ) {
+        AppLogger.d("ScheduleViewModel", "[报告] generateReport 开始: description='${userDescription.take(50)}', targetCourse=${targetCourse?.name}, includeCourses=$includeCourses, includeHtml=$includeHtml, includeLogs=$includeLogs")
+        viewModelScope.launch {
+            _uiState.update { it.copy(reportState = ReportState.Generating) }
+
+            try {
+                val courses = repository.getLocalSchedule(semester)
+                AppLogger.d("ScheduleViewModel", "[报告] 本地课程数: ${courses.size}")
+
+                val config = ReportGenerator.ReportConfig(
+                    semester = semester,
+                    userDescription = userDescription,
+                    targetCourse = targetCourse,
+                    includeCourses = includeCourses,
+                    includeHtml = includeHtml,
+                    includeLogs = includeLogs
+                )
+
+                val result = ReportGenerator.generateReport(context, courses, config)
+                AppLogger.d("ScheduleViewModel", "[报告] 生成结果: success=${result.success}, file=${result.file?.absolutePath}, error=${result.error}")
+
+                if (result.success) {
+                    _uiState.update {
+                        it.copy(reportState = ReportState.Success(result.file!!))
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(reportState = ReportState.Error(result.error ?: "生成失败"))
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[报告] 生成报告异常: ${e.message}", e)
+                _uiState.update {
+                    it.copy(reportState = ReportState.Error(e.message ?: "未知错误"))
+                }
+            }
         }
     }
 }
@@ -472,43 +796,4 @@ sealed class ExportResult {
 sealed class ImportResult {
     data class Success(val count: Int) : ImportResult()
     data class Error(val message: String) : ImportResult()
-}
-
-// ================ [获取新学期] 学期推断工具（顶层函数，便于单测） ================
-
-/**
- * [获取新学期] 根据日期推断"正在进行的学期"的本地串。
- *
- * 时间判断规则（严格按用户口径「8月往后=下半学期=秋季第一学期」）：
- * - 2–7月  → 春季第二学期  (year-1)-year-2
- * - 8–12月 → 秋季第一学期  year-(year+1)-1（8月起切新学年秋季）
- * - 1月    → 秋季收尾      (year-1)-year-1（去年9月开学的那个学期）
- *
- * 例：2026/7 → "2025-2026-2"；2026/8 → "2026-2027-1"；2026/12 → "2026-2027-1"；2027/1 → "2026-2027-1"
- */
-fun inferCurrentSemester(year: Int, month: Int): String = when (month) {
-    in 2..7  -> "${year - 1}-$year-2"
-    in 8..12 -> "$year-${year + 1}-1"
-    1        -> "${year - 1}-$year-1"
-    else     -> "${year - 1}-$year-2"
-}
-
-/**
- * [获取新学期] 由当前学期算出 4 个候选学期本地串：[前2, 前1, 当前, 往后1]。
- * 用 startY*2+(n-1) 单调编码后取 base-{2,1,0} 和 base+1 反解，自然覆盖"秋季→春季→秋季"序列。
- * 例：current="2025-2026-2" → ["2024-2025-2","2025-2026-1","2025-2026-2","2026-2027-1"]
- */
-fun candidateSemesters(current: String): List<String> {
-    val parts = current.split("-")
-    if (parts.size != 3) return listOf(current)
-    val startY = parts[0].toIntOrNull() ?: return listOf(current)
-    val n = parts[2].toIntOrNull() ?: return listOf(current)
-    fun encode(sy: Int, num: Int) = sy * 2 + (num - 1)
-    fun decode(code: Int): String {
-        val sy = code / 2
-        val num = (code % 2) + 1
-        return "$sy-${sy + 1}-$num"
-    }
-    val base = encode(startY, n)
-    return listOf(base - 2, base - 1, base, base + 1).map { decode(it) }
 }

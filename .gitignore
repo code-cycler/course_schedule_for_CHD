@@ -150,3 +150,5 @@ user_report/
 
 # 本地敏感数据（CAS 账号密码等，绝不入库）
 .secrets/
+
+*.dm

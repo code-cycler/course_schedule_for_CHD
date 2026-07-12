@@ -22,11 +22,6 @@ android {
         versionName = "2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // 只保留arm64-v8a架构
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
     }
 
     buildTypes {
@@ -55,13 +50,12 @@ android {
         }
     }
 
-    // 只保留arm64-v8a架构，排除其他所有架构
+    // 只保留arm64-v8a架构，排除其他所有架构；排除不必要的资源文件以减小 APK 体积
     packaging {
         jniLibs {
             excludes += setOf("lib/armeabi-v7a/**", "lib/x86/**", "lib/x86_64/**")
         }
 
-        // 排除不必要的资源文件以减小 APK 体积（多语言 values-* / 其它架构）
         resources {
             excludes += setOf(
                 // 排除多语言支持（只保留中文和英文）

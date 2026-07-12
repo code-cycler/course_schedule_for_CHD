@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -32,6 +34,12 @@ class UserPreferences(private val context: Context) {
         private const val KEY_CONFLICT_CACHE_PREFIX = "conflict_cache_"  // [v74] 冲突缓存前缀
         private val KEY_SEMESTER_START_DATE = stringPreferencesKey("semester_start_date")  // [新功能] 学期开始日期
         private val KEY_LAST_PARSED_WEEK = intPreferencesKey("last_parsed_week")  // [新功能] 上次从首页解析的周次
+
+        // [课程提醒] 提醒设置
+        private val KEY_REMINDER_SETTINGS = stringPreferencesKey("reminder_settings")
+
+        // [权限管理] 首次启动标记
+        private val KEY_FIRST_LAUNCH = booleanPreferencesKey("first_launch")
     }
 
     /**
@@ -199,7 +207,7 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[KEY_SEMESTER_START_DATE] = date
         }
-        android.util.Log.d("UserPreferences", "[新功能] 保存学期开始日期: $date")
+        AppLogger.d("UserPreferences", "[新功能] 保存学期开始日期: $date")
     }
 
     /**
@@ -223,7 +231,7 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[KEY_LAST_PARSED_WEEK] = week
         }
-        android.util.Log.d("UserPreferences", "[新功能] 保存解析周次: $week")
+        AppLogger.d("UserPreferences", "[新功能] 保存解析周次: $week")
     }
 
     /**
@@ -253,7 +261,7 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[key] = json
         }
-        android.util.Log.d("UserPreferences", "[v74] 保存冲突缓存: semester=$semester, ${conflicts.size}周有冲突")
+        AppLogger.d("UserPreferences", "[v74] 保存冲突缓存: semester=$semester, ${conflicts.size}周有冲突")
     }
 
     /**
@@ -280,7 +288,7 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences.remove(key)
         }
-        android.util.Log.d("UserPreferences", "[v74] 清除冲突缓存: semester=$semester")
+        AppLogger.d("UserPreferences", "[v74] 清除冲突缓存: semester=$semester")
     }
 
     /**
@@ -345,7 +353,7 @@ class UserPreferences(private val context: Context) {
                 while (i < content.length && content[i] == ',') i++
             }
         } catch (e: Exception) {
-            android.util.Log.e("UserPreferences", "[v74] 反序列化冲突缓存失败: ${e.message}")
+            AppLogger.e("UserPreferences", "[v74] 反序列化冲突缓存失败: ${e.message}")
         }
 
         return result
@@ -381,7 +389,7 @@ class UserPreferences(private val context: Context) {
             currentMap[semester] = currentSet
             preferences[KEY_WATER_COURSES] = serializeWaterCoursesJson(currentMap)
         }
-        android.util.Log.d("UserPreferences", "[新功能] 添加水课标注: $courseName @ $semester")
+        AppLogger.d("UserPreferences", "[新功能] 添加水课标注: $courseName @ $semester")
     }
 
     /**
@@ -399,7 +407,7 @@ class UserPreferences(private val context: Context) {
             }
             preferences[KEY_WATER_COURSES] = serializeWaterCoursesJson(currentMap)
         }
-        android.util.Log.d("UserPreferences", "[新功能] 移除水课标注: $courseName @ $semester")
+        AppLogger.d("UserPreferences", "[新功能] 移除水课标注: $courseName @ $semester")
     }
 
     /**
@@ -456,7 +464,7 @@ class UserPreferences(private val context: Context) {
                 while (i < content.length && content[i] == ',') i++
             }
         } catch (e: Exception) {
-            android.util.Log.e("UserPreferences", "[新功能] 反序列化水课列表失败: ${e.message}")
+            AppLogger.e("UserPreferences", "[新功能] 反序列化水课列表失败: ${e.message}")
         }
 
         return result
@@ -498,5 +506,86 @@ class UserPreferences(private val context: Context) {
             .replace("\\n", "\n")
             .replace("\\\"", "\"")
             .replace("\\\\", "\\")
+    }
+
+    // ================ [课程提醒] 提醒设置相关 ================
+
+    /**
+     * [课程提醒] 获取提醒设置
+     */
+    val reminderSettings: Flow<ReminderSettings> = context.dataStore.data.map { preferences ->
+        val json = preferences[KEY_REMINDER_SETTINGS] ?: ""
+        if (json.isNotEmpty()) {
+            ReminderSettings.fromJson(json)
+        } else {
+            ReminderSettings.DEFAULT
+        }
+    }
+
+    /**
+     * [课程提醒] 获取提醒设置（一次性读取）
+     */
+    suspend fun getReminderSettingsOnce(): ReminderSettings {
+        val result = reminderSettings.first()
+        AppLogger.d("UserPreferences", "[Debug] getReminderSettingsOnce: $result")
+        return result
+    }
+
+    /**
+     * [课程提醒] 保存提醒设置
+     */
+    suspend fun saveReminderSettings(settings: ReminderSettings) {
+        AppLogger.d("UserPreferences", "[Debug] saveReminderSettings 开始: $settings")
+        context.dataStore.edit { preferences ->
+            preferences[KEY_REMINDER_SETTINGS] = settings.toJson()
+        }
+        AppLogger.d("UserPreferences", "[Debug] saveReminderSettings 完成")
+    }
+
+    /**
+     * [日历同步] 更新日历同步设置（部分更新）
+     */
+    suspend fun updateCalendarSyncSettings(
+        calendarSyncEnabled: Boolean? = null,
+        calendarId: Long? = null,
+        calendarBeforeClassReminderEnabled: Boolean? = null,
+        calendarEarlyMorningReminderEnabled: Boolean? = null
+    ) {
+        val current = getReminderSettingsOnce()
+        val updated = current.copy(
+            calendarSyncEnabled = calendarSyncEnabled ?: current.calendarSyncEnabled,
+            calendarId = calendarId ?: current.calendarId,
+            calendarBeforeClassReminderEnabled = calendarBeforeClassReminderEnabled ?: current.calendarBeforeClassReminderEnabled,
+            calendarEarlyMorningReminderEnabled = calendarEarlyMorningReminderEnabled ?: current.calendarEarlyMorningReminderEnabled
+        )
+        saveReminderSettings(updated)
+    }
+
+    // ================ [权限管理] 首次启动标记 ================
+
+    /**
+     * [权限管理] 检查是否首次启动
+     * 用于决定是否显示权限请求引导页
+     */
+    val isFirstLaunch: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_FIRST_LAUNCH] ?: true
+    }
+
+    /**
+     * [权限管理] 获取首次启动状态（一次性读取）
+     */
+    suspend fun isFirstLaunchOnce(): Boolean {
+        return isFirstLaunch.first()
+    }
+
+    /**
+     * [权限管理] 标记为非首次启动
+     * 在用户完成权限引导或跳过后调用
+     */
+    suspend fun markAsNotFirstLaunch() {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_FIRST_LAUNCH] = false
+        }
+        AppLogger.d("UserPreferences", "[权限管理] 标记为非首次启动")
     }
 }

@@ -9,6 +9,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.ScriptInjector
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -189,7 +190,7 @@ fun WebViewScreen(
                     enabled = !isLoading
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
+                        imageVector = Icons.Filled.Refresh,
                         contentDescription = "刷新页面",
                         tint = if (isLoading)
                             MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
@@ -288,7 +289,7 @@ fun WebViewScreen(
                                 isLoading = false
                                 url?.let {
                                     currentUrl = it
-                                    android.util.Log.i(TAG, "[onPageFinished] URL: $it, currentStep: $currentStep")
+                                    AppLogger.i(TAG, "[onPageFinished] URL: $it, currentStep: $currentStep")
 
                                     // [v73 fix] 修复 CAS 自动跳转问题
                                     // CAS 登录成功后可能自动跳转到首页，也可能停留在 authserver 页面
@@ -313,7 +314,7 @@ fun WebViewScreen(
                                         if (currentStep == LoginStep.CAS_LOGIN && !homePageReloaded) {
                                             homePageReloaded = true
                                             WebViewLogger.logDebug("首页", "首次加载（重定向），1.5秒后重新加载以注入脚本...")
-                                            android.util.Log.i("CHD_Reload", "[首页] 首次加载（重定向），1.5秒后重新加载 URL: $it")
+                                            AppLogger.i("CHD_Reload", "[首页] 首次加载（重定向），1.5秒后重新加载 URL: $it")
                                             // 延迟 1.5 秒后重新加载，避免服务器返回"请不要过快点击"
                                             view?.postDelayed({ view?.loadUrl(it) }, 1500L)
                                             return
@@ -326,7 +327,7 @@ fun WebViewScreen(
                                         // 直接开始动态检测（不需要再注入脚本，shouldInterceptRequest 已注入）
                                         extractHomePageHtml(view ?: return) { html ->
                                             homePageHtml = html
-                                            android.util.Log.i("CHD_CurrentWeek", "[WebView] 首页 HTML 提取完成，长度: ${html.length}")
+                                            AppLogger.i("CHD_CurrentWeek", "[WebView] 首页 HTML 提取完成，长度: ${html.length}")
                                             WebViewLogger.logSuccess("首页", "首页 HTML 提取完成，跳转到课表页面...")
 
                                             // 跳转到课表页面
@@ -344,10 +345,10 @@ fun WebViewScreen(
 
                                         // [v73 fix3] 直接使用 evaluateJavascript 注入脚本
                                         val injectScript = ScriptInjector.getPureJavaScript()
-                                        android.util.Log.i("CHD_Inject", "[课表] 注入脚本，长度: ${injectScript.length}")
+                                        AppLogger.i("CHD_Inject", "[课表] 注入脚本，长度: ${injectScript.length}")
 
                                         view?.evaluateJavascript(injectScript) { result ->
-                                            android.util.Log.i("CHD_Inject", "[课表] 脚本注入结果: ${result.take(100)}")
+                                            AppLogger.i("CHD_Inject", "[课表] 脚本注入结果: ${result.take(100)}")
                                             WebViewLogger.logDebug("课表", "脚本注入完成，开始动态检测页面状态...")
 
                                             isLoggedIn = true
@@ -393,14 +394,14 @@ fun WebViewScreen(
 
                                 // [v73 fix3] 添加详细诊断日志
                                 if (url.contains("home.action") || url.contains("courseTableForStd")) {
-                                    android.util.Log.i("CHD_Intercept", "========== shouldInterceptRequest ==========")
-                                    android.util.Log.i("CHD_Intercept", "URL: $url")
-                                    android.util.Log.i("CHD_Intercept", "Host: $host")
-                                    android.util.Log.i("CHD_Intercept", "Method: $method")
-                                    android.util.Log.i("CHD_Intercept", "Is EAMS: ${host.contains("bkjw.chd.edu.cn")}")
-                                    android.util.Log.i("CHD_Intercept", "Is Home: ${url.contains("home.action")}")
-                                    android.util.Log.i("CHD_Intercept", "Is CourseTable: ${url.contains("courseTableForStd")}")
-                                    android.util.Log.i("CHD_Intercept", "Is Html: ${ScriptInjector.isHtmlRequest(url)}")
+                                    AppLogger.i("CHD_Intercept", "========== shouldInterceptRequest ==========")
+                                    AppLogger.i("CHD_Intercept", "URL: $url")
+                                    AppLogger.i("CHD_Intercept", "Host: $host")
+                                    AppLogger.i("CHD_Intercept", "Method: $method")
+                                    AppLogger.i("CHD_Intercept", "Is EAMS: ${host.contains("bkjw.chd.edu.cn")}")
+                                    AppLogger.i("CHD_Intercept", "Is Home: ${url.contains("home.action")}")
+                                    AppLogger.i("CHD_Intercept", "Is CourseTable: ${url.contains("courseTableForStd")}")
+                                    AppLogger.i("CHD_Intercept", "Is Html: ${ScriptInjector.isHtmlRequest(url)}")
                                 }
 
                                 // [v73] 检查是否为 CAS 登录页面 - 不拦截
@@ -532,8 +533,7 @@ fun WebViewScreen(
 }
 
 /**
- * [v72] 动态等待页面渲染完成
- * 初始等待 500ms，然后每 200ms 检测一次，最多 5 秒
+ * [v96] 立即检测页面状态（取消等待时间）
  *
  * @param view WebView 实例
  * @param onReady 页面准备就绪回调
@@ -541,9 +541,9 @@ fun WebViewScreen(
  */
 private fun waitForPageReady(view: WebView, onReady: () -> Unit, onTimeout: () -> Unit) {
     var attempts = 0
-    val maxAttempts = 25  // 500ms + 24*200ms = 5.3秒
-    val checkInterval = 200L
-    val initialDelay = 500L
+    val maxAttempts = 10  // [v97] 最多检测10次
+    val checkInterval = 300L  // [v97] 间隔300ms
+    val initialDelay = 500L  // [v97] 初始延迟500ms
 
     val checkRunnable = object : Runnable {
         override fun run() {
@@ -576,7 +576,7 @@ private fun waitForPageReady(view: WebView, onReady: () -> Unit, onTimeout: () -
         }
     }
 
-    // 初始等待 500ms 后开始检测
+    // [v96] 立即开始检测（无延迟）
     WebViewLogger.logDebug("课表", "开始动态检测页面状态...")
     view.postDelayed(checkRunnable, initialDelay)
 }
@@ -623,9 +623,9 @@ private fun extractHtmlAndCallback(view: WebView, homePageHtml: String?, onLogin
         // [v73] 检查首页 HTML 是否包含教学周信息
         if (homePageHtml != null) {
             val hasWeekInfo = homePageHtml.contains("本周为") && homePageHtml.contains("教学周")
-            android.util.Log.i("CHD_CurrentWeek", "[WebView] 首页 HTML 包含教学周信息: $hasWeekInfo, 长度: ${homePageHtml.length}")
+            AppLogger.i("CHD_CurrentWeek", "[WebView] 首页 HTML 包含教学周信息: $hasWeekInfo, 长度: ${homePageHtml.length}")
         } else {
-            android.util.Log.w("CHD_CurrentWeek", "[WebView] 首页 HTML 为 null")
+            AppLogger.w("CHD_CurrentWeek", "[WebView] 首页 HTML 为 null")
         }
 
         // 调用登录成功回调，传递课表 HTML 和首页 HTML
@@ -677,15 +677,15 @@ private fun extractHomePageHtml(view: WebView, onResult: (String) -> Unit) {
                     }
                 })();
             """) { result ->
-                android.util.Log.d("CHD_CurrentWeek", "[首页检测] 尝试 ${attempts + 1}/$maxAttempts, 结果: ${result.take(200)}")
+                AppLogger.d("CHD_CurrentWeek", "[首页检测] 尝试 ${attempts + 1}/$maxAttempts, 结果: ${result.take(200)}")
 
                 // 检查是否已渲染
                 if (result.contains("\"ready\":true")) {
-                    android.util.Log.i("CHD_CurrentWeek", "[首页检测] 教学周信息已渲染")
+                    AppLogger.i("CHD_CurrentWeek", "[首页检测] 教学周信息已渲染")
                     // 提取 HTML
                     extractHtmlFromWebView(view, onResult)
                 } else if (attempts >= maxAttempts) {
-                    android.util.Log.w("CHD_CurrentWeek", "[首页检测] 等待超时，尝试提取 HTML...")
+                    AppLogger.w("CHD_CurrentWeek", "[首页检测] 等待超时，尝试提取 HTML...")
                     extractHtmlFromWebView(view, onResult)
                 } else {
                     attempts++
@@ -725,16 +725,16 @@ private fun extractHtmlFromWebView(view: WebView, onResult: (String) -> Unit) {
 
         // 检查是否包含教学周信息
         val hasWeekInfo = html.contains("本周为") && html.contains("教学周")
-        android.util.Log.i("CHD_CurrentWeek", "[WebView] 首页包含教学周信息: $hasWeekInfo, 长度: ${html.length}")
+        AppLogger.i("CHD_CurrentWeek", "[WebView] 首页包含教学周信息: $hasWeekInfo, 长度: ${html.length}")
 
         if (!hasWeekInfo) {
-            android.util.Log.w("CHD_CurrentWeek", "[WebView] 首页未找到教学周信息")
+            AppLogger.w("CHD_CurrentWeek", "[WebView] 首页未找到教学周信息")
             // 打印 body 内容用于调试
             val bodyStart = html.indexOf("<body")
             val bodyEnd = html.indexOf("</body>")
             if (bodyStart >= 0 && bodyEnd > bodyStart) {
                 val bodyContent = html.substring(bodyStart, minOf(bodyEnd + 7, bodyStart + 2000))
-                android.util.Log.d("CHD_CurrentWeek", "Body 内容片段: $bodyContent")
+                AppLogger.d("CHD_CurrentWeek", "Body 内容片段: $bodyContent")
             }
         }
 

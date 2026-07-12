@@ -2,6 +2,7 @@ package com.example.course_schedule_for_chd_v002.data.remote.parser
 
 import com.example.course_schedule_for_chd_v002.data.local.database.entity.CourseEntity
 import com.example.course_schedule_for_chd_v002.domain.model.CourseType
+import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.WebViewLogger
 import org.jsoup.Jsoup
 import org.json.JSONObject
@@ -331,18 +332,18 @@ class ScheduleHtmlParser {
      */
     private fun parseWeeksBitmap(bitmap: String): WeekParseResult {
         // [v88] 打印原始位图（使用 Log.i 确保可见）
-        android.util.Log.i("CHD_WeekType", "========== 周数解析开始 ==========")
-        android.util.Log.i("CHD_WeekType", "原始位图: $bitmap")
-        android.util.Log.i("CHD_WeekType", "位图长度: ${bitmap.length}")
+        AppLogger.i("CHD_WeekType", "========== 周数解析开始 ==========")
+        AppLogger.i("CHD_WeekType", "原始位图: $bitmap")
+        AppLogger.i("CHD_WeekType", "位图长度: ${bitmap.length}")
         // [v88] 使用专用方法显示分段位图
         WebViewLogger.logWeekBitmapDetail(bitmap)
 
         if (bitmap.isEmpty()) {
-            android.util.Log.w("CHD_WeekType", "[WARN] 位图为空，返回默认值")
+            AppLogger.w("CHD_WeekType", "[WARN] 位图为空，返回默认值")
             return WeekParseResult(1, 16, WeekType.ALL)
         }
         if (bitmap.length < 53) {
-            android.util.Log.w("CHD_WeekType", "[WARN] 周数位图长度不足: ${bitmap.length}")
+            AppLogger.w("CHD_WeekType", "[WARN] 周数位图长度不足: ${bitmap.length}")
             return WeekParseResult(1, 16, WeekType.ALL)
         }
 
@@ -351,20 +352,20 @@ class ScheduleHtmlParser {
         for ((index, char) in bitmap.withIndex()) {
             if (char == '1') {
                 // 位图语义：bitmap[index] = 第 index 周（bitmap[0]=第0周/预备周，bitmap[1]=第1周…）
-                // 与 Course.getActiveWeeks / isWeekInRange 保持一致
+                // 与 Course.getActiveWeeks / isWeekInRange 保持一致（master 9378374 修复，有单双周回归测试）
                 activeWeeks.add(index)
-                android.util.Log.v("CHD_WeekType", "  index=$index, char='$char' -> 第${index}周")
+                AppLogger.d("CHD_WeekType", "  index=$index, char='$char' -> 第${index}周")
             }
         }
 
         if (activeWeeks.isNotEmpty()) {
             val weekStr = activeWeeks.joinToString(",")
-            android.util.Log.i("CHD_WeekType", "活跃周列表: [$weekStr]")
-            android.util.Log.i("CHD_WeekType", "活跃周数量: ${activeWeeks.size}")
+            AppLogger.i("CHD_WeekType", "活跃周列表: [$weekStr]")
+            AppLogger.i("CHD_WeekType", "活跃周数量: ${activeWeeks.size}")
         }
 
         if (activeWeeks.isEmpty()) {
-            android.util.Log.w("CHD_WeekType", "[WARN] 周数位图全为0")
+            AppLogger.w("CHD_WeekType", "[WARN] 周数位图全为0")
             return WeekParseResult(1, 16, WeekType.ALL)
         }
 
@@ -379,8 +380,8 @@ class ScheduleHtmlParser {
             WeekType.EVEN -> "双周"
             WeekType.ALL -> "每周"
         }
-        android.util.Log.i("CHD_WeekType", "最终结果: 第${startWeek}-${endWeek}周, 类型=$typeStr")
-        android.util.Log.i("CHD_WeekType", "========== 周数解析结束 ==========")
+        AppLogger.i("CHD_WeekType", "最终结果: 第${startWeek}-${endWeek}周, 类型=$typeStr")
+        AppLogger.i("CHD_WeekType", "========== 周数解析结束 ==========")
 
         return WeekParseResult(startWeek, endWeek, weekType)
     }
@@ -400,7 +401,7 @@ class ScheduleHtmlParser {
         }
 
         // [v88] 打印活跃周列表（强制打印，使用 Log.i 确保可见）
-        android.util.Log.i("CHD_WeekType", "[单双周] 活跃周列表: $activeWeeks (共 ${activeWeeks.size} 周)")
+        AppLogger.i("CHD_WeekType", "[单双周] 活跃周列表: $activeWeeks (共 ${activeWeeks.size} 周)")
 
         // 检查是否全是奇数周（单周）
         val allOdd = activeWeeks.all { it % 2 == 1 }
@@ -410,11 +411,11 @@ class ScheduleHtmlParser {
         // [v88] 逐个打印判断过程
         activeWeeks.forEach { week ->
             val isOdd = week % 2 == 1
-            android.util.Log.d("CHD_WeekType", "[单双周]   周$week % 2 = ${week % 2} -> ${if (isOdd) "奇数(单)" else "偶数(双)"}")
+            AppLogger.d("CHD_WeekType", "[单双周]   周$week % 2 = ${week % 2} -> ${if (isOdd) "奇数(单)" else "偶数(双)"}")
         }
 
         // [v88] 打印判断结果（使用 Log.i 确保可见）
-        android.util.Log.i("CHD_WeekType", "[单双周] 判断: allOdd=$allOdd, allEven=$allEven")
+        AppLogger.i("CHD_WeekType", "[单双周] 判断: allOdd=$allOdd, allEven=$allEven")
 
         val result = when {
             allOdd -> WeekType.ODD
@@ -427,7 +428,7 @@ class ScheduleHtmlParser {
             WeekType.EVEN -> "双周"
             WeekType.ALL -> "每周"
         }
-        android.util.Log.i("CHD_WeekType", "[单双周] 最终结果: $resultStr")
+        AppLogger.i("CHD_WeekType", "[单双周] 最终结果: $resultStr")
         WebViewLogger.logParseDetail("[单双周] ===== 判断结束: $resultStr =====")
 
         return result
@@ -869,27 +870,27 @@ class ScheduleHtmlParser {
      * @return Pair<学期字符串, 当前教学周>，如 "2025-2026-2" to 1，解析失败返回 null
      */
     fun parseCurrentWeek(html: String): Pair<String, Int>? {
-        android.util.Log.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 开始 ==========")
-        android.util.Log.i("CHD_CurrentWeek", "HTML 长度: ${html.length}")
+        AppLogger.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 开始 ==========")
+        AppLogger.i("CHD_CurrentWeek", "HTML 长度: ${html.length}")
 
         try {
             val doc = Jsoup.parse(html)
 
             // 查找包含"本周为"的 td 元素
             val tdElements = doc.select("td")
-            android.util.Log.i("CHD_CurrentWeek", "找到 ${tdElements.size} 个 td 元素")
+            AppLogger.i("CHD_CurrentWeek", "找到 ${tdElements.size} 个 td 元素")
 
             for ((index, td) in tdElements.withIndex()) {
                 val text = td.text()
                 if (text.contains("本周为") && text.contains("教学周")) {
-                    android.util.Log.i("CHD_CurrentWeek", "在第 $index 个 td 找到教学周信息: $text")
+                    AppLogger.i("CHD_CurrentWeek", "在第 $index 个 td 找到教学周信息: $text")
 
                     // 提取学期信息（如 "2025-2026学年第2学期"）→ 复用 companion 的 parseSemesterString
                     val semester = parseSemesterString(text)
                     if (semester != null) {
-                        android.util.Log.i("CHD_CurrentWeek", "学期匹配成功: $semester")
+                        AppLogger.i("CHD_CurrentWeek", "学期匹配成功: $semester")
                     } else {
-                        android.util.Log.w("CHD_CurrentWeek", "学期匹配失败，文本: $text")
+                        AppLogger.w("CHD_CurrentWeek", "学期匹配失败，文本: $text")
                     }
 
                     // 提取周次（精确匹配 "第X教学周" 格式，避免匹配 "第X学期"）
@@ -898,21 +899,21 @@ class ScheduleHtmlParser {
                     val weekPattern = """第(\d+)\s*教学周""".toRegex()
                     val weekMatch = weekPattern.find(text)
                     val week = weekMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
-                    android.util.Log.i("CHD_CurrentWeek", "周次匹配结果: $week (正则: ${weekPattern.pattern}, 匹配文本: ${weekMatch?.value})")
+                    AppLogger.i("CHD_CurrentWeek", "周次匹配结果: $week (正则: ${weekPattern.pattern}, 匹配文本: ${weekMatch?.value})")
 
                     if (semester != null) {
-                        android.util.Log.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 成功: 学期=$semester, 周次=$week ==========")
+                        AppLogger.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 成功: 学期=$semester, 周次=$week ==========")
                         return semester to week
                     }
                 }
             }
 
-            android.util.Log.w("CHD_CurrentWeek", "未找到当前教学周信息")
-            android.util.Log.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 失败 ==========")
+            AppLogger.w("CHD_CurrentWeek", "未找到当前教学周信息")
+            AppLogger.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 失败 ==========")
             return null
         } catch (e: Exception) {
-            android.util.Log.e("CHD_CurrentWeek", "解析当前教学周异常: ${e.message}", e)
-            android.util.Log.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 异常 ==========")
+            AppLogger.e("CHD_CurrentWeek", "解析当前教学周异常: ${e.message}", e)
+            AppLogger.i("CHD_CurrentWeek", "========== [Parser] parseCurrentWeek 异常 ==========")
             return null
         }
     }
