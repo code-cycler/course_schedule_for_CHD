@@ -839,6 +839,16 @@ class ScheduleViewModel(
                 }
         }
     }
+
+    /**
+     * [清除数据] 清除所有本地课表，保留登录态/偏好；清后重新加载（显示空状态）
+     */
+    fun clearAllSchedules() {
+        viewModelScope.launch {
+            repository.clearAllSchedules()
+            loadSchedule()
+        }
+    }
 }
 
 /**

@@ -70,6 +70,7 @@ interface ICourseRepository {
     suspend fun getLocalSchedule(semester: String): List<Course>
     suspend fun saveSchedule(courses: List<Course>)
     suspend fun deleteSchedule(semester: String)
+    suspend fun clearAllSchedules()
     suspend fun getAllSemesters(): List<String>
 
     // [获取新学期] 远程学期抓取

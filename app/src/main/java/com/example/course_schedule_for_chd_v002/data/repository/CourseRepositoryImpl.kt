@@ -444,6 +444,10 @@ class CourseRepositoryImpl(
      * 获取所有学期
      * @return 学期列表
      */
+    override suspend fun clearAllSchedules() {
+        courseDao.deleteAll()
+    }
+
     override suspend fun getAllSemesters(): List<String> {
         return courseDao.getAllSemesters()
     }

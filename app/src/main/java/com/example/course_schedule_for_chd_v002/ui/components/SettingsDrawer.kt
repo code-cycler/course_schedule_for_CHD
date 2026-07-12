@@ -63,6 +63,7 @@ fun SettingsDrawer(
     onCalendarSyncClick: () -> Unit,
     onDeleteCalendarClick: () -> Unit,
     onRequestCalendarPermission: () -> Unit,
+    onClearData: () -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -82,6 +83,7 @@ fun SettingsDrawer(
                     onCalendarSyncClick = onCalendarSyncClick,
                     onDeleteCalendarClick = onDeleteCalendarClick,
                     onRequestCalendarPermission = onRequestCalendarPermission,
+                    onClearData = onClearData,
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
@@ -101,6 +103,7 @@ private fun SettingsDrawerContent(
     onCalendarSyncClick: () -> Unit,
     onDeleteCalendarClick: () -> Unit,
     onRequestCalendarPermission: () -> Unit,
+    onClearData: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -404,6 +407,43 @@ private fun SettingsDrawerContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Divider()
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // [清除数据] 清除所有本地课表（保留登录态/偏好）
+            var showClearConfirm by remember { mutableStateOf(false) }
+            OutlinedButton(
+                onClick = { showClearConfirm = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("清除所有课表数据", color = MaterialTheme.colorScheme.error)
+            }
+            Text(
+                text = "删除所有已下载的课表（不影响登录状态和设置）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (showClearConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showClearConfirm = false },
+                    title = { Text("清除所有课表数据？") },
+                    text = { Text("将删除所有学期的课表，操作不可撤销。登录状态和设置保留。") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showClearConfirm = false
+                            onClearData()
+                        }) { Text("清除", color = MaterialTheme.colorScheme.error) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
+                    }
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))

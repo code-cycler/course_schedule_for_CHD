@@ -249,6 +249,11 @@ fun ScheduleScreen(
         },
         onRequestCalendarPermission = {
             requestCalendarPermission()
+        },
+        onClearData = {
+            viewModel.clearAllSchedules()
+            scope.launch { drawerState.close() }
+            Toast.makeText(context, "课表已清除", Toast.LENGTH_SHORT).show()
         }
     ) {
         Scaffold(
