@@ -57,6 +57,17 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 import kotlinx.coroutines.launch
 import java.io.File
+import android.widget.Toast
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
+import com.example.course_schedule_for_chd_v002.ui.components.ExportableScheduleGrid
+import com.example.course_schedule_for_chd_v002.ui.util.OffscreenScheduleCapture
+import com.example.course_schedule_for_chd_v002.ui.util.ScheduleImageExporter
+import com.example.course_schedule_for_chd_v002.ui.util.rememberScheduleCaptureState
 
 /**
  * 课程表界面
@@ -65,6 +76,7 @@ import java.io.File
 @Composable
 fun ScheduleScreen(
     semester: String,
+    onNavigateToSemester: (String) -> Unit,
     onLogout: () -> Unit,
     onNavigateToLogin: () -> Unit,
     viewModel: ScheduleViewModel = koinViewModel { parametersOf(semester) }
@@ -83,6 +95,33 @@ fun ScheduleScreen(
     val reminderSettings by viewModel.reminderSettings.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+
+    // [导出图片] 离屏捕获 + 导出流程
+    val captureState = rememberScheduleCaptureState()
+    var captureArmed by remember { mutableStateOf(false) }
+    var isExporting by remember { mutableStateOf(false) }
+    val screenWidthPx = with(LocalDensity.current) {
+        LocalConfiguration.current.screenWidthDp.dp.roundToPx()
+    }
+    LaunchedEffect(captureArmed) {
+        if (captureArmed) {
+            withFrameNanos { }  // 等离屏 Composable 首帧 record 完成
+            val uri = captureState.captureToFile(context, "schedule_${semester}_w${uiState.currentWeek}.png")
+            captureArmed = false
+            isExporting = false
+            if (uri != null) {
+                context.startActivity(
+                    Intent.createChooser(ScheduleImageExporter.buildShareIntent(uri), context.getString(R.string.export_share_title))
+                )
+            } else {
+                Toast.makeText(context, context.getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // [切换学期] 学期选择 + [获取新学期] 二级对话框
+    var showSemesterDialog by remember { mutableStateOf(false) }
+    var showFetchSemesterDialog by remember { mutableStateOf(false) }
 
     // SAF 保存状态
     var pendingSaveFile by remember { mutableStateOf<File?>(null) }
@@ -251,6 +290,22 @@ fun ScheduleScreen(
                             )
                         }
 
+                        // [导出图片] 导出当前周课表
+                        IconButton(
+                            onClick = {
+                                if (!isExporting) {
+                                    isExporting = true
+                                    captureArmed = true
+                                }
+                            },
+                            enabled = !isExporting
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Share,
+                                contentDescription = context.getString(R.string.export_schedule)
+                            )
+                        }
+
                         // 回到当前周按钮
                         if (!uiState.isViewingCurrentWeek() && uiState.actualCurrentWeek != null) {
                             TextButton(
@@ -304,6 +359,19 @@ fun ScheduleScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // [切换学期] 学期切换
+                    FilterChip(
+                        selected = false,
+                        onClick = { showSemesterDialog = true },
+                        label = {
+                            Text(
+                                text = semester,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        }
+                    )
+
                     // 校区切换按钮
                     FilterChip(
                         selected = false,
@@ -418,6 +486,167 @@ fun ScheduleScreen(
                             }
                         }
                     )
+                }
+
+                // [切换学期] 学期选择对话框
+                if (showSemesterDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showSemesterDialog = false },
+                        title = { Text("选择学期") },
+                        text = {
+                            Column {
+                                uiState.allSemesters.forEach { sem ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                onNavigateToSemester(sem)
+                                                showSemesterDialog = false
+                                            }
+                                            .padding(vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = sem == semester,
+                                            onClick = {
+                                                onNavigateToSemester(sem)
+                                                showSemesterDialog = false
+                                            }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(sem)
+                                    }
+                                }
+                                if (uiState.allSemesters.isNotEmpty()) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                                    TextButton(
+                                        onClick = {
+                                            showSemesterDialog = false
+                                            showFetchSemesterDialog = true
+                                            viewModel.fetchRemoteSemesterOptions()
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(stringResource(R.string.fetch_other_semester))
+                                    }
+                                }
+                                if (uiState.allSemesters.isEmpty()) {
+                                    Text(
+                                        text = "暂无本地学期，请点「同步」获取当前学期课表",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(vertical = 12.dp)
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showSemesterDialog = false }) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
+                    )
+                }
+
+                // [获取新学期] 二级对话框
+                if (showFetchSemesterDialog) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            if (!uiState.isFetchingSemester) showFetchSemesterDialog = false
+                        },
+                        title = { Text(stringResource(R.string.fetch_other_semester)) },
+                        text = {
+                            Box {
+                                if (uiState.isFetchingSemester && uiState.remoteSemesterOptions.isEmpty()) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth().padding(16.dp)
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(stringResource(R.string.fetching_semester_list))
+                                    }
+                                } else {
+                                    Column {
+                                        uiState.remoteSemesterOptions.forEach { opt ->
+                                            val localStr = ScheduleHtmlParser.parseSemesterString(opt.label) ?: opt.label
+                                            val isInDb = localStr in uiState.allSemesters
+                                            val isCurrent = localStr == semester
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .then(
+                                                        if (isInDb || uiState.isFetchingSemester) Modifier
+                                                        else Modifier.clickable {
+                                                            viewModel.fetchSpecifiedSemester(opt.remoteId, localStr) { newSem, count ->
+                                                                showFetchSemesterDialog = false
+                                                                Toast.makeText(context, "已获取 $newSem，$count 门课程", Toast.LENGTH_SHORT).show()
+                                                                onNavigateToSemester(newSem)
+                                                            }
+                                                        }
+                                                    )
+                                                    .padding(vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = opt.label,
+                                                    color = if (isInDb) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = when {
+                                                        isCurrent -> stringResource(R.string.current_label)
+                                                        isInDb -> stringResource(R.string.in_database)
+                                                        else -> ""
+                                                    },
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.outline
+                                                )
+                                            }
+                                        }
+                                        if (uiState.isFetchingSemester && uiState.remoteSemesterOptions.isNotEmpty()) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(stringResource(R.string.fetching_course_table))
+                                            }
+                                        }
+                                        uiState.fetchSemesterError?.let { err ->
+                                            Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showFetchSemesterDialog = false }, enabled = !uiState.isFetchingSemester) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
+                    )
+                }
+
+                // [导出图片] 离屏渲染当前周课表（仅 captureArmed 时组合，等一帧捕获后移除）
+                if (captureArmed) {
+                    val parts = semester.split("-")
+                    val semDisplay = if (parts.size == 3) "${parts[0]}-${parts[1]} 第${parts[2]}学期" else semester
+                    OffscreenScheduleCapture(
+                        captureState = captureState,
+                        widthPx = screenWidthPx
+                    ) {
+                        ExportableScheduleGrid(
+                            courses = displayCourses,
+                            conflictingCourseIds = uiState.conflictingCourseIds,
+                            waterCourseNames = uiState.waterCourseNames,
+                            isWeekendExpanded = hasWeekendCourses,
+                            campus = uiState.campus,
+                            todayDayOfWeek = uiState.todayDayOfWeek,
+                            isCurrentWeek = uiState.currentWeek == uiState.actualCurrentWeek,
+                            titleText = "$semDisplay 第${uiState.currentWeek}周·${uiState.campus.displayName}"
+                        )
+                    }
                 }
 
                 // Loading state
