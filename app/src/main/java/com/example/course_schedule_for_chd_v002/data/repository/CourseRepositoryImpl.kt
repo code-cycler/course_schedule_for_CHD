@@ -7,6 +7,7 @@ import com.example.course_schedule_for_chd_v002.data.remote.api.EamsApi
 import com.example.course_schedule_for_chd_v002.data.remote.client.CookieManager
 import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.domain.model.Course
+import com.example.course_schedule_for_chd_v002.domain.model.SemesterOption
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.JsonUtils
@@ -389,6 +390,52 @@ class CourseRepositoryImpl(
         }
 
         return courses.size
+    }
+
+    // ================ [获取新学期] 远程学期抓取 ================
+
+    /**
+     * [获取新学期] 拉取教务系统学期选项，过滤掉 label 非标准的项
+     */
+    override suspend fun getRemoteSemesterOptions(): Result<List<SemesterOption>> {
+        return try {
+            eamsApi.getSemesterOptions().map { options ->
+                // 只保留 label 能解析为标准本地学期串的（过滤非标准/异常选项）
+                options.filter { ScheduleHtmlParser.parseSemesterString(it.label) != null }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * [获取新学期] 抓取指定学期课表并入库
+     * Cookie 过期（HTML 重定向到登录页）返回 failure；该学期真无课返回 success(0)
+     */
+    override suspend fun fetchSpecifiedSemester(remoteId: String, localSemester: String): Result<Int> {
+        return try {
+            val html = eamsApi.getCourseTableHtml(remoteId, null).getOrNull()
+                ?: return Result.failure(Exception("无法获取课表（Cookie 可能已过期）"))
+            val entities = htmlParser.parse(html, localSemester)
+            if (entities.isEmpty()) {
+                // 空结果：可能是 Cookie 过期重定向到登录页，也可能是该学期真无课
+                val looksLikeLoginPage = html.contains("登录") || html.contains("cas")
+                        || (!html.contains("TaskActivity") && !html.contains("table0"))
+                return if (looksLikeLoginPage) {
+                    Result.failure(Exception("登录已过期，请重新同步"))
+                } else {
+                    Result.success(0)
+                }
+            }
+            courseDao.deleteBySemester(localSemester)
+            courseDao.insertAll(entities)
+            val courses = entities.map { it.toDomainModel() }
+            precomputeAndCacheConflicts(courses, localSemester)
+            userPreferences.saveCurrentSemester(localSemester)
+            Result.success(courses.size)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     /**

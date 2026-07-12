@@ -115,4 +115,19 @@ class ScheduleHtmlParserTest {
         // 不在范围内的周
         assertFalse("第10周应无课", domain.isWeekInRange(10))
     }
+
+    @Test
+    fun `parseSemesterString converts eams label to local semester`() {
+        // 标准 label → 本地串
+        assertEquals("2025-2026-2", ScheduleHtmlParser.parseSemesterString("2025-2026学年第2学期"))
+        assertEquals("2024-2025-1", ScheduleHtmlParser.parseSemesterString("2024-2025学年第1学期"))
+        // 在更长文本中也能匹配（parseCurrentWeek 场景）
+        assertEquals(
+            "2025-2026-2",
+            ScheduleHtmlParser.parseSemesterString("本周为 2025-2026学年第2学期的 第1教学周")
+        )
+        // 非法输入返回 null
+        assertNull(ScheduleHtmlParser.parseSemesterString("无效文本"))
+        assertNull(ScheduleHtmlParser.parseSemesterString(""))
+    }
 }

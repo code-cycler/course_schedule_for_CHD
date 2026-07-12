@@ -94,6 +94,20 @@ class ScheduleHtmlParser {
     companion object {
         private const val TAG = "ScheduleHtmlParser"
         private const val UNIT_COUNT = 11  // 每天节次数
+
+        // [获取新学期] 学期标签正则：匹配教务系统 "2025-2026学年第2学期" 这类文本
+        private val SEMESTER_LABEL_REGEX = """(\d{4})-(\d{4})学年第(\d)学期""".toRegex()
+
+        /**
+         * [获取新学期] 把教务系统学期文本（如 "2025-2026学年第2学期"）转为本地学期串（"2025-2026-2"）。
+         * 供 EamsApi.getSemesterOptions 的 option 文本转换、parseCurrentWeek 共用。
+         * @param label 教务系统学期文本
+         * @return 本地学期串，解析失败返回 null
+         */
+        fun parseSemesterString(label: String): String? {
+            val m = SEMESTER_LABEL_REGEX.find(label) ?: return null
+            return "${m.groupValues[1]}-${m.groupValues[2]}-${m.groupValues[3]}"
+        }
     }
 
     /**
@@ -870,17 +884,12 @@ class ScheduleHtmlParser {
                 if (text.contains("本周为") && text.contains("教学周")) {
                     android.util.Log.i("CHD_CurrentWeek", "在第 $index 个 td 找到教学周信息: $text")
 
-                    // 提取学期信息（如 "2025-2026学年第2学期"）
-                    val semesterPattern = """(\d{4})-(\d{4})学年第(\d)学期""".toRegex()
-                    val semesterMatch = semesterPattern.find(text)
-
-                    val semester = if (semesterMatch != null) {
-                        val result = "${semesterMatch.groupValues[1]}-${semesterMatch.groupValues[2]}-${semesterMatch.groupValues[3]}"
-                        android.util.Log.i("CHD_CurrentWeek", "学期匹配成功: $result (正则: ${semesterPattern.pattern})")
-                        result
+                    // 提取学期信息（如 "2025-2026学年第2学期"）→ 复用 companion 的 parseSemesterString
+                    val semester = parseSemesterString(text)
+                    if (semester != null) {
+                        android.util.Log.i("CHD_CurrentWeek", "学期匹配成功: $semester")
                     } else {
                         android.util.Log.w("CHD_CurrentWeek", "学期匹配失败，文本: $text")
-                        null
                     }
 
                     // 提取周次（精确匹配 "第X教学周" 格式，避免匹配 "第X学期"）

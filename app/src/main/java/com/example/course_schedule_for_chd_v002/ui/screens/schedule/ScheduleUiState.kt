@@ -3,6 +3,7 @@ package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
+import com.example.course_schedule_for_chd_v002.domain.model.SemesterOption
 
 /**
  * 课程表界面UI状态
@@ -48,7 +49,15 @@ data class ScheduleUiState(
     val waterCourseNames: Set<String> = emptySet(),
 
     // [切换学期] 本地已存的所有学期（供学期选择器列出）
-    val allSemesters: List<String> = emptyList()
+    val allSemesters: List<String> = emptyList(),
+
+    // ================ [获取新学期] 远程学期抓取 ================
+    /** 教务系统返回、智能筛选后的候选学期（前2+当前+往后1） */
+    val remoteSemesterOptions: List<SemesterOption> = emptyList(),
+    /** 正在获取候选列表 / 正在抓取指定学期 */
+    val isFetchingSemester: Boolean = false,
+    /** 抓取错误信息（Cookie 过期 / 网络失败 / 该学期无课） */
+    val fetchSemesterError: String? = null
 ) {
     /**
      * [新功能] 判断课程是否为水课

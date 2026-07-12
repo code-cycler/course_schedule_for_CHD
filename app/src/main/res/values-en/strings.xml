@@ -42,4 +42,18 @@
     <string name="please_login_system">Please login in the page above, course data will be fetched automatically</string>
     <string name="please_login_prompt">Please login</string>
 
+    <!-- Fetch Other Semester -->
+    <string name="fetch_other_semester">+ Fetch other semester</string>
+    <string name="fetching_semester_list">Fetching semester list...</string>
+    <string name="fetching_course_table">Fetching course table...</string>
+    <string name="in_database">Cached</string>
+    <string name="current_label">Current</string>
+    <string name="fetch_semester_failed">Session expired, please re-sync</string>
+
+    <!-- Export Schedule -->
+    <string name="export_schedule">Export Schedule</string>
+    <string name="exporting_schedule">Generating image...</string>
+    <string name="export_failed">Export failed, please try again</string>
+    <string name="export_share_title">Share Schedule</string>
+
 </resources>

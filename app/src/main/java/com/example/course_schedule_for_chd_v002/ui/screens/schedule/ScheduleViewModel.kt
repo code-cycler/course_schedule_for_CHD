@@ -3,6 +3,7 @@ package com.example.course_schedule_for_chd_v002.ui.screens.schedule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
+import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
@@ -392,6 +393,69 @@ class ScheduleViewModel(
     fun clearImportResult() {
         _importResult.value = null
     }
+
+    // ================ [获取新学期] 远程学期抓取 ================
+
+    /**
+     * [获取新学期] 拉取教务系统候选学期（智能筛选前2+当前+往后1）
+     * 失败时写入 fetchSemesterError（通常 Cookie 过期）
+     */
+    fun fetchRemoteSemesterOptions() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isFetchingSemester = true,
+                    fetchSemesterError = null,
+                    remoteSemesterOptions = emptyList()
+                )
+            }
+            repository.getRemoteSemesterOptions()
+                .onSuccess { allOptions ->
+                    val cal = java.util.Calendar.getInstance()
+                    val year = cal.get(java.util.Calendar.YEAR)
+                    val month = cal.get(java.util.Calendar.MONTH) + 1
+                    val current = inferCurrentSemester(year, month)
+                    // 按 [前2,前1,当前,往后1] 的顺序，挑出教务系统实际返回的对应项
+                    val ordered = candidateSemesters(current).mapNotNull { wantedLocal ->
+                        allOptions.find { ScheduleHtmlParser.parseSemesterString(it.label) == wantedLocal }
+                    }
+                    _uiState.update {
+                        it.copy(remoteSemesterOptions = ordered, isFetchingSemester = false)
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(isFetchingSemester = false, fetchSemesterError = e.message ?: "获取失败")
+                    }
+                }
+        }
+    }
+
+    /**
+     * [获取新学期] 抓取单个学期并入库，成功后回调 onDone 触发导航切换 + Toast
+     * @param remoteId 教务系统 semester.id
+     * @param localSemester 本地学期串
+     * @param onDone 成功回调(localSemester, 课程数)
+     */
+    fun fetchSpecifiedSemester(remoteId: String, localSemester: String, onDone: (String, Int) -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isFetchingSemester = true, fetchSemesterError = null) }
+            repository.fetchSpecifiedSemester(remoteId, localSemester)
+                .onSuccess { count ->
+                    _uiState.update { it.copy(isFetchingSemester = false) }
+                    if (count > 0) {
+                        onDone(localSemester, count)
+                    } else {
+                        _uiState.update { it.copy(fetchSemesterError = "该学期暂无课程") }
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(isFetchingSemester = false, fetchSemesterError = e.message ?: "登录已过期")
+                    }
+                }
+        }
+    }
 }
 
 /**
@@ -408,4 +472,43 @@ sealed class ExportResult {
 sealed class ImportResult {
     data class Success(val count: Int) : ImportResult()
     data class Error(val message: String) : ImportResult()
+}
+
+// ================ [获取新学期] 学期推断工具（顶层函数，便于单测） ================
+
+/**
+ * [获取新学期] 根据日期推断"正在进行的学期"的本地串。
+ *
+ * 时间判断规则（严格按用户口径「8月往后=下半学期=秋季第一学期」）：
+ * - 2–7月  → 春季第二学期  (year-1)-year-2
+ * - 8–12月 → 秋季第一学期  year-(year+1)-1（8月起切新学年秋季）
+ * - 1月    → 秋季收尾      (year-1)-year-1（去年9月开学的那个学期）
+ *
+ * 例：2026/7 → "2025-2026-2"；2026/8 → "2026-2027-1"；2026/12 → "2026-2027-1"；2027/1 → "2026-2027-1"
+ */
+fun inferCurrentSemester(year: Int, month: Int): String = when (month) {
+    in 2..7  -> "${year - 1}-$year-2"
+    in 8..12 -> "$year-${year + 1}-1"
+    1        -> "${year - 1}-$year-1"
+    else     -> "${year - 1}-$year-2"
+}
+
+/**
+ * [获取新学期] 由当前学期算出 4 个候选学期本地串：[前2, 前1, 当前, 往后1]。
+ * 用 startY*2+(n-1) 单调编码后取 base-{2,1,0} 和 base+1 反解，自然覆盖"秋季→春季→秋季"序列。
+ * 例：current="2025-2026-2" → ["2024-2025-2","2025-2026-1","2025-2026-2","2026-2027-1"]
+ */
+fun candidateSemesters(current: String): List<String> {
+    val parts = current.split("-")
+    if (parts.size != 3) return listOf(current)
+    val startY = parts[0].toIntOrNull() ?: return listOf(current)
+    val n = parts[2].toIntOrNull() ?: return listOf(current)
+    fun encode(sy: Int, num: Int) = sy * 2 + (num - 1)
+    fun decode(code: Int): String {
+        val sy = code / 2
+        val num = (code % 2) + 1
+        return "$sy-${sy + 1}-$num"
+    }
+    val base = encode(startY, n)
+    return listOf(base - 2, base - 1, base, base + 1).map { decode(it) }
 }

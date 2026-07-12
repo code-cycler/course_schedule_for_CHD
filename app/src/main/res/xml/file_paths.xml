@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- [导出图片] 与 ScheduleImageExporter 的 cacheDir/shared_images/ 对应 -->
+    <cache-path name="shared_images" path="shared_images/" />
+</paths>

@@ -1,5 +1,6 @@
 package com.example.course_schedule_for_chd_v002.data.remote.api
 
+import com.example.course_schedule_for_chd_v002.domain.model.SemesterOption
 import com.example.course_schedule_for_chd_v002.util.Constants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -406,23 +407,26 @@ class EamsApi(private val client: OkHttpClient) {
     }
 
     /**
-     * 获取可用学期列表
-     * @return 学期ID列表
+     * [获取新学期] 获取可用学期选项（含教务系统 semester.id + 显示文本）
+     * 从课表页学期下拉框的 <option> 解析：value=教务系统 semester.id，text=显示文本
+     * @return 学期选项列表，失败返回 failure（通常是 Cookie 过期 / 未登录）
      */
-    suspend fun getSemesters(): Result<List<String>> = withContext(Dispatchers.IO) {
+    suspend fun getSemesterOptions(): Result<List<SemesterOption>> = withContext(Dispatchers.IO) {
         try {
             val html = getCourseTablePage().getOrNull()
                 ?: return@withContext Result.failure(Exception("[X] Cannot get course table page"))
 
             val doc = Jsoup.parse(html)
 
-            // 从学期下拉框中提取学期列表
+            // 从学期下拉框中提取选项
             val options = doc.select("#semester option, select[name=semester] option")
-            val semesters = options.mapNotNull { option ->
-                option.attr("value").takeIf { it.isNotEmpty() }
+            val list = options.mapNotNull { option ->
+                val id = option.attr("value").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                val label = option.text().trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                SemesterOption(id, label)
             }
 
-            Result.success(semesters)
+            Result.success(list)
         } catch (e: Exception) {
             Result.failure(e)
         }

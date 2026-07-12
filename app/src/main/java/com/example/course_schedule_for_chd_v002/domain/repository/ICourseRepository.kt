@@ -1,6 +1,7 @@
 package com.example.course_schedule_for_chd_v002.domain.repository
 
 import com.example.course_schedule_for_chd_v002.domain.model.Course
+import com.example.course_schedule_for_chd_v002.domain.model.SemesterOption
 
 /**
  * 课程仓库接口
@@ -68,6 +69,21 @@ interface ICourseRepository {
     suspend fun saveSchedule(courses: List<Course>)
     suspend fun deleteSchedule(semester: String)
     suspend fun getAllSemesters(): List<String>
+
+    // [获取新学期] 远程学期抓取相关
+    /**
+     * [获取新学期] 拉取教务系统的学期选项（含教务系统 semester.id + 显示文本）
+     * 失败返回 failure（通常是 Cookie 过期 / 未登录）
+     */
+    suspend fun getRemoteSemesterOptions(): Result<List<SemesterOption>>
+
+    /**
+     * [获取新学期] 抓取指定学期的课表并入库
+     * @param remoteId 教务系统 semester.id
+     * @param localSemester 本地学期串（"YYYY-YYYY-N"）
+     * @return 入库后的课程数；失败返回 failure（含 Cookie 过期）
+     */
+    suspend fun fetchSpecifiedSemester(remoteId: String, localSemester: String): Result<Int>
 
     // 导入导出相关
     /**
