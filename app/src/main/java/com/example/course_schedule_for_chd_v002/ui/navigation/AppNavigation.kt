@@ -51,44 +51,27 @@ fun AppNavigation(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 始终以课程表视图为起始目的地
-    var startDestination by remember { mutableStateOf<String?>(null) }
-
     // 崩溃报告弹窗状态
     var showCrashDialog by remember { mutableStateOf(false) }
     var crashSummary by remember { mutableStateOf<CrashLogSummary?>(null) }
     var crashExporting by remember { mutableStateOf(false) }
     var crashExportResult by remember { mutableStateOf<LogExporter.ExportResult?>(null) }
 
+    // [Bug2 修复 2026-07-13] startDestination 固定无参 schedule_root（不再异步算带参路径）。
+    // 原 startDestination=schedule/{semester} 首次组合时路径参数 {semester} 绑不上，fallback 到硬编码
+    // 2024-2025-1，启动进错学期、本地课程查空（看似"数据丢失"）。读真实学期移到 schedule_root composable。
     LaunchedEffect(Unit) {
-        AppLogger.d(TAG, "=== 初始化起始目的地 ===")
         withContext(Dispatchers.IO) {
             // 崩溃检测
-            val wasCrash = CourseApplication.wasLastSessionCrash()
-            if (wasCrash) {
+            if (CourseApplication.wasLastSessionCrash()) {
                 AppLogger.w(TAG, "[NAV] 检测到上次非正常退出，准备显示崩溃报告")
                 crashSummary = LogExporter.getCrashLogSummary(context)
                 showCrashDialog = true
             }
-
-            // 直接进入课程表
-            val semester = repository.getCurrentSemester() ?: "2024-2025-1"
-            val route = Screen.Schedule.createRoute(semester)
-            AppLogger.i(TAG, "[NAV] 起始目的地 -> Schedule: $route")
-            startDestination = route
         }
     }
 
-    // 加载中状态
-    if (startDestination == null) {
-        AppLogger.d(TAG, "正在加载，显示进度条...")
-        Box(modifier = Modifier.fillMaxSize()) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-        }
-        return
-    }
-
-    AppLogger.i(TAG, "[NAV] NavHost 初始化，startDestination=${startDestination}")
+    AppLogger.i(TAG, "[NAV] NavHost 初始化，startDestination=${Screen.ScheduleRoot.route}")
 
     // 崩溃报告弹窗
     if (showCrashDialog) {
@@ -117,8 +100,24 @@ fun AppNavigation(
 
     NavHost(
         navController = navController,
-        startDestination = startDestination!!
+        startDestination = Screen.ScheduleRoot.route
     ) {
+        // [Bug2 修复] 启动跳板：读 DataStore 真实学期后 navigate，规避 startDestination 带路径参数绑不上
+        composable(Screen.ScheduleRoot.route) {
+            LaunchedEffect(Unit) {
+                val semester = withContext(Dispatchers.IO) {
+                    repository.getCurrentSemester() ?: "2024-2025-1"
+                }
+                AppLogger.i(TAG, "[NAV] ScheduleRoot 读到真实学期=$semester，跳转 schedule/$semester")
+                navController.navigate(Screen.Schedule.createRoute(semester)) {
+                    popUpTo(Screen.ScheduleRoot.route) { inclusive = true }
+                }
+            }
+            Box(modifier = Modifier.fillMaxSize()) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
+        }
+
         // 登录界面
         composable(Screen.Login.route) {
             AppLogger.d(TAG, "=== 进入 Login 屏幕 ===")
@@ -127,8 +126,11 @@ fun AppNavigation(
             LaunchedEffect(Unit) {
                 AppLogger.d(TAG, "[v29] 开始监听导航事件")
                 viewModel.navigateBackEvent.collect {
-                    AppLogger.i(TAG, "[NAV] [v29] >>> 收到导航事件，执行导航")
-                    navController.navigate(Screen.Schedule.createRoute("2024-2025-1")) {
+                    // 2026-07-13 修正：原硬编码 "2024-2025-1"，同步成功后导航到错学期，
+                    // 用户看不到刚同步的课。同步时 saveCurrentSemester 已写真实学期，读偏好拿。
+                    val target = repository.getCurrentSemester() ?: "2024-2025-1"
+                    AppLogger.i(TAG, "[NAV] [v29] >>> 收到导航事件，目标学期=$target")
+                    navController.navigate(Screen.Schedule.createRoute(target)) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
                     AppLogger.i(TAG, "[NAV] [v29] >>> 导航到 Schedule 完成")
@@ -148,7 +150,8 @@ fun AppNavigation(
             arguments = listOf(
                 navArgument(Screen.Schedule.SEMESTER_ARG) {
                     type = NavType.StringType
-                    defaultValue = "2024-2025-1"
+                    // 不设 defaultValue：startDestination 路径与所有 navigate 都显式带 semester，
+                    // 避免 defaultValue 覆盖路径参数导致启动进错学期（2026-07-13 日志定位）。
                 }
             )
         ) { backStackEntry ->

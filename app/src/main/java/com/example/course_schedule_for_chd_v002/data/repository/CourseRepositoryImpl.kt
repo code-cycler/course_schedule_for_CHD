@@ -456,6 +456,8 @@ class CourseRepositoryImpl(
 
     override suspend fun getRemoteSemesterOptions(): Result<List<SemesterOption>> {
         return try {
+            // [Cookie 懒同步] 防御：onCasLoginSuccess 已同步，此处兜底防 Cookie 过期/首次未同步
+            runCatching { cookieManager.syncFromWebView(Constants.EamsUrls.HOME_PAGE) }
             eamsApi.getSemesterOptions().map { options ->
                 // 只保留 label 能解析为标准本地学期串的
                 options.filter { ScheduleHtmlParser.parseSemesterString(it.label) != null }
@@ -467,8 +469,13 @@ class CourseRepositoryImpl(
 
     override suspend fun fetchSpecifiedSemester(remoteId: String, localSemester: String): Result<Int> {
         return try {
-            val html = eamsApi.getCourseTableHtml(remoteId, null).getOrNull()
-                ?: return Result.failure(Exception("无法获取课表（Cookie 可能已过期）"))
+            val htmlResult = eamsApi.getCourseTableHtml(remoteId, null)
+            if (htmlResult.isFailure) {
+                // [Bug1 配套 2026-07-13] 透传 EamsApi 失败原因（getStudentId 失败 / HTTP 错误 / 空响应），
+                // 不再笼统报"Cookie 可能已过期"——原误报掩盖了 getStudentId 用错 URL 的真因。
+                return Result.failure(htmlResult.exceptionOrNull() ?: Exception("无法获取课表"))
+            }
+            val html = htmlResult.getOrThrow()
             val entities = htmlParser.parse(html, localSemester)
             if (entities.isEmpty()) {
                 val looksLikeLoginPage = html.contains("登录") || html.contains("cas")

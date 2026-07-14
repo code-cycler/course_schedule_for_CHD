@@ -165,56 +165,61 @@ class LoginViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-            // 步骤1：解析课表 HTML
-            val defaultSemester = "2024-2025-1"
-            AppLogger.i("CHD_CurrentWeek", "[Step1] 开始解析课表 HTML...")
-            val result = repository.parseHtmlToCourses(courseTableHtml, defaultSemester)
+            // [Cookie 同步] WebView 登录成功后，把 Cookie 灌进 OkHttp（CookieManager），
+            // 供后续 OkHttp 请求用（获取新学期 dataQuery.action / 抓指定学期课表等）。
+            // 2026-07-13 修复：原 onCasLoginSuccess 不同步，OkHttp Cookie 永远空，
+            // 导致 getSemesterOptions 返回"登录已过期"。
+            val cookieSynced = repository.syncCookiesFromWebView(Constants.EamsUrls.HOME_PAGE, "")
+            AppLogger.i("CHD_CurrentWeek", "[Cookie] 同步 WebView→OkHttp: success=$cookieSynced")
+
+            // 步骤1：先从首页 HTML 解析真实学期+教学周（决定课程入哪个学期 key）
+            // 2026-07-12 修正：原硬编码 defaultSemester="2024-2025-1" 导致课程存错学期，
+            // 与 saveCurrentSemester 保存的真实学期错位 → 启动卡在老学期。
+            val currentWeekInfo = homePageHtml?.let { repository.parseCurrentWeekFromHtml(it) }
+            val realSemester = currentWeekInfo?.first
+            val targetSemester = realSemester ?: "2024-2025-1"  // 回退：首页无教学周信息时
+            AppLogger.i("CHD_CurrentWeek", "[Step1] 真实学期=$realSemester, 入库用 targetSemester=$targetSemester")
+
+            if (homePageHtml != null && currentWeekInfo == null) {
+                val weekInfoIndex = homePageHtml.indexOf("本周为")
+                if (weekInfoIndex >= 0) {
+                    val start = maxOf(0, weekInfoIndex - 50)
+                    val end = minOf(homePageHtml.length, weekInfoIndex + 200)
+                    AppLogger.w("CHD_CurrentWeek", "[Step1] 首页教学周解析失败，'本周为'附近: ${homePageHtml.substring(start, end)}")
+                } else {
+                    AppLogger.w("CHD_CurrentWeek", "[Step1] 首页 HTML 不含'本周为'关键字，回退 defaultSemester")
+                }
+            }
+
+            // 步骤2：用真实学期解析+入库课表（替代原硬编码 defaultSemester）
+            AppLogger.i("CHD_CurrentWeek", "[Step2] 开始解析课表 HTML，存入学期=$targetSemester")
+            val result = repository.parseHtmlToCourses(courseTableHtml, targetSemester)
 
             result.fold(
                 onSuccess = { courses ->
                     WebViewLogger.logSuccess("课表", "解析成功，共 ${courses.size} 门课程")
-                    AppLogger.i("CHD_CurrentWeek", "[Step2] 课表解析成功，课程数: ${courses.size}")
+                    AppLogger.i("CHD_CurrentWeek", "[Step2] 课表解析成功，课程数: ${courses.size}, 学期: $targetSemester")
 
-                    // 步骤2：从首页 HTML 解析当前教学周
-                    AppLogger.i("CHD_CurrentWeek", "[Step3] 开始从首页解析当前教学周...")
-                    if (homePageHtml != null) {
-                        AppLogger.i("CHD_CurrentWeek", "[Step3.0] 首页 HTML 长度: ${homePageHtml.length}")
+                    // 步骤3：保存教学周/学期/开始日期（来自 Step1 的 currentWeekInfo）
+                    if (currentWeekInfo != null) {
+                        val (semester, week) = currentWeekInfo
+                        WebViewLogger.logSuccess("教学周", "当前: $semester 第${week}周")
 
-                        // 使用 HtmlParser 直接解析首页 HTML
-                        val currentWeekInfo = repository.parseCurrentWeekFromHtml(homePageHtml)
+                        val semesterStartDate = TimeUtils.calculateSemesterStartDate(week)
+                        AppLogger.i("CHD_Semester", "[新功能] 反推学期开始日期: $semesterStartDate (当前周=$week)")
 
-                        if (currentWeekInfo != null) {
-                            val (semester, week) = currentWeekInfo
-                            AppLogger.i("CHD_CurrentWeek", "[Step3.1] 解析成功: 学期=$semester, 周次=$week")
-                            WebViewLogger.logSuccess("教学周", "当前: $semester 第${week}周")
-
-                            // [新功能] 反推学期开始日期并保存
-                            val semesterStartDate = TimeUtils.calculateSemesterStartDate(week)
-                            AppLogger.i("CHD_Semester", "[新功能] 反推学期开始日期: $semesterStartDate (当前周=$week)")
-
-                            // 保存到偏好设置
-                            userPreferences.saveCurrentWeek(week)
-                            userPreferences.saveCurrentSemester(semester)
-                            userPreferences.saveSemesterStartDate(semesterStartDate)
-                            userPreferences.saveLastParsedWeek(week)
-                            AppLogger.i("CHD_CurrentWeek", "[Step3.2] 已保存到 UserPreferences: week=$week, semester=$semester, startDate=$semesterStartDate")
-                        } else {
-                            AppLogger.w("CHD_CurrentWeek", "[Step3.1] 解析失败，首页 HTML 可能不包含教学周信息")
-                            // 打印 HTML 片段用于调试
-                            val weekInfoIndex = homePageHtml.indexOf("本周为")
-                            if (weekInfoIndex >= 0) {
-                                val start = maxOf(0, weekInfoIndex - 50)
-                                val end = minOf(homePageHtml.length, weekInfoIndex + 200)
-                                AppLogger.w("CHD_CurrentWeek", "找到'本周为'位置: $weekInfoIndex, 内容: ${homePageHtml.substring(start, end)}")
-                            } else {
-                                AppLogger.w("CHD_CurrentWeek", "未找到'本周为'关键字")
-                            }
-                        }
+                        userPreferences.saveCurrentWeek(week)
+                        userPreferences.saveCurrentSemester(semester)
+                        userPreferences.saveSemesterStartDate(semesterStartDate)
+                        userPreferences.saveLastParsedWeek(week)
+                        AppLogger.i("CHD_CurrentWeek", "[Step3] 已保存: week=$week, semester=$semester, startDate=$semesterStartDate")
                     } else {
-                        AppLogger.w("CHD_CurrentWeek", "[Step3] 首页 HTML 为 null，跳过教学周解析")
+                        // 首页无教学周信息，至少保证 currentSemester 与入库 key 一致
+                        userPreferences.saveCurrentSemester(targetSemester)
+                        AppLogger.w("CHD_CurrentWeek", "[Step3] 首页无教学周信息，仅保存 currentSemester=$targetSemester")
                     }
 
-                    // 步骤3：发射导航事件
+                    // 步骤4：发射导航事件 + UI 状态
                     val navResult = _navigateBackEvent.tryEmit(Unit)
                     AppLogger.i("CHD_CurrentWeek", "[Step4] 导航事件已发射: $navResult")
 
@@ -223,7 +228,7 @@ class LoginViewModel(
                             isLoading = false,
                             isLoggedIn = true,
                             showWebView = false,
-                            currentSemester = defaultSemester
+                            currentSemester = targetSemester
                         )
                     }
                     AppLogger.i("CHD_CurrentWeek", "========== [LoginViewModel] onCasLoginSuccess 成功结束 ==========")

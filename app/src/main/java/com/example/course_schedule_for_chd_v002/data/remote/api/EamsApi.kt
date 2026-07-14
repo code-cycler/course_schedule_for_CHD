@@ -107,11 +107,14 @@ class EamsApi(private val client: OkHttpClient) {
     suspend fun getStudentId(): Result<Long> = withContext(Dispatchers.IO) {
         try {
             AppLogger.d(TAG, "=== getStudentId 开始 ===")
-            AppLogger.d(TAG, "请求 URL: ${Constants.EamsUrls.COURSE_TABLE}")
+            // [Bug1 修复 2026-07-13] 原 GET Constants.EamsUrls.COURSE_TABLE（= courseTableForStd!courseTable.action）
+            // 必返回 500：!courseTable action 必须 POST + ids。改 GET 入口页 courseTableForStd.action（不带感叹号），
+            // 返回的 HTML 含 <input name="ids" value="...">（MCP 实测 studentId=201702）。
+            // 现有正则 4 name="ids"[^>]*value="(\d+)" 可直接匹配，无需改正则。
+            AppLogger.d(TAG, "请求 URL: ${Constants.EamsUrls.BASE_URL}eams/courseTableForStd.action")
 
-            // 先访问课表页面获取学生 ID
             val request = Request.Builder()
-                .url(Constants.EamsUrls.COURSE_TABLE)
+                .url("${Constants.EamsUrls.BASE_URL}eams/courseTableForStd.action")
                 .get()
                 .build()
 
@@ -193,8 +196,13 @@ class EamsApi(private val client: OkHttpClient) {
             }
 
             // 构建请求
+            // [Bug1 修复 2026-07-14] 必须带 setting.kind=std（beangle resource type），
+            // 否则 POST !courseTable.action 返回 500 "Resource type:null"（playwright XHR 实测确认：
+            // 加 setting.kind=std 后 200 + TaskActivity/table0 课表数据齐全）。
+            // 同步流程走 WebView 的 bg.form.submit 自动带全字段，OkHttp 这条路径漏了 setting.kind。
             val formBuilder = FormBody.Builder()
                 .add("ids", sid.toString())
+                .add("setting.kind", "std")
 
             // 如果提供了学期ID，添加到请求中
             if (semester != null) {
@@ -409,27 +417,79 @@ class EamsApi(private val client: OkHttpClient) {
 
     /**
      * [获取新学期] 获取可用学期选项（含教务系统 semester.id + 显示文本）
-     * 从课表页学期下拉框的 <option> 解析：value=教务系统 semester.id，text=显示文本
+     *
+     * 2026-07-12 MCP 实测修正：课表页学期切换是 jQuery semesterCalendar 组件（非 <select>），
+     * 学期列表经 POST /eams/dataQuery.action {dataType=semesterCalendar} AJAX 拉取，不在课表页静态 HTML。
+     * 响应是 JS 对象字面量（key 无引号、yearDom/termDom 含 HTML 引号），用正则针对性提三元组。
+     *
+     * label 用长格式 "$schoolYear学年第${name}学期"（如 "2025-2026学年第2学期"），
+     * 便于 ScheduleHtmlParser.parseSemesterString 转成本地短串 "2025-2026-2"，复用现有 filter/匹配链。
+     *
      * @return 学期选项列表，失败返回 failure（通常是 Cookie 过期 / 未登录）
      */
     suspend fun getSemesterOptions(): Result<List<SemesterOption>> = withContext(Dispatchers.IO) {
         try {
-            val html = getCourseTablePage().getOrNull()
-                ?: return@withContext Result.failure(Exception("[X] Cannot get course table page"))
+            AppLogger.d(TAG, "=== [获取新学期] getSemesterOptions 开始（POST dataQuery.action）===")
+            val formBody = FormBody.Builder()
+                .add("dataType", "semesterCalendar")
+                .build()
+            val request = Request.Builder()
+                .url("${Constants.EamsUrls.BASE_URL}eams/dataQuery.action")
+                .post(formBody)
+                .build()
 
-            val doc = Jsoup.parse(html)
+            val response = client.newCall(request).execute()
+            AppLogger.d(TAG, "[获取新学期] dataQuery 响应状态: ${response.code}")
+            if (!response.isSuccessful) {
+                AppLogger.e(TAG, "[获取新学期] [X] HTTP ${response.code}")
+                return@withContext Result.failure(Exception("[X] HTTP ${response.code}"))
+            }
 
-            // 从学期下拉框中提取选项
-            val options = doc.select("#semester option, select[name=semester] option")
-            val list = options.mapNotNull { option ->
-                val id = option.attr("value").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                val label = option.text().trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                SemesterOption(id, label)
+            val body = response.body?.string()
+                ?: return@withContext Result.failure(Exception("[X] Empty response"))
+            AppLogger.d(TAG, "[获取新学期] 响应长度: ${body.length}")
+
+            // 解析委托给纯函数 parseSemesterOptionsResponse（便于单测）
+            val list = parseSemesterOptionsResponse(body)
+            val currentId = CURRENT_SEMESTER_ID_REGEX.find(body)?.groupValues?.get(1)
+            AppLogger.i(TAG, "[获取新学期] 解析出 ${list.size} 个学期，教务系统当前 semesterId=$currentId")
+
+            if (list.isEmpty()) {
+                // 不含 semesters = Cookie 过期返回了登录页/首页 HTML；含 semesters 但 0 条 = 异常
+                if (!body.contains("semesters")) {
+                    val preview = body.take(300).replace("\n", " ").replace("\r", "")
+                    AppLogger.w(TAG, "[获取新学期] 响应不含 semesters（Cookie 可能已过期）。前300字: $preview")
+                    return@withContext Result.failure(Exception("登录已过期，请重新同步"))
+                }
+                AppLogger.w(TAG, "[获取新学期] 响应含 semesters 但解析出 0 条学期（异常）")
             }
 
             Result.success(list)
         } catch (e: Exception) {
+            AppLogger.e(TAG, "[获取新学期] getSemesterOptions 异常: ${e.message}", e)
             Result.failure(e)
+        }
+    }
+
+    companion object {
+        private val SEMESTER_TRIPLE_REGEX = Regex("""\{id:(\d+),schoolYear:"([^"]+)",name:"(\d+)"\}""")
+        private val CURRENT_SEMESTER_ID_REGEX = Regex("""semesterId:"(\d+)"""")
+
+        /**
+         * [获取新学期] 解析 dataQuery.action 的 JS 对象字面量响应为学期列表（纯函数，便于单测）。
+         *
+         * 响应格式（key 无引号、yearDom/termDom 含 HTML 引号，非标准 JSON）：
+         * `{yearDom:"...",termDom:"...",semesters:{y0:[{id,schoolYear,name},...]},semesterId:"242"}`
+         *
+         * @param body dataQuery.action 响应体
+         * @return 学期列表（label 长格式 "$schoolYear学年第${name}学期"）；响应不含 semesters 返回空列表
+         */
+        fun parseSemesterOptionsResponse(body: String): List<SemesterOption> {
+            if (!body.contains("semesters")) return emptyList()
+            return SEMESTER_TRIPLE_REGEX.findAll(body).map { m ->
+                val (id, schoolYear, name) = m.destructured
+                SemesterOption(remoteId = id, label = "${schoolYear}学年第${name}学期")
+            }.toList()
         }
     }
 }

@@ -5,7 +5,11 @@
 > **已解决 / 已决策（已移出本清单，详见 git log）：**
 > - 未用 Retrofit 依赖 + 空 `EamsService.kt` — 2026-06 删除（grep 证零引用）
 > - GeckoView 注释残留 — 2026-06 清理
-> - 默认学期硬编码 `"2024-2025-1"` — 决策用「切换学期功能」顺带解决，设计见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)（待实现）
+> - 默认学期硬编码 `"2024-2025-1"` — 2026-07 分两步彻底解决：①同步入库用真实学期（`LoginViewModel.onCasLoginSuccess` 先 `parseCurrentWeekFromHtml` 再入库，07-12）；②启动读真实学期不再靠 NavHost startDestination 带路径参数（首次组合 `{semester}` 绑不上 → fallback 硬编码），改无参 `schedule_root` 跳板读 DataStore 后 navigate（07-13）。设计见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)。
+> - Navigation Compose startDestination 路径参数首次组合绑不上 — 2026-07-13 规避。`NavHost(startDestination="schedule/2025-2026-2")` + `composable("schedule/{semester}")` 首次组合时 `arguments.getString("semester")` 返回 null（正常 navigate 不复现，故长期未发现）。根因未深究（疑 Navigation 版本行为）；处置：加无参 `Screen.ScheduleRoot` 作 startDestination，读 DataStore 后 navigate 规避。可逆——升级 Navigation 后想还原，直接回退 `AppNavigation.kt`。
+> - getStudentId 用错 URL 拿 500（"获取其他学期"长期失败、误报 Cookie 过期）— 2026-07-13 修复。`getStudentId()` 原 GET `courseTableForStd!courseTable.action`（须 POST），改 GET `courseTableForStd.action`（不带感叹号）。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「getStudentId 坑」。
+> - POST `!courseTable.action` 缺 `setting.kind=std` 致 500（`Resource type:null`）— 2026-07-14 修复。`getCourseTableHtml` formBuilder 加 `.add("setting.kind", "std")`。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「setting.kind 坑」。
+> - ScheduleViewModelTest 套件腐烂（原基于 v37/v61 旧 API、整个类 @Ignore）— 2026-07 重写（commit 419ea3c），基于当前 API，7 个 @Test 全绿，去掉 @Ignore。
 > - LoginScreen + 表单登录死代码 — 2026-06 删除（`LoginScreen.kt` / `CasApi.kt` / `CasLoginPage.kt` + `LoginViewModel` 表单方法 + `ICourseRepository.login` + `LoginResult` + 对应测试）。命令行编译验证通过。
 > - AGP 9.0 命令行构建失败 — 2026-06 解决。根因：Gradle daemon 缓存了旧 JVM 的代理配置（`127.0.0.1:7890`）；处置：`./gradlew --stop` 重启 daemon + `settings.gradle.kts` 加阿里云镜像 + 补 `local.properties`（SDK 路径，gitignore）。
 
@@ -29,12 +33,3 @@
 **Reversibility:** 高 — 只是注释/文档表述，随时可改。
 **Trigger — revisit when:** 版本号混淆导致维护困难，或决定正式废弃内部号、改用 git commit 追踪改动。
 
----
-
-## ScheduleViewModelTest 测试套件腐烂 — 基于 v37/v61 之前的旧 API
-
-**Status:** deferred
-**Why deferred:** experience gap（整个文件基于旧 API：构造缺 `userPreferences`（v61 加）、调 `refreshSchedule()`（v37 已删）、引用 `isRefreshing` 字段（已移除）；修复 = 基于当前 `ScheduleViewModel` 重写整套测试，需先理清 `loadSchedule` 的冲突缓存/教学周/校区逻辑再逐个 mock，工作量较大）
-**Current placeholder:** 整个类 `@Ignore`（保留文件占位，不阻塞 test 编译/运行）。`./gradlew testDebugUnitTest` 现已全绿（`ScheduleHtmlParserTest` 含单双周回归、`CourseRepositoryImplTest` 等均通过）。
-**Reversibility:** 高 — 纯测试代码，重写后去掉 `@Ignore` 即可。
-**Trigger — revisit when:** 想恢复 `ScheduleViewModel` 的 unit test 覆盖，或下次大改 `ScheduleViewModel` 时顺手重写。
