@@ -159,7 +159,10 @@ CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView �
 
 - **位图偏移（v96 反复修正过）**：学校系统位图 **bitmap[0] = 第 0 周（预备周）**，不是第 1 周。所以解析时 `week = index + 1` 后还要 `-1` 修正；`Course.isWeekInRange()` 直接用 `bitmap[week]`（因为 bitmap 下标即周次）。改这块务必看 `ScheduleHtmlParser.parseWeeksBitmap` 和 `Course.isWeekInRange` 的注释。
 - **`unitCount` = 11，但 `CourseTable` 默认 77**：学校每天 11 节课，解析固定用 11；`ScriptInjector` 里 `CourseTable` 构造的 `unitCounts || 77` 是占位，实际靠 `window.unitCount = 11`。
-- **默认学期硬编码 `2024-2025-1`**：散落在 `AppNavigation` / `LoginViewModel`，是「未登录时的占位」。登录后会被首页解析出的真实学期覆盖。只有首次未登录启动才会用到这个过时值。
+- **默认学期硬编码 `2024-2025-1`**（已解决 2026-07）：原散落在 `AppNavigation` / `LoginViewModel`，启动时 NavHost startDestination 带路径参数首次组合绑不上，fallback 到此硬编码 → 进错学期。现 `AppNavigation` 用无参 `schedule_root` 跳板读 DataStore 真实学期后 navigate 规避；`LoginViewModel.onCasLoginSuccess` 先解析真实学期再入库。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)。
+- **`getStudentId` URL**：必须 GET `courseTableForStd.action`（不带感叹号）；误用 `!courseTable.action` 会 500（该 action 须 POST）。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「getStudentId 坑」。
+- **POST `!courseTable.action` 须带 `setting.kind=std`**：beangle 的 resource type，缺则 500 `Resource type:null`。`getCourseTableHtml` formBuilder 必须加此字段。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「setting.kind 坑」。
+- **NavHost startDestination 带路径参数首次组合绑不上**：`schedule/{semester}` 的 `{semester}` 在 startDestination 首次组合时 `getString` 返回 null（正常 navigate 不复现）。用无参 `schedule_root` 跳板规避。切换学期导航勿用 `launchSingleTop`（会复用 entry、ViewModel 不重建），改 `popUpTo(route){inclusive=true}` 强制新建 entry。
 - **i18n 不完整**：`values-en/strings.xml` 缺水课等字符串，英文环境下回退中文；实际界面以中文为主。
 
 ---

@@ -162,7 +162,11 @@ fun AppNavigation(
                 semester = semester,
                 onNavigateToSemester = { newSemester ->
                     navController.navigate(Screen.Schedule.createRoute(newSemester)) {
-                        launchSingleTop = true
+                        // [Bug 修复 2026-07-14] 去掉 launchSingleTop + popUpTo 弹出旧 schedule entry：
+                        // launchSingleTop 会复用栈顶 backStackEntry，ViewModel scoped to entry 也复用，
+                        // semester 构造参数不更新 → 切换学期界面不刷新（课程仍是旧学期的，要退出重进才生效）。
+                        // popUpTo inclusive=true 弹出旧 entry，navigate 创建新 entry + 新 ViewModel 重新 loadSchedule。
+                        popUpTo(Screen.Schedule.route) { inclusive = true }
                     }
                 },
                 onLogout = {
