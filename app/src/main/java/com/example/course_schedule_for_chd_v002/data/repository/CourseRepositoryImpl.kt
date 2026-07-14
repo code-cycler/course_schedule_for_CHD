@@ -469,6 +469,8 @@ class CourseRepositoryImpl(
 
     override suspend fun fetchSpecifiedSemester(remoteId: String, localSemester: String): Result<Int> {
         return try {
+            // [v113] 兜底同步 WebView cookie（与 getRemoteSemesterOptions 一致），防 OkHttp cookieStore 内存丢失
+            runCatching { cookieManager.syncFromWebView(Constants.EamsUrls.HOME_PAGE) }
             val htmlResult = eamsApi.getCourseTableHtml(remoteId, null)
             if (htmlResult.isFailure) {
                 // [Bug1 配套 2026-07-13] 透传 EamsApi 失败原因（getStudentId 失败 / HTTP 错误 / 空响应），
@@ -490,7 +492,8 @@ class CourseRepositoryImpl(
             courseDao.insertAll(entities)
             val courses = entities.map { it.toDomainModel() }
             precomputeAndCacheConflicts(courses, localSemester)
-            userPreferences.saveCurrentSemester(localSemester)
+            // [v113] 不调 saveCurrentSemester：抓指定学期不改"当前学期"（currentSemester 只在同步时设）。
+            // 否则 ScheduleViewModel 的"semester == currentSemester"判断失效，非当前学期会误用当前学期开始日期算表头。
             Result.success(courses.size)
         } catch (e: Exception) {
             Result.failure(e)

@@ -111,7 +111,9 @@ class CourseRepositoryImplTest {
             courseDao.deleteBySemester(local)
             courseDao.insertAll(any())
         }
-        coVerify { userPreferences.saveCurrentSemester(local) }
+        // [v113] fetchSpecifiedSemester 不再调 saveCurrentSemester（抓指定学期不改当前学期，
+        // 否则 ScheduleViewModel 的"semester == currentSemester"判断失效，非当前学期会误用当前学期开始日期算表头）
+        coVerify(exactly = 0) { userPreferences.saveCurrentSemester(local) }
     }
 
     @Test

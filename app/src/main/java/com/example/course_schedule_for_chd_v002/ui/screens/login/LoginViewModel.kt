@@ -170,7 +170,7 @@ class LoginViewModel(
             // 2026-07-13 修复：原 onCasLoginSuccess 不同步，OkHttp Cookie 永远空，
             // 导致 getSemesterOptions 返回"登录已过期"。
             val cookieSynced = repository.syncCookiesFromWebView(Constants.EamsUrls.HOME_PAGE, "")
-            AppLogger.i("CHD_CurrentWeek", "[Cookie] 同步 WebView→OkHttp: success=$cookieSynced")
+            AppLogger.i("CHD_CurrentWeek", "[Cookie] 同步 WebView→OkHttp: success=$cookieSynced（syncFromWebView 内含 flush 写盘）")
 
             // 步骤1：先从首页 HTML 解析真实学期+教学周（决定课程入哪个学期 key）
             // 2026-07-12 修正：原硬编码 defaultSemester="2024-2025-1" 导致课程存错学期，

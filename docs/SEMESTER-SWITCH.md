@@ -148,3 +148,7 @@ Regex("""semesterId:"(\d+)"""").find(resp)
 - Cookie 过期时 dataQuery.action 可能返回登录页 HTML（不含 semesters）→ 解析得 0 条 → UI 提示「登录已过期」。
 - `getStudentId()` 必须 GET `courseTableForStd.action`（不带感叹号）；误用 `!courseTable.action` 会 500（2026-07-13 已修，见上「getStudentId 坑」）。
 - POST `!courseTable.action` 必须带 `setting.kind=std`（beangle resource type），否则 500 `Resource type:null`（2026-07-14 已修，见上「setting.kind 坑」）。
+
+> **2026-07-14 补 cookie 持久化坑（"重启后获取其他学期提示登录已过期"根因）**：OkHttp `CookieManager.cookieStore` 是纯内存 `mutableMapOf`，App 重启即丢；而 WebView 的 `android.webkit.CookieManager` 持久化但登录时未调 `flush()` 强制写盘，异步写盘可能没落盘。重启后 OkHttp 无 cookie → `fetchSpecifiedSemester` 被重定向到登录页 → 误报"登录已过期"（同步课表走 WebView 不受影响，故长期未暴露）。修复（v113）：①`CookieManager.syncFromWebView` 内 `getCookie` 后调 `webViewCookieManager.flush()` 写盘；②`AppNavigation` ScheduleRoot 跳板冷启动时 `syncCookiesFromWebView` 把 WebView cookie 灌进 OkHttp；③`fetchSpecifiedSemester` 开头兜底再同步一次（与 `getRemoteSemesterOptions` 一致）。
+
+> **2026-07-14 补非当前学期表头日期坑**：`semesterStartDate` 是 DataStore 全局单值（只存当前学期的），`fetchSpecifiedSemester` 抓指定学期时不存该学期开始日期，切到非当前学期表头仍用当前学期的 `semesterStartDate` 算日期 → 全错。修复（v113）：①`fetchSpecifiedSemester` 删 `saveCurrentSemester`（抓指定学期不改"当前学期"，否则判断失效）；②`ScheduleViewModel` loadSchedule/onWeekSelected/refreshCurrentTimeInfo 三处判断 `semester == repository.getCurrentSemester()`，非当前学期 `semesterStartDate`/`lastParsedWeek` 置 null → `weekStartDate=null`（表头只显示周几，ScheduleGrid 已优雅降级）+ `actualCurrentWeek=null`（无"回到当前周"/今日高亮）。当前学期不受影响。

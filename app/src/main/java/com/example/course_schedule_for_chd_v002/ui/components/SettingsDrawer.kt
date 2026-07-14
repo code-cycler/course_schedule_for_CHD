@@ -1,5 +1,6 @@
 package com.example.course_schedule_for_chd_v002.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,6 +67,11 @@ fun SettingsDrawer(
     onDeleteCalendarClick: () -> Unit,
     onRequestCalendarPermission: () -> Unit,
     onClearData: () -> Unit = {},
+    currentSemester: String = "",
+    currentCampusName: String = "",
+    onSemesterClick: () -> Unit = {},
+    onCampusClick: () -> Unit = {},
+    onExportLogsClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -84,6 +92,11 @@ fun SettingsDrawer(
                     onDeleteCalendarClick = onDeleteCalendarClick,
                     onRequestCalendarPermission = onRequestCalendarPermission,
                     onClearData = onClearData,
+                    currentSemester = currentSemester,
+                    currentCampusName = currentCampusName,
+                    onSemesterClick = onSemesterClick,
+                    onCampusClick = onCampusClick,
+                    onExportLogsClick = onExportLogsClick,
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
@@ -104,6 +117,11 @@ private fun SettingsDrawerContent(
     onDeleteCalendarClick: () -> Unit,
     onRequestCalendarPermission: () -> Unit,
     onClearData: () -> Unit = {},
+    currentSemester: String = "",
+    currentCampusName: String = "",
+    onSemesterClick: () -> Unit = {},
+    onCampusClick: () -> Unit = {},
+    onExportLogsClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -121,14 +139,96 @@ private fun SettingsDrawerContent(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "日历同步",
+                text = "设置",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ===== 课表区 =====
+        Text(
+            text = "课表",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onSemesterClick() }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "学期",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = currentSemester.ifBlank { "未选择" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onCampusClick() }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "校区",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = currentCampusName.ifBlank { "未选择" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Divider()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ===== 日历同步区 =====
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "日历同步",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // 系统日历同步开关
         Row(
@@ -409,41 +509,74 @@ private fun SettingsDrawerContent(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
-            Divider()
-            Spacer(modifier = Modifier.height(8.dp))
+        }
 
-            // [清除数据] 清除所有本地课表（保留登录态/偏好）
-            var showClearConfirm by remember { mutableStateOf(false) }
-            OutlinedButton(
-                onClick = { showClearConfirm = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("清除所有课表数据", color = MaterialTheme.colorScheme.error)
-            }
-            Text(
-                text = "删除所有已下载的课表（不影响登录状态和设置）",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        Spacer(modifier = Modifier.height(8.dp))
+        Divider()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ===== 数据区 =====
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
             )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "数据",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
-            if (showClearConfirm) {
-                AlertDialog(
-                    onDismissRequest = { showClearConfirm = false },
-                    title = { Text("清除所有课表数据？") },
-                    text = { Text("将删除所有学期的课表，操作不可撤销。登录状态和设置保留。") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            showClearConfirm = false
-                            onClearData()
-                        }) { Text("清除", color = MaterialTheme.colorScheme.error) }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
-                    }
-                )
-            }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = onExportLogsClick,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Info, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("导出日志")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // [清除数据] 清除所有本地课表（保留登录态/偏好）
+        var showClearConfirm by remember { mutableStateOf(false) }
+        OutlinedButton(
+            onClick = { showClearConfirm = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("清除所有课表数据", color = MaterialTheme.colorScheme.error)
+        }
+        Text(
+            text = "删除所有已下载的课表（不影响登录状态和设置）",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (showClearConfirm) {
+            AlertDialog(
+                onDismissRequest = { showClearConfirm = false },
+                title = { Text("清除所有课表数据？") },
+                text = { Text("将删除所有学期的课表，操作不可撤销。登录状态和设置保留。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showClearConfirm = false
+                        onClearData()
+                    }) { Text("清除", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(24.dp))

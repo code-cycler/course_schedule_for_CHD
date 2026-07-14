@@ -163,6 +163,8 @@ CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView �
 - **`getStudentId` URL**：必须 GET `courseTableForStd.action`（不带感叹号）；误用 `!courseTable.action` 会 500（该 action 须 POST）。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「getStudentId 坑」。
 - **POST `!courseTable.action` 须带 `setting.kind=std`**：beangle 的 resource type，缺则 500 `Resource type:null`。`getCourseTableHtml` formBuilder 必须加此字段。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「setting.kind 坑」。
 - **NavHost startDestination 带路径参数首次组合绑不上**：`schedule/{semester}` 的 `{semester}` 在 startDestination 首次组合时 `getString` 返回 null（正常 navigate 不复现）。用无参 `schedule_root` 跳板规避。切换学期导航勿用 `launchSingleTop`（会复用 entry、ViewModel 不重建），改 `popUpTo(route){inclusive=true}` 强制新建 entry。
+- **OkHttp cookie 内存态重启丢失**（v113 修）：`CookieManager.cookieStore` 纯内存，App 重启即丢；WebView cookie 持久化但登录时未 `flush()` 写盘。重启后"获取其他学期"走 OkHttp 报"登录已过期"（同步走 WebView 不受影响）。处置：`syncFromWebView` 内 `flush()` 写盘 + ScheduleRoot 跳板启动时同步 + `fetchSpecifiedSemester` 前兜底同步。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「cookie 持久化坑」。
+- **非当前学期表头日期错**（v113 修）：`semesterStartDate` 全局单值只存当前学期的，`fetchSpecifiedSemester` 不存指定学期开始日期，非当前学期表头用当前学期的算 → 全错。处置：`fetchSpecifiedSemester` 不再 `saveCurrentSemester`；`ScheduleViewModel` 判断 `semester == currentSemester`，非当前学期 `weekStartDate=null`（表头只显示周几）+ `actualCurrentWeek=null`。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「非当前学期表头日期坑」。
 - **i18n 不完整**：`values-en/strings.xml` 缺水课等字符串，英文环境下回退中文；实际界面以中文为主。
 
 ---

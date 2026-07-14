@@ -12,6 +12,8 @@
 > - ScheduleViewModelTest 套件腐烂（原基于 v37/v61 旧 API、整个类 @Ignore）— 2026-07 重写（commit 419ea3c），基于当前 API，7 个 @Test 全绿，去掉 @Ignore。
 > - LoginScreen + 表单登录死代码 — 2026-06 删除（`LoginScreen.kt` / `CasApi.kt` / `CasLoginPage.kt` + `LoginViewModel` 表单方法 + `ICourseRepository.login` + `LoginResult` + 对应测试）。命令行编译验证通过。
 > - AGP 9.0 命令行构建失败 — 2026-06 解决。根因：Gradle daemon 缓存了旧 JVM 的代理配置（`127.0.0.1:7890`）；处置：`./gradlew --stop` 重启 daemon + `settings.gradle.kts` 加阿里云镜像 + 补 `local.properties`（SDK 路径，gitignore）。
+> - 重启后"获取其他学期"提示登录已过期 — 2026-07-14 修复（v113）。根因：OkHttp `cookieStore` 纯内存重启丢 + 登录未 `CookieManager.flush()` 写盘。处置：`syncFromWebView` 内 `flush()` + ScheduleRoot 跳板启动同步 + `fetchSpecifiedSemester` 前兜底同步。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「cookie 持久化坑」。
+> - 非当前学期表头日期错 — 2026-07-14 修复（v113）。根因：`semesterStartDate` 全局单值只存当前学期的，`fetchSpecifiedSemester` 不存指定学期开始日期。处置：删 `fetchSpecifiedSemester` 的 `saveCurrentSemester`；`ScheduleViewModel` 判断 `semester == currentSemester`，非当前学期 `weekStartDate=null`+`actualCurrentWeek=null`（表头只显示周几）。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「非当前学期表头日期坑」。
 
 ---
 

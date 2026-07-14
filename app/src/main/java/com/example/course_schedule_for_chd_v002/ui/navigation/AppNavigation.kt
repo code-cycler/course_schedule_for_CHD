@@ -29,6 +29,7 @@ import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.login.WebViewScreen
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleScreen
 import com.example.course_schedule_for_chd_v002.util.AppLogger
+import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.CrashHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -106,6 +107,9 @@ fun AppNavigation(
         composable(Screen.ScheduleRoot.route) {
             LaunchedEffect(Unit) {
                 val semester = withContext(Dispatchers.IO) {
+                    // [v113] 冷启动把 WebView cookie 灌进 OkHttp（cookieStore 纯内存重启即丢，
+                    // 需在 OkHttp 请求前从持久化的 WebView cookie 同步）
+                    runCatching { repository.syncCookiesFromWebView(Constants.EamsUrls.HOME_PAGE, "") }
                     repository.getCurrentSemester() ?: "2024-2025-1"
                 }
                 AppLogger.i(TAG, "[NAV] ScheduleRoot 读到真实学期=$semester，跳转 schedule/$semester")

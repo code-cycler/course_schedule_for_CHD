@@ -889,6 +889,7 @@ fun toggleWaterCourse(courseName: String) {
 | v110 | 课程手动编辑（CRUD 时段，位图周次编辑器，教师/教室建议） |
 | v111 | 从 GeckoView 切换到 System WebView，应用架构重构 |
 | v112 | 多学期管理（本地切换 +「+获取其它学期」）；启动 schedule_root 跳板修学期错位；切换学期 popUpTo 重建 ViewModel |
+| v113 | 细节打磨：cookie 持久化（flush+启动同步+请求前兜底）；非当前学期表头不对齐日期；侧边栏重构（标题"设置"+课表/日历同步/数据三区）；顶栏瘦身（导出日志入侧边栏、学期/校区入侧边栏） |
 
 ---
 

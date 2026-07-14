@@ -122,6 +122,7 @@ fun ScheduleScreen(
     // [切换学期] 学期选择 + [获取新学期] 二级对话框
     var showSemesterDialog by remember { mutableStateOf(false) }
     var showFetchSemesterDialog by remember { mutableStateOf(false) }
+    var showCampusDialog by remember { mutableStateOf(false) }
 
     // SAF 保存状态
     var pendingSaveFile by remember { mutableStateOf<File?>(null) }
@@ -254,7 +255,12 @@ fun ScheduleScreen(
             viewModel.clearAllSchedules()
             scope.launch { drawerState.close() }
             Toast.makeText(context, "课表已清除", Toast.LENGTH_SHORT).show()
-        }
+        },
+        currentSemester = semester,
+        currentCampusName = uiState.campus.displayName,
+        onSemesterClick = { showSemesterDialog = true },
+        onCampusClick = { showCampusDialog = true },
+        onExportLogsClick = { showLogExportDialog = true }
     ) {
         Scaffold(
             topBar = {
@@ -285,16 +291,6 @@ fun ScheduleScreen(
                         }
                     },
                     actions = {
-                        // 日志导出按钮
-                        IconButton(
-                            onClick = { showLogExportDialog = true }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Info,
-                                contentDescription = "导出日志"
-                            )
-                        }
-
                         // [导出图片] 导出当前周课表
                         IconButton(
                             onClick = {
@@ -345,7 +341,6 @@ fun ScheduleScreen(
                     .padding(paddingValues)
             ) {
                 var isWeekendExpanded by remember { mutableStateOf(false) }
-                var showCampusDialog by remember { mutableStateOf(false) }
 
                 val displayCourses = uiState.displayCourses
                 val hasSaturdayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SATURDAY }
@@ -364,32 +359,6 @@ fun ScheduleScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // [切换学期] 学期切换
-                    FilterChip(
-                        selected = false,
-                        onClick = { showSemesterDialog = true },
-                        label = {
-                            Text(
-                                text = semester,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1
-                            )
-                        }
-                    )
-
-                    // 校区切换按钮
-                    FilterChip(
-                        selected = false,
-                        onClick = { showCampusDialog = true },
-                        label = {
-                            Text(
-                                text = uiState.campus.displayName,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1
-                            )
-                        }
-                    )
-
                     // 周数选择器
                     WeekSelector(
                         currentWeek = uiState.currentWeek,
@@ -402,7 +371,7 @@ fun ScheduleScreen(
                     FilterChip(
                         selected = isWeekendExpanded,
                         onClick = { isWeekendExpanded = !isWeekendExpanded },
-                        modifier = Modifier.width(96.dp),
+                        modifier = Modifier.wrapContentWidth(),
                         label = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,

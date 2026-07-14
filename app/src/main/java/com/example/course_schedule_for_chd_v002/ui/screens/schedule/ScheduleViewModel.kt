@@ -115,9 +115,12 @@ class ScheduleViewModel(
             val maxWeek = findMaxWeekWithCourse(courses)
             AppLogger.i("CHD_CurrentWeek", "[Step2] 最大周数: $maxWeek")
 
-            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
-            val lastParsedWeek = userPreferences.getLastParsedWeekOnce()
-            AppLogger.i("CHD_CurrentWeek", "[Step3] 学期开始日期: $semesterStartDate, 上次解析周次: $lastParsedWeek")
+            val currentSemester = repository.getCurrentSemester()
+            val isCurrentSemester = semester == currentSemester
+            // [v113] semesterStartDate 是全局单值（当前学期的）；非当前学期忽略，避免表头日期错
+            val semesterStartDate = if (isCurrentSemester) userPreferences.getSemesterStartDateOnce() else null
+            val lastParsedWeek = if (isCurrentSemester) userPreferences.getLastParsedWeekOnce() else null
+            AppLogger.i("CHD_CurrentWeek", "[Step3] 学期开始日期: $semesterStartDate, 上次解析周次: $lastParsedWeek, 当前学期=$isCurrentSemester (本=$semester 存=$currentSemester)")
 
             val actualCurrentWeek = when {
                 semesterStartDate != null -> TimeUtils.calculateCurrentWeek(semesterStartDate)
@@ -243,7 +246,9 @@ class ScheduleViewModel(
         val newWeek = week.coerceIn(1, _uiState.value.maxWeeks)
 
         viewModelScope.launch {
-            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            // [v113] 非当前学期不对齐日期：semesterStartDate 是当前学期的，非当前学期忽略
+            val isCurrentSemester = semester == repository.getCurrentSemester()
+            val semesterStartDate = if (isCurrentSemester) userPreferences.getSemesterStartDateOnce() else null
             val weekStartDate = if (semesterStartDate != null) {
                 TimeUtils.calculateWeekStartDate(semesterStartDate, newWeek)
             } else {
@@ -279,7 +284,9 @@ class ScheduleViewModel(
      */
     fun refreshCurrentTimeInfo() {
         viewModelScope.launch {
-            val semesterStartDate = userPreferences.getSemesterStartDateOnce()
+            // [v113] 非当前学期不对齐日期：semesterStartDate 是当前学期的，非当前学期忽略
+            val isCurrentSemester = semester == repository.getCurrentSemester()
+            val semesterStartDate = if (isCurrentSemester) userPreferences.getSemesterStartDateOnce() else null
             val maxWeek = _uiState.value.maxWeeks
             val currentDisplayWeek = _uiState.value.currentWeek
 

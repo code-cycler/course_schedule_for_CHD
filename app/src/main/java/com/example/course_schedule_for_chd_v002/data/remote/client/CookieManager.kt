@@ -95,6 +95,9 @@ class CookieManager : CookieJar {
         try {
             val webViewCookieManager = android.webkit.CookieManager.getInstance()
             val cookiesString = webViewCookieManager.getCookie(url) ?: return
+            // [v113] 强制写盘，确保 App 重启后 cookie 可读
+            // （修"重启后获取其他学期提示登录已过期"：cookieStore 纯内存重启丢，需 WebView cookie 落盘后启动同步）
+            webViewCookieManager.flush()
 
             // 解析 URL
             val httpUrl = url.toHttpUrlOrNull() ?: return
