@@ -23,6 +23,7 @@ import com.example.course_schedule_for_chd_v002.CourseApplication
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.ui.components.CrashReportDialog
+import com.example.course_schedule_for_chd_v002.ui.screens.checkinassist.CheckInAssistScreen
 import com.example.course_schedule_for_chd_v002.util.LogExporter
 import com.example.course_schedule_for_chd_v002.util.LogExporter.CrashLogSummary
 import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
@@ -122,6 +123,11 @@ fun AppNavigation(
             }
         }
 
+        // [v114] 签到辅助界面
+        composable(Screen.CheckInAssist.route) {
+            CheckInAssistScreen(onBack = { navController.popBackStack() })
+        }
+
         // 登录界面
         composable(Screen.Login.route) {
             AppLogger.d(TAG, "=== 进入 Login 屏幕 ===")
@@ -189,6 +195,9 @@ fun AppNavigation(
                     } else {
                         AppLogger.w(TAG, "[NAV] 已在 Login 页面，跳过导航")
                     }
+                },
+                onNavigateToCheckInAssist = {
+                    navController.navigate(Screen.CheckInAssist.route)
                 }
             )
         }

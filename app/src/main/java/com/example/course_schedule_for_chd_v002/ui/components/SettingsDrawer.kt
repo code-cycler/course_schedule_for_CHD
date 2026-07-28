@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -72,6 +73,7 @@ fun SettingsDrawer(
     onSemesterClick: () -> Unit = {},
     onCampusClick: () -> Unit = {},
     onExportLogsClick: () -> Unit = {},
+    onCheckInAssistClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -97,6 +99,7 @@ fun SettingsDrawer(
                     onSemesterClick = onSemesterClick,
                     onCampusClick = onCampusClick,
                     onExportLogsClick = onExportLogsClick,
+                    onCheckInAssistClick = onCheckInAssistClick,
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
@@ -122,6 +125,7 @@ private fun SettingsDrawerContent(
     onSemesterClick: () -> Unit = {},
     onCampusClick: () -> Unit = {},
     onExportLogsClick: () -> Unit = {},
+    onCheckInAssistClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -199,6 +203,32 @@ private fun SettingsDrawerContent(
                     fontWeight = FontWeight.Medium
                 )
             }
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        // [v114] 签到辅助入口
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onCheckInAssistClick() }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.LocationOn,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "签到辅助",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.weight(1f))
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowRight,
                 contentDescription = null,

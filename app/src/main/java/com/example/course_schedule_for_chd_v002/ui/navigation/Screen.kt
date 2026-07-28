@@ -34,4 +34,9 @@ sealed class Screen(val route: String) {
      * 正常 navigate（同步成功、切换学期）时 schedule/{semester} 参数绑定正常，不受影响。
      */
     object ScheduleRoot : Screen("schedule_root")
+
+    /**
+     * [v114] 签到辅助界面
+     */
+    object CheckInAssist : Screen("checkin_assist")
 }

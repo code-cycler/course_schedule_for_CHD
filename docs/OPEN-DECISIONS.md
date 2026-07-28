@@ -14,6 +14,7 @@
 > - AGP 9.0 命令行构建失败 — 2026-06 解决。根因：Gradle daemon 缓存了旧 JVM 的代理配置（`127.0.0.1:7890`）；处置：`./gradlew --stop` 重启 daemon + `settings.gradle.kts` 加阿里云镜像 + 补 `local.properties`（SDK 路径，gitignore）。
 > - 重启后"获取其他学期"提示登录已过期 — 2026-07-14 修复（v113）。根因：OkHttp `cookieStore` 纯内存重启丢 + 登录未 `CookieManager.flush()` 写盘。处置：`syncFromWebView` 内 `flush()` + ScheduleRoot 跳板启动同步 + `fetchSpecifiedSemester` 前兜底同步。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「cookie 持久化坑」。
 > - 非当前学期表头日期错 — 2026-07-14 修复（v113）。根因：`semesterStartDate` 全局单值只存当前学期的，`fetchSpecifiedSemester` 不存指定学期开始日期。处置：删 `fetchSpecifiedSemester` 的 `saveCurrentSemester`；`ScheduleViewModel` 判断 `semester == currentSemester`，非当前学期 `weekStartDate=null`+`actualCurrentWeek=null`（表头只显示周几）。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「非当前学期表头日期坑」。
+> - 签到辅助真实 TronClass 通知监听 — 2026-07 实现（阶段二）。第一阶段以设置页「模拟触发」按钮占位、本条 deferred；阶段一 Mock 验证稳定后接入 `CheckInNotificationListener`（NotificationListenerService，包名 `com.wisdomgarden.trpc` + 关键字「签到/考勤/点名」识别，15s 防抖）。触发逻辑抽到 `CheckInTriggerCoordinator`，UI 模拟触发与后台通知监听共用同一套。
 
 ---
 

@@ -1,6 +1,7 @@
 package com.example.course_schedule_for_chd_v002.di
 
 import com.example.course_schedule_for_chd_v002.data.local.database.AppDatabase
+import com.example.course_schedule_for_chd_v002.data.local.database.CheckInLocationDao
 import com.example.course_schedule_for_chd_v002.data.local.database.CourseDao
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
@@ -15,4 +16,7 @@ val databaseModule = module {
 
     // Course DAO
     single<CourseDao> { get<AppDatabase>().courseDao() }
+
+    // [v114] 签到位置 DAO
+    single<CheckInLocationDao> { get<AppDatabase>().checkInLocationDao() }
 }

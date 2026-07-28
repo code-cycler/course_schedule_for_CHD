@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.course_schedule_for_chd_v002.domain.model.CheckInAssistSettings
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import kotlinx.coroutines.flow.Flow
@@ -40,6 +41,14 @@ class UserPreferences(private val context: Context) {
 
         // [权限管理] 首次启动标记
         private val KEY_FIRST_LAUNCH = booleanPreferencesKey("first_launch")
+
+        // ================ [v114] 签到辅助相关 ================
+        private val KEY_CHECKIN_AUTO_OPEN = booleanPreferencesKey("checkin_auto_open")
+        private val KEY_CHECKIN_MOCK_DURATION = intPreferencesKey("checkin_mock_duration_min")
+        private val KEY_CHECKIN_LOCATION_MEMORY = stringPreferencesKey("checkin_location_memory")
+        private val KEY_CHECKIN_KEYWORDS = stringPreferencesKey("checkin_keywords")
+        // 默认签到关键字（与 CheckInNotificationMatcher.DEFAULT_KEYWORDS_TEXT 保持一致）
+        private const val DEFAULT_CHECKIN_KEYWORDS = "签到,考勤,点名"
     }
 
     /**
@@ -587,5 +596,134 @@ class UserPreferences(private val context: Context) {
             preferences[KEY_FIRST_LAUNCH] = false
         }
         AppLogger.d("UserPreferences", "[权限管理] 标记为非首次启动")
+    }
+
+    // ================ [v114] 签到辅助设置相关 ================
+
+    /** [v114] 签到辅助设置（Flow） */
+    val checkInAssistSettings: Flow<CheckInAssistSettings> = context.dataStore.data.map { preferences ->
+        CheckInAssistSettings(
+            autoOpenChaoqing = preferences[KEY_CHECKIN_AUTO_OPEN] ?: false,
+            mockDurationMinutes = (preferences[KEY_CHECKIN_MOCK_DURATION]
+                ?: CheckInAssistSettings.DEFAULT_MOCK_DURATION_MINUTES)
+                .coerceIn(
+                    CheckInAssistSettings.MIN_MOCK_DURATION_MINUTES,
+                    CheckInAssistSettings.MAX_MOCK_DURATION_MINUTES
+                )
+        )
+    }
+
+    /** [v114] 一次性读取签到辅助设置 */
+    suspend fun getCheckInAssistSettingsOnce(): CheckInAssistSettings = checkInAssistSettings.first()
+
+    /** [v114] 保存签到辅助设置 */
+    suspend fun saveCheckInAssistSettings(settings: CheckInAssistSettings) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_CHECKIN_AUTO_OPEN] = settings.autoOpenChaoqing
+            preferences[KEY_CHECKIN_MOCK_DURATION] = settings.mockDurationMinutes.coerceIn(
+                CheckInAssistSettings.MIN_MOCK_DURATION_MINUTES,
+                CheckInAssistSettings.MAX_MOCK_DURATION_MINUTES
+            )
+        }
+        AppLogger.d("UserPreferences", "[v114] 保存签到辅助设置: $settings")
+    }
+
+    // ---- [v114] 签到通知识别关键字（可配置）----
+
+    /** 签到关键字原始串（逗号分隔），用于设置页展示/编辑 */
+    val checkInKeywordsRaw: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_CHECKIN_KEYWORDS] ?: DEFAULT_CHECKIN_KEYWORDS
+    }
+
+    /** 解析后的签到关键字列表（供监听服务匹配用） */
+    suspend fun getCheckInKeywordsOnce(): List<String> =
+        checkInKeywordsRaw.first().split(",").map { it.trim() }.filter { it.isNotBlank() }
+
+    /** 保存签到关键字（原始逗号分隔串） */
+    suspend fun saveCheckInKeywords(raw: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_CHECKIN_KEYWORDS] = raw
+        }
+        AppLogger.d("UserPreferences", "[v114] 保存签到关键字: $raw")
+    }
+
+    // ---- [v114] 位置记忆：Map<"courseName|roomName", locationId> ----
+
+    /**
+     * [v114] 读取某课程/教室上次手动选择的位置 ID（记忆）
+     * @param courseName 课程名（可空）
+     * @param roomName 教室名（可空）
+     * @return 记忆的位置 ID，无则 null
+     */
+    suspend fun getRememberedLocationId(courseName: String?, roomName: String?): Long? {
+        val key = buildMemoryKey(courseName, roomName) ?: return null
+        val map = parseLocationMemory(
+            context.dataStore.data.map { it[KEY_CHECKIN_LOCATION_MEMORY] ?: "" }.first()
+        )
+        return map[key]
+    }
+
+    /**
+     * [v114] 记录某课程/教室选择的位置 ID
+     */
+    suspend fun rememberLocation(courseName: String?, roomName: String?, locationId: Long) {
+        val key = buildMemoryKey(courseName, roomName) ?: return
+        context.dataStore.edit { preferences ->
+            val current = parseLocationMemory(preferences[KEY_CHECKIN_LOCATION_MEMORY] ?: "").toMutableMap()
+            current[key] = locationId
+            preferences[KEY_CHECKIN_LOCATION_MEMORY] = serializeLocationMemory(current)
+        }
+        AppLogger.d("UserPreferences", "[v114] 记忆位置: $key -> $locationId")
+    }
+
+    /** [v114] 记忆键：优先 courseName|roomName，缺省降级 */
+    private fun buildMemoryKey(courseName: String?, roomName: String?): String? {
+        val c = courseName?.takeIf { it.isNotBlank() }
+        val r = roomName?.takeIf { it.isNotBlank() }
+        return when {
+            c != null && r != null -> "$c|$r"
+            c != null -> "$c|"
+            r != null -> "|$r"
+            else -> null
+        }
+    }
+
+    /** [v114] 序列化位置记忆为 JSON：{"course|room":123,"course2|":456} */
+    private fun serializeLocationMemory(map: Map<String, Long>): String {
+        if (map.isEmpty()) return "{}"
+        return "{" + map.entries.joinToString(",") { (k, v) ->
+            "\"${k.escapeJson()}\":$v"
+        } + "}"
+    }
+
+    /** [v114] 反序列化位置记忆 */
+    private fun parseLocationMemory(json: String): Map<String, Long> {
+        if (json.isEmpty() || json == "{}") return emptyMap()
+        val result = mutableMapOf<String, Long>()
+        try {
+            val content = json.trim().removeSurrounding("{", "}")
+            if (content.isEmpty()) return result
+            var i = 0
+            while (i < content.length) {
+                val keyStart = content.indexOf('"', i)
+                if (keyStart == -1) break
+                val keyEnd = content.indexOf('"', keyStart + 1)
+                if (keyEnd == -1) break
+                val key = content.substring(keyStart + 1, keyEnd).unescapeJson()
+
+                val colon = content.indexOf(':', keyEnd)
+                if (colon == -1) break
+                // 解析数字（直到逗号或串尾）
+                var numEnd = colon + 1
+                while (numEnd < content.length && content[numEnd] != ',' && content[numEnd] != '}') numEnd++
+                val num = content.substring(colon + 1, numEnd).trim().toLongOrNull()
+                if (num != null) result[key] = num
+                i = numEnd
+                while (i < content.length && content[i] == ',') i++
+            }
+        } catch (e: Exception) {
+            AppLogger.e("UserPreferences", "[v114] 反序列化位置记忆失败: ${e.message}")
+        }
+        return result
     }
 }

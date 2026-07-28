@@ -10,6 +10,15 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
 
+    <!-- [v114] 签到辅助：定位 / 模拟定位 / 前台服务 / 通知 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION"
+        tools:ignore="MockLocation,ProtectedPermissions" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".CourseApplication"
         android:allowBackup="true"
@@ -46,6 +55,23 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- [v114] 签到辅助：Mock 定位前台服务（location 类型，Android 14+ 必需显式声明） -->
+        <service
+            android:name=".service.mocklocation.MockLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- [v114] 签到辅助：畅课签到通知监听服务（需用户在「通知使用权」中授权本应用） -->
+        <service
+            android:name=".service.checkin.CheckInNotificationListener"
+            android:exported="true"
+            android:label="畅课签到监听"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

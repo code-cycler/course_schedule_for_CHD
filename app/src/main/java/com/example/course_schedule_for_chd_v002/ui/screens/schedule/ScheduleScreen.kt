@@ -79,6 +79,7 @@ fun ScheduleScreen(
     onNavigateToSemester: (String) -> Unit,
     onLogout: () -> Unit,
     onNavigateToLogin: () -> Unit,
+    onNavigateToCheckInAssist: () -> Unit = {},
     viewModel: ScheduleViewModel = koinViewModel { parametersOf(semester) }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -260,7 +261,11 @@ fun ScheduleScreen(
         currentCampusName = uiState.campus.displayName,
         onSemesterClick = { showSemesterDialog = true },
         onCampusClick = { showCampusDialog = true },
-        onExportLogsClick = { showLogExportDialog = true }
+        onExportLogsClick = { showLogExportDialog = true },
+        onCheckInAssistClick = {
+            scope.launch { drawerState.close() }
+            onNavigateToCheckInAssist()
+        }
     ) {
         Scaffold(
             topBar = {

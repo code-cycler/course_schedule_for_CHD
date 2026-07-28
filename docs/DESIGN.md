@@ -169,6 +169,56 @@ CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView �
 
 ---
 
+## 7½. 签到辅助（v114）
+
+> 在课表 App 里新增「签到辅助」：收到畅课（TronClass，包名 `com.wisdomgarden.trpc`）签到通知 → 提醒用户 + 把系统虚拟定位临时切到预先标定的位置；最终签到仍由用户在畅课内手动完成。**不破解协议、不自动点击。**
+>
+> 设计决策见 [docs/adr/0001、0002、0003、0004](./adr/)，术语见根 [CONTEXT.md](../CONTEXT.md)。
+
+**已实现**（两阶段）：
+- **阶段一**：位置 CRUD（**采集设备当前真实 GPS**，坐标直接 WGS-84，无任何地图 SDK / Key / 坐标转换）+ 签到辅助设置页（权限状态引导、自动打开畅课开关、Mock 时长）+ Mock 定位前台服务（手动关闭 / 超时自动恢复）+ 设置页「模拟签到触发」按钮。
+- **阶段二**：真实 `NotificationListenerService`（`CheckInNotificationListener`）监听畅课签到通知，命中后自动触发虚拟定位；「通知使用权」权限状态行引导授权。
+
+**新增模块**：
+```
+domain/model/           CheckInLocation / CheckInAssistSettings
+domain/repository/      ICheckInLocationRepository
+data/local/database/    CheckInLocationDao + CheckInLocationEntity（AppDatabase v2，含 MIGRATION_1_2）
+data/repository/        CheckInLocationRepositoryImpl
+util/                   GeoConstants（MOCK_ACCURACY_METERS=10f）
+service/location/       CurrentLocationPicker（系统 LocationManager，GPS+NETWORK 双源，10s 超时，WGS-84 直出）
+service/mocklocation/   MockLocationController（addTestProvider/setTestProviderLocation/clear，反射兼容 API31–34+）
+                        MockLocationService（前台服务 foregroundServiceType=location，通知带「停止」Action，超时自动恢复）
+                        LocationSelection（触发时选位置规则：单条→课程匹配→记忆→手动）
+service/checkin/        CheckInTriggerCoordinator（触发协调器：权限门禁→选位置→启动 Mock→可选开畅课，UI 与后台共用）
+                        CheckInNotificationListener（NotificationListenerService，识别畅课签到通知并触发）
+                        CheckInNotificationMatcher（包名+关键字识别，纯函数可测）
+ui/screens/checkinassist/ CheckInAssistScreen / CheckInAssistViewModel / CheckInAssistUiState / LocationEditorSheet / PermissionStatusRow
+```
+
+**关键约定**：
+- **位置采集用系统 GPS（免 Key / 免地图）**：`CurrentLocationPicker` 同时请求 `GPS_PROVIDER` + `NETWORK_PROVIDER`，谁先返回带精度的有效定位就用谁，10s 超时。坐标为 **WGS-84**，直接入库 / Mock，**无需任何坐标转换**。设计理由见 [ADR-0004](./adr/0004-collect-current-location.md)。
+- **触发逻辑集中在 `CheckInTriggerCoordinator`**：UI「模拟触发」与后台通知监听共用同一套（权限门禁 → `LocationSelection` 选位置 → `MockLocationController.start` → 按设置可选打开畅课）。返回 `TriggerResult`（MockStarted / NoLocation / PermissionMissing / NeedsManualSelection），调用方映射到 UI 状态或引导通知。
+- **签到通知识别**：`CheckInNotificationMatcher` 判定来源包名 `com.wisdomgarden.trpc` 且标题/正文含「签到/考勤/点名」；监听服务对 15s 内重复通知做防抖（避免同一通知更新重复触发），真正连续的新签到通知仍按设计重新触发。
+- **后台无法弹 UI 的分支**（NeedManual / NoLocation / 权限缺失）：监听服务改发引导通知（点开进 App），由用户在「签到辅助」页手动处理。
+- **通知监听服务取依赖**：`CheckInNotificationListener` 由系统创建（非 Koin），实现 `KoinComponent` 用 `by inject()` 取 `CheckInTriggerCoordinator`。
+- **Mock 定位精度**当前全局固定 10m（`GeoConstants.MOCK_ACCURACY_METERS`）；采集到的真实精度存入 `accuracyRadiusMeters` 供参考展示（当前 Mock 仍用全局值，未按真实精度下发）。
+- **位置关联**用课程名（`linkedCourseId = course.name`）和教室名（`linkedRoomName = course.location`），跨学期稳定。
+- **addTestProvider 跨版本**：API 34+ 用 `(String, ProviderProperties)` 重载，旧 `(String, boolean×7, int, int)` 已从 SDK 36 移除——`MockLocationController` 用反射按运行时存在的重载调用。
+- **前台服务类型**：targetSdk 36 下 Mock 服务必须 `foregroundServiceType="location"`（Manifest + `startForeground(..., FOREGROUND_SERVICE_TYPE_LOCATION)`）。
+- **采集需主线程 Looper**：`CurrentLocationPicker` 用 `requestLocationUpdates(..., Looper.getMainLooper())`，避免在协程 IO 线程抛 "no Looper"。
+
+**已知坑**：
+- 模拟定位需用户在「开发者选项 → 选择模拟位置信息应用」中选本 App，否则 `addTestProvider` 抛 `SecurityException`——触发前由 `CheckInAssistScreen` 权限状态行引导跳转。
+- **通知使用权需手动授权**：`NotificationListenerService` 不能运行时申请，必须用户在「设置 → 通知 → 通知使用权」中手动开启本应用；`CheckInAssistScreen` 用 `NotificationManagerCompat.getEnabledListenerPackages` 检测并引导跳转 `ACTION_NOTIFICATION_LISTENER_SETTINGS`。
+- **荣耀/Honor NLS 装机不绑定**：真机实测（MagicOS）即使 NLS 在授权列表里、app 进程在跑，安装/更新后系统也可能不绑定 NLS（`onNotificationPosted` 完全不触发）。处置：在「通知使用权」里**关掉本应用再重新开**（或 adb `cmd notification disallow_listener <cn>` → `allow_listener <cn>`）触发重绑，之后即正常。这是系统层行为，应用层无法自动修复，只能引导用户重开开关。
+- **模拟定位检测的 ProviderProperties 方法名**：API 34+ 的 `ProviderProperties.Builder` 方法名是 `setHasAltitudeSupport/setHasSpeedSupport/setHasBearingSupport/setHas{Network,Satellite,Cell}Requirement`（**不是**网传的 `setSupportsAltitude` 等）；早期反射用错方法名导致 `NoSuchMethodException → 误判未授权`，已改用编译期直接调用（compileSdk 36 校验）。
+- **增量构建产出残包**：`assembleDebug` 增量构建偶尔只产出 1 个 dex、无 manifest 的残包（装不上）；真机安装前用 `clean assembleDebug` 保证完整。
+- **室内 GPS 弱**：校园教室室内 GPS 信号差，由 `NETWORK_PROVIDER`（Wi-Fi/基站）兜底；仍失败则 10s 超时提示「到窗边重试」，用户可改用手动输入经纬度 fallback。
+- **签到通知文案未实测**：识别关键字「签到/考勤/点名」基于推测，真机若发现畅课签到通知文案不含这些词，需调整 `CheckInNotificationMatcher.CHECKIN_KEYWORDS`。
+
+---
+
 ## 7. 心智模型（改代码时的地图）
 
 | 我想… | 去哪改 |
@@ -182,5 +232,6 @@ CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView �
 | 改课表格子怎么画 | `ui/components/ScheduleGrid.kt` + `CourseCard.kt` |
 | 看常量（URL/超时/周数） | `util/Constants.kt` |
 | 看课表怎么判定某周有课/冲突 | `domain/model/Course.kt`（位图逻辑） |
+| 加签到辅助功能（位置 CRUD / Mock / 通知监听 / 设置） | `ui/screens/checkinassist/` + `service/mocklocation/` + `service/checkin/`（详见 §7½） |
 
 **改解析相关的第一原则**：周次判断永远以 `remark` 里的 `weeksBitmap` 为准，位图下标 = 周次（bitmap[0] 是预备周）。
