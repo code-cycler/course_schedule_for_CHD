@@ -77,6 +77,14 @@ interface ICourseRepository {
     suspend fun getRemoteSemesterOptions(): Result<List<SemesterOption>>
     suspend fun fetchSpecifiedSemester(remoteId: String, localSemester: String): Result<Int>
 
+    /**
+     * [跨学期] 把"当前学期"升级为指定学期：清旧学期时间线 → 尝试从教务首页取教学周重算开学日期 → 保存。
+     * 仅在新学期已开始（编码 ≥ 日期推断学期）且课表已入库/刚抓取成功时调用；
+     * 抓历史学期不调此方法（保持 v113"抓指定学期不改当前学期"语义）。
+     * 教务首页拿不到该学期教学周时仍会升级，时间线留空待下次同步补全（表头优雅降级）。
+     */
+    suspend fun promoteCurrentSemester(newSemester: String)
+
     // 导入导出相关
     /**
      * 导出课程为 JSON 字符串

@@ -59,6 +59,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import android.widget.Toast
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalConfiguration
@@ -345,6 +346,17 @@ fun ScheduleScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
+                // [跨学期] 新学期横幅：本地学期落后于日期推断学期（2/15、8/15 规则）时提醒
+                uiState.newSemesterBanner?.let { banner ->
+                    NewSemesterBanner(
+                        banner = banner,
+                        isFetching = uiState.isFetchingNewSemester,
+                        error = uiState.newSemesterError,
+                        onAcquire = { viewModel.acquireNewSemester(onNavigateToSemester) },
+                        onDismiss = { viewModel.dismissNewSemesterBanner() }
+                    )
+                }
+
                 var isWeekendExpanded by remember { mutableStateOf(false) }
 
                 val displayCourses = uiState.displayCourses
@@ -1019,5 +1031,66 @@ private fun getDayDisplayName(day: DayOfWeek): String {
         DayOfWeek.FRIDAY -> "周五"
         DayOfWeek.SATURDAY -> "周六"
         DayOfWeek.SUNDAY -> "周日"
+    }
+}
+
+/**
+ * [跨学期] 新学期横幅：本地学期落后于日期推断学期时显示。
+ * 点击「获取/切换」→ 免登录抓取或直接切换；点「关闭」当天内不再打扰。
+ */
+@Composable
+private fun NewSemesterBanner(
+    banner: NewSemesterBanner,
+    isFetching: Boolean,
+    error: String?,
+    onAcquire: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "新学期 ${banner.inferredSemester} 已开始",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = error
+                        ?: if (banner.localExists) "点此切换到新学期课表" else "点此获取新学期课表",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (error != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+            if (isFetching) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                TextButton(onClick = onAcquire) {
+                    Text(if (banner.localExists) "切换" else "获取")
+                }
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "关闭提醒",
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
     }
 }

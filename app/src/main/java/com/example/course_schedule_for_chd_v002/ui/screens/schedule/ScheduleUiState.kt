@@ -52,6 +52,14 @@ data class ScheduleUiState(
     /** 抓取错误信息（Cookie 过期 / 网络失败 / 该学期无课） */
     val fetchSemesterError: String? = null,
 
+    // ================ [跨学期] 学期过期检测 ================
+    /** 新学期横幅（本地 currentSemester < 日期推断学期 且 当日未关闭）；null = 不显示 */
+    val newSemesterBanner: NewSemesterBanner? = null,
+    /** 横幅点击后正在免登录获取/抓取新学期 */
+    val isFetchingNewSemester: Boolean = false,
+    /** 新学期获取失败提示（登录过期 / 教务未发布） */
+    val newSemesterError: String? = null,
+
     // 日历同步状态
     val calendarSyncState: CalendarSyncState = CalendarSyncState.Idle,
 
@@ -102,6 +110,16 @@ data class ScheduleUiState(
         return "Week $currentWeek / $maxWeeks"
     }
 }
+
+/**
+ * [跨学期] 新学期横幅数据
+ * @param inferredSemester 日期推断的应处学期（本地串，如 "2026-2027-1"）
+ * @param localExists 本地 Room 是否已有该学期课表（有则点击直接切换，无则走免登录抓取）
+ */
+data class NewSemesterBanner(
+    val inferredSemester: String,
+    val localExists: Boolean
+)
 
 /**
  * 同名课程编辑组

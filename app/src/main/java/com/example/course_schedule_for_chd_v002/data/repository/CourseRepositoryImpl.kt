@@ -494,10 +494,34 @@ class CourseRepositoryImpl(
             precomputeAndCacheConflicts(courses, localSemester)
             // [v113] 不调 saveCurrentSemester：抓指定学期不改"当前学期"（currentSemester 只在同步时设）。
             // 否则 ScheduleViewModel 的"semester == currentSemester"判断失效，非当前学期会误用当前学期开始日期算表头。
+            // [跨学期] 例外：需要升级当前学期时由调用方显式调 promoteCurrentSemester（编码 ≥ 推断学期才升级）。
             Result.success(courses.size)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    override suspend fun promoteCurrentSemester(newSemester: String) {
+        // 旧学期时间线对新学期无效：先清空，避免表头日期错（v113 同类坑）与周次错位
+        userPreferences.clearSemesterTimeline()
+        // 尝试从教务首页拿教学周重算开学日期；拿不到（教务未切学期/网络失败）就留空，
+        // 表头优雅降级为只显示周几，待下次顶栏同步（onCasLoginSuccess Step3）补全
+        runCatching {
+            val weekInfo = fetchCurrentWeek()
+            if (weekInfo != null && weekInfo.first == newSemester) {
+                val (_, week) = weekInfo
+                val startDate = TimeUtils.calculateSemesterStartDate(week)
+                userPreferences.saveSemesterStartDate(startDate)
+                userPreferences.saveCurrentWeek(week)
+                userPreferences.saveLastParsedWeek(week)
+                AppLogger.i("CHD_Semester", "[跨学期] 升级当前学期: $newSemester, 开学日期=$startDate, 当前周=$week")
+            } else {
+                AppLogger.w("CHD_Semester", "[跨学期] 教务首页无 $newSemester 教学周（实际=${weekInfo?.first}），时间线留空待同步补全")
+            }
+        }.onFailure { e ->
+            AppLogger.w("CHD_Semester", "[跨学期] 重算时间线失败（不影响升级）: ${e.message}")
+        }
+        userPreferences.saveCurrentSemester(newSemester)
     }
 
     /**
@@ -505,8 +529,7 @@ class CourseRepositoryImpl(
      * @param semester 学期标识
      * @return JSON 字符串
      */
-    override suspend fun exportScheduleToJson(semester: String): String {
-        val courses = getLocalSchedule(semester)
+    override suspend fun exportScheduleToJson(semester: String): String {        val courses = getLocalSchedule(semester)
         return JsonUtils.exportCoursesToJson(courses)
     }
 

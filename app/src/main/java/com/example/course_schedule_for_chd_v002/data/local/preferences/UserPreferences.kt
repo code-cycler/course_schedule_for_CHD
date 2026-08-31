@@ -35,6 +35,7 @@ class UserPreferences(private val context: Context) {
         private const val KEY_CONFLICT_CACHE_PREFIX = "conflict_cache_"  // [v74] 冲突缓存前缀
         private val KEY_SEMESTER_START_DATE = stringPreferencesKey("semester_start_date")  // [新功能] 学期开始日期
         private val KEY_LAST_PARSED_WEEK = intPreferencesKey("last_parsed_week")  // [新功能] 上次从首页解析的周次
+        private val KEY_SEMESTER_BANNER_DISMISSED = stringPreferencesKey("semester_banner_dismissed_date")  // [跨学期] 新学期横幅当日关闭标记
 
         // [课程提醒] 提醒设置
         private val KEY_REMINDER_SETTINGS = stringPreferencesKey("reminder_settings")
@@ -255,6 +256,41 @@ class UserPreferences(private val context: Context) {
      */
     suspend fun getLastParsedWeekOnce(): Int? {
         return lastParsedWeek.first()
+    }
+
+    // ================ [跨学期] 学期过期横幅 + 时间线清空 ================
+
+    /**
+     * [跨学期] 记录新学期横幅关闭日期（LocalDate.toString()，"yyyy-MM-dd"）
+     */
+    suspend fun saveSemesterBannerDismissedDate(date: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_SEMESTER_BANNER_DISMISSED] = date
+        }
+    }
+
+    /**
+     * [跨学期] 获取横幅关闭日期，未关闭返回 null
+     */
+    suspend fun getSemesterBannerDismissedDateOnce(): String? {
+        return context.dataStore.data.map { preferences ->
+            preferences[KEY_SEMESTER_BANNER_DISMISSED]
+        }.first()
+    }
+
+    /**
+     * [跨学期] 清空旧学期时间线（开学日期/解析周次移除、教学周重置为 1）。
+     * 升级 currentSemester 到新学期时调用：startDate/lastParsedWeek 是全局单值且只属于旧学期，
+     * 保留会导致新学期表头日期错（v113 同类坑）与周次错位。
+     * lastParsedWeek 置 0（loadSchedule 只认 1..maxWeek，0 自然被忽略）。
+     */
+    suspend fun clearSemesterTimeline() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(KEY_SEMESTER_START_DATE)
+            preferences[KEY_LAST_PARSED_WEEK] = 0
+            preferences[KEY_CURRENT_WEEK] = 1
+        }
+        AppLogger.d("UserPreferences", "[跨学期] 清空学期时间线（startDate 移除, lastParsedWeek=0, currentWeek=1）")
     }
 
     // ================ [v74] 冲突缓存相关 ================

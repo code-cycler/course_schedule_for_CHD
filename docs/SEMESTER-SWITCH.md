@@ -1,6 +1,6 @@
 # 切换学期功能 · 设计笔记
 
-> **状态**：本地切换 + 获取新学期已实现（2026-07）；**2026-07-12 用 playwright MCP 实测 `bkjw.chd.edu.cn`，确认真实 DOM 与数据源，修正原"从课表页 HTML `<option>` 解析"的错误假设**。
+> **状态**：本地切换 + 获取新学期已实现（2026-07）；**2026-07-12 用 playwright MCP 实测 `bkjw.chd.edu.cn`，确认真实 DOM 与数据源，修正原"从课表页 HTML `<option>` 解析"的错误假设**；**2026-08-31 [v115] 跨学期自动检测与新学期提醒已实现**（见文末「跨学期自动检测」节，设计文档 [harness/design/cross-semester/L0-cross-semester.md](../harness/design/cross-semester/L0-cross-semester.md)）。
 > 诞生于 [OPEN-DECISIONS](./OPEN-DECISIONS.md) 的「默认学期硬编码」条——决定用这个功能顺带解决它。
 
 ## 需求
@@ -152,3 +152,20 @@ Regex("""semesterId:"(\d+)"""").find(resp)
 > **2026-07-14 补 cookie 持久化坑（"重启后获取其他学期提示登录已过期"根因）**：OkHttp `CookieManager.cookieStore` 是纯内存 `mutableMapOf`，App 重启即丢；而 WebView 的 `android.webkit.CookieManager` 持久化但登录时未调 `flush()` 强制写盘，异步写盘可能没落盘。重启后 OkHttp 无 cookie → `fetchSpecifiedSemester` 被重定向到登录页 → 误报"登录已过期"（同步课表走 WebView 不受影响，故长期未暴露）。修复（v113）：①`CookieManager.syncFromWebView` 内 `getCookie` 后调 `webViewCookieManager.flush()` 写盘；②`AppNavigation` ScheduleRoot 跳板冷启动时 `syncCookiesFromWebView` 把 WebView cookie 灌进 OkHttp；③`fetchSpecifiedSemester` 开头兜底再同步一次（与 `getRemoteSemesterOptions` 一致）。
 
 > **2026-07-14 补非当前学期表头日期坑**：`semesterStartDate` 是 DataStore 全局单值（只存当前学期的），`fetchSpecifiedSemester` 抓指定学期时不存该学期开始日期，切到非当前学期表头仍用当前学期的 `semesterStartDate` 算日期 → 全错。修复（v113）：①`fetchSpecifiedSemester` 删 `saveCurrentSemester`（抓指定学期不改"当前学期"，否则判断失效）；②`ScheduleViewModel` loadSchedule/onWeekSelected/refreshCurrentTimeInfo 三处判断 `semester == repository.getCurrentSemester()`，非当前学期 `semesterStartDate`/`lastParsedWeek` 置 null → `weekStartDate=null`（表头只显示周几，ScheduleGrid 已优雅降级）+ `actualCurrentWeek=null`（无"回到当前周"/今日高亮）。当前学期不受影响。
+
+---
+
+## 跨学期自动检测与新学期提醒（[v115] 2026-08-31）
+
+> 解决「跨学期后 App 停在旧学期、顶栏同步抓回的还是教务旧学期、切换入口藏在侧边栏深处」的体验断点。设计决策与验收标准见 [harness/design/cross-semester/L0-cross-semester.md](../harness/design/cross-semester/L0-cross-semester.md)（三决策人拍板：2/15、8/15 边界含当日；可关闭顶部横幅；同步自动追加抓取）。
+
+**四条链路**：
+
+1. **日期规则（`SemesterInference.kt`）**：`inferCurrentSemester(year, month, day)` 改为按日切分——1/1–2/14 归上一年秋季 `-1`，2/15（含）–8/14 归春季 `-2`，8/15（含）–12/31 归新学年秋季 `-1`。原按月切换（2/1、8/1 即切）与校历不符。新增 `semesterCode`（`startY*2+(n-1)` 单调编码，`candidateSemesters` 共用）与 `isSemesterOutdated(local, inferred)`。
+2. **过期检测（`ScheduleViewModel.checkSemesterOutdated`）**：`loadSchedule` + `refreshCurrentTimeInfo`（ON_RESUME）双钩子；本地 `currentSemester` 编码 < 推断学期编码 → 暴露 `NewSemesterBanner(inferred, localExists)`。横幅关闭记录当日日期（DataStore `semester_banner_dismissed_date`），当天不再弹、次日仍过期再出现。
+3. **横幅点击分流（`ScheduleViewModel.acquireNewSemester`）**：本地 Room 已有推断学期 → `promoteCurrentSemester` 升级后直接切换（不重复抓）；没有 → OkHttp 免登录链路（`getRemoteSemesterOptions` 按 label 匹配 → `fetchSpecifiedSemester`），Cookie 失败在横幅副文案提示走顶栏「同步」。
+4. **同步自动追加（`LoginViewModel.onCasLoginSuccess` Step3.5）**：教务首页解析出的学期 < 日期推断学期（假期/开学初教务首页还是旧学期）→ 自动查 `semester.id` 追加抓取推断学期；>0 门 → 升级当前学期（导航事件由 AppNavigation 读 DataStore，自然去新学期）；0 门（教务未发布）/失败 → 静默降级不影响本次同步。
+
+**currentSemester 升级规则（`CourseRepositoryImpl.promoteCurrentSemester`）**：先 `clearSemesterTimeline()`（移除旧 `semesterStartDate`、`lastParsedWeek`=0、`currentWeek`=1——三者是全局单值且只属于旧学期，保留会导致新学期表头日期错，v113 同类坑），再尝试教务首页教学周重算开学日期（拿不到就留空优雅降级），最后 `saveCurrentSemester`。抓历史学期仍走 `fetchSpecifiedSemester` 原路径不升级（v113 语义不变）。
+
+**未验证假设（开学后需真实账号校准，见 TODO.md）**：教务首页「本周为第X教学周」在 8/15–开学间的实际显示；`dataQuery.action` 的 `semesterId` 切换时点；新学期课表发布时点（0 门降级路径的触发频率）。

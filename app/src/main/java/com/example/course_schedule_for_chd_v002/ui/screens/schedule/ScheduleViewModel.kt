@@ -201,6 +201,9 @@ class ScheduleViewModel(
                     isLoading = false
                 )
             }
+
+            // [跨学期] 加载完成后检测学期是否过期（横幅）
+            checkSemesterOutdated()
         }
     }
 
@@ -316,6 +319,9 @@ class ScheduleViewModel(
                     currentWeek = if (shouldUpdateDisplayWeek) actualCurrentWeek else currentState.currentWeek
                 )
             }
+
+            // [跨学期] ON_RESUME 时重新检测学期过期（跨天/跨学期窗口切换的兜底）
+            checkSemesterOutdated()
         }
     }
 
@@ -808,7 +814,8 @@ class ScheduleViewModel(
                     val cal = java.util.Calendar.getInstance()
                     val year = cal.get(java.util.Calendar.YEAR)
                     val month = cal.get(java.util.Calendar.MONTH) + 1
-                    val current = inferCurrentSemester(year, month)
+                    val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
+                    val current = inferCurrentSemester(year, month, day)
                     val ordered = candidateSemesters(current).mapNotNull { wantedLocal ->
                         allOptions.find { ScheduleHtmlParser.parseSemesterString(it.label) == wantedLocal }
                     }
@@ -854,6 +861,103 @@ class ScheduleViewModel(
         viewModelScope.launch {
             repository.clearAllSchedules()
             loadSchedule()
+        }
+    }
+
+    // ================ [跨学期] 学期过期检测与新学期获取 ================
+
+    /**
+     * [跨学期] 检测本地当前学期是否落后于日期推断学期（2/15、8/15 规则）；
+     * 落后且横幅当日未被关闭时暴露提醒状态。纯本地比对（DataStore + Room + 日期），开销可忽略。
+     * 未登录（无 currentSemester）不检测——既有空状态引导已覆盖。
+     */
+    private suspend fun checkSemesterOutdated() {
+        val currentSemester = repository.getCurrentSemester()
+        if (currentSemester == null) {
+            _uiState.update { it.copy(newSemesterBanner = null) }
+            return
+        }
+        val today = java.time.LocalDate.now()
+        val inferred = inferCurrentSemester(today.year, today.monthValue, today.dayOfMonth)
+        if (!isSemesterOutdated(currentSemester, inferred)) {
+            _uiState.update { it.copy(newSemesterBanner = null) }
+            return
+        }
+        val dismissed = userPreferences.getSemesterBannerDismissedDateOnce()
+        if (dismissed == today.toString()) {
+            // 当日已关闭，不再弹；次日仍过期会重新出现
+            _uiState.update { it.copy(newSemesterBanner = null) }
+            return
+        }
+        val localExists = inferred in repository.getAllSemesters()
+        AppLogger.i("CHD_Semester", "[跨学期] 学期过期: 本地=$currentSemester, 推断=$inferred, 本地已有新课表=$localExists")
+        _uiState.update { it.copy(newSemesterBanner = NewSemesterBanner(inferredSemester = inferred, localExists = localExists)) }
+    }
+
+    /**
+     * [跨学期] 关闭新学期横幅（当天内不再显示）
+     */
+    fun dismissNewSemesterBanner() {
+        viewModelScope.launch {
+            userPreferences.saveSemesterBannerDismissedDate(java.time.LocalDate.now().toString())
+            _uiState.update { it.copy(newSemesterBanner = null, newSemesterError = null) }
+        }
+    }
+
+    /**
+     * [跨学期] 横幅点击：获取并切换到新学期。
+     * 本地已有该学期课表 → 直接升级当前学期并切换（不重复抓取）；
+     * 没有 → 走 OkHttp 免登录抓取（cookie 持久化 + repository 内 syncFromWebView 兜底），
+     * Cookie 失效时提示走顶栏「同步」重新登录。
+     */
+    fun acquireNewSemester(onNavigateToSemester: (String) -> Unit) {
+        val banner = _uiState.value.newSemesterBanner ?: return
+        val target = banner.inferredSemester
+        viewModelScope.launch {
+            _uiState.update { it.copy(isFetchingNewSemester = true, newSemesterError = null) }
+
+            if (banner.localExists) {
+                repository.promoteCurrentSemester(target)
+                _uiState.update { it.copy(isFetchingNewSemester = false, newSemesterBanner = null) }
+                onNavigateToSemester(target)
+                return@launch
+            }
+
+            val optionsResult = repository.getRemoteSemesterOptions()
+            val remoteId = optionsResult.getOrNull()
+                ?.firstOrNull { ScheduleHtmlParser.parseSemesterString(it.label) == target }
+                ?.remoteId
+            if (remoteId == null) {
+                _uiState.update {
+                    it.copy(
+                        isFetchingNewSemester = false,
+                        newSemesterError = optionsResult.exceptionOrNull()?.message
+                            ?: "教务系统暂无该学期数据，请稍后再试"
+                    )
+                }
+                return@launch
+            }
+
+            repository.fetchSpecifiedSemester(remoteId, target)
+                .onSuccess { count ->
+                    if (count > 0) {
+                        repository.promoteCurrentSemester(target)
+                        _uiState.update { it.copy(isFetchingNewSemester = false, newSemesterBanner = null) }
+                        onNavigateToSemester(target)
+                    } else {
+                        _uiState.update {
+                            it.copy(isFetchingNewSemester = false, newSemesterError = "教务系统尚未发布新学期课表")
+                        }
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(
+                            isFetchingNewSemester = false,
+                            newSemesterError = e.message ?: "获取失败，请点右上角「同步」重新登录"
+                        )
+                    }
+                }
         }
     }
 }

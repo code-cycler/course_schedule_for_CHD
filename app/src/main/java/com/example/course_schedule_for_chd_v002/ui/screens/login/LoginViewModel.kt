@@ -3,7 +3,10 @@ package com.example.course_schedule_for_chd_v002.ui.screens.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences
+import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
+import com.example.course_schedule_for_chd_v002.ui.screens.schedule.inferCurrentSemester
+import com.example.course_schedule_for_chd_v002.ui.screens.schedule.isSemesterOutdated
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
@@ -219,6 +222,44 @@ class LoginViewModel(
                         AppLogger.w("CHD_CurrentWeek", "[Step3] 首页无教学周信息，仅保存 currentSemester=$targetSemester")
                     }
 
+                    // [跨学期] 步骤3.5：教务返回学期落后于日期推断学期（2/15、8/15 规则）时，
+                    // 自动追加抓取推断学期课表（假期/开学初教务首页仍显示旧学期的场景）。
+                    // 抓到 >0 门 → 升级当前学期（导航事件由 AppNavigation 读 DataStore，自然去新学期）；
+                    // 0 门（教务未发布）/ 失败 → 静默降级，不影响本次同步结果。
+                    var promotedSemester: String? = null
+                    val today = java.time.LocalDate.now()
+                    val inferredSemester = inferCurrentSemester(today.year, today.monthValue, today.dayOfMonth)
+                    if (isSemesterOutdated(targetSemester, inferredSemester)) {
+                        AppLogger.i("CHD_Semester", "[Step3.5] 教务学期($targetSemester) 落后于推断学期($inferredSemester)，尝试自动追加抓取")
+                        promotedSemester = runCatching {
+                            val remoteId = repository.getRemoteSemesterOptions().getOrNull()
+                                ?.firstOrNull { ScheduleHtmlParser.parseSemesterString(it.label) == inferredSemester }
+                                ?.remoteId
+                            if (remoteId == null) {
+                                AppLogger.w("CHD_Semester", "[Step3.5] 教务学期列表中无 $inferredSemester，跳过追加")
+                                null
+                            } else {
+                                repository.fetchSpecifiedSemester(remoteId, inferredSemester)
+                                    .fold(
+                                        onSuccess = { count ->
+                                            if (count > 0) {
+                                                repository.promoteCurrentSemester(inferredSemester)
+                                                AppLogger.i("CHD_Semester", "[Step3.5] 已自动获取 $inferredSemester（$count 门课）并升级为当前学期")
+                                                inferredSemester
+                                            } else {
+                                                AppLogger.w("CHD_Semester", "[Step3.5] 教务尚未发布 $inferredSemester 课表（0 门），跳过升级")
+                                                null
+                                            }
+                                        },
+                                        onFailure = { e ->
+                                            AppLogger.w("CHD_Semester", "[Step3.5] 自动追加抓取失败: ${e.message}")
+                                            null
+                                        }
+                                    )
+                            }
+                        }.getOrNull()
+                    }
+
                     // 步骤4：发射导航事件 + UI 状态
                     val navResult = _navigateBackEvent.tryEmit(Unit)
                     AppLogger.i("CHD_CurrentWeek", "[Step4] 导航事件已发射: $navResult")
@@ -228,7 +269,7 @@ class LoginViewModel(
                             isLoading = false,
                             isLoggedIn = true,
                             showWebView = false,
-                            currentSemester = targetSemester
+                            currentSemester = promotedSemester ?: targetSemester
                         )
                     }
                     AppLogger.i("CHD_CurrentWeek", "========== [LoginViewModel] onCasLoginSuccess 成功结束 ==========")
