@@ -42,6 +42,10 @@
     <string name="please_login_system">Please login in the page above, course data will be fetched automatically</string>
     <string name="please_login_prompt">Please login</string>
 
+    <!-- Water Course -->
+    <string name="mark_as_water_course">Mark as easy course</string>
+    <string name="unmark_water_course">Unmark easy course</string>
+
     <!-- Fetch Other Semester -->
     <string name="fetch_other_semester">+ Fetch other semester</string>
     <string name="fetching_semester_list">Fetching semester list...</string>

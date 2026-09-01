@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
-import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.example.course_schedule_for_chd_v002.MainActivity
@@ -119,13 +118,11 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
     }
 
     private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID, "签到辅助提醒", NotificationManager.IMPORTANCE_HIGH
-            ).apply { description = "签到辅助：检测到签到但需用户操作时的提醒" }
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(channel)
-        }
+        val channel = NotificationChannel(
+            CHANNEL_ID, "签到辅助提醒", NotificationManager.IMPORTANCE_HIGH
+        ).apply { description = "签到辅助：检测到签到但需用户操作时的提醒" }
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .createNotificationChannel(channel)
     }
 
     override fun onDestroy() {

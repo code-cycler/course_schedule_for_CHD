@@ -2,6 +2,16 @@
 
 > 来自 [docs/retro/checkin-assist_v1.md](docs/retro/checkin-assist_v1.md) 的行动项。格式：问题 → 行动 → 核验时机。
 
+## minSdk 28（Android 9）兼容（design 2026-09-01，轻量模式）
+
+- [x] **实现**（2026-09-01）：minSdk 31→28；清理 8 处 ObsoleteSdkInt 恒真守卫；补 2 条 values-en 水课翻译；README/AGENTS.md/CLAUDE.md 版本行同步。`test + lintDebug + assembleDebug` 全绿，APK minSdkVersion=28。
+- [x] **API 28 模拟器实测**（2026-09-01 通过，api28-test AVD）：A4 安装/启动/课表 UI（静态色 fallback）；A5 签到辅助页 + 位置 CRUD（Room 2.7.0-alpha 运行时正常 + 持久化）；A6 Mock 定位触发全链路（**addTestProvider 反射旧签名在 API 28 成功** + 前台服务 + 通知 + 停止 Action）；A7 日志导出（私有目录回退路径按设计工作）。
+- [ ] **Android 9 真机验收**（用户执行，需校园网/VPN + 教务账号）：WebView 登录教务系统 → 课表抓取渲染（脚本注入链路在真实 WebView 内核上的表现，模拟器无法覆盖）。——触发：拿到 Android 9 真机时。若旧 WebView 内核白屏，先引导用户更新 Android System WebView 再复测。
+
+## README 更新（design 2026-09-01，轻量模式）
+
+- [ ] **补「快速上手」章节截图**：README 中 6 处「📷 截图待补」占位（登录页 / 课表主界面 / 课程详情与编辑面板 / 学期选择器与新学期横幅 / 设置抽屉日历同步区 / 章首总占位），真机截图后替换占位标记。——核验：README 中 grep 不到「截图待补」。
+
 ## 签到辅助
 
 - [x] **App 内加「停止虚拟定位」入口**（2026-07-28 实现）：签到辅助页「模拟签到触发」下方加了「停止虚拟定位」按钮，`MockLocationService.isRunning` 标志控制其仅在会话激活时显示，点击调 `MockLocationController.stop`。代码已编译通过，待真机重连验证。

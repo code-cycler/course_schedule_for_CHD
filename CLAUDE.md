@@ -18,7 +18,7 @@
 ```
 
 - JDK 17 · AGP 9.0.0 · Kotlin 2.0.21 · Compose BOM 2024.09.00
-- compileSdk/targetSdk 36 · minSdk 31（Android 12+）
+- compileSdk/targetSdk 36 · minSdk 28（Android 9+）
 - **只打 arm64-v8a**（其它架构被 packaging 排除）
 - APK 自动命名：`课程表_CHD_v{versionName}_{buildType}_{yyyyMMdd}_{HHmmss}.apk`
 - **版本号真相**：以 git tag 为准（当前 `v2.2`）。`app/build.gradle.kts` 的 `versionName` 必须与最新 tag 对齐；`versionCode` 暂未随发布递增。

@@ -115,12 +115,7 @@ object ReportGenerator {
         try {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             versionName = packageInfo.versionName ?: "未知"
-            versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                packageInfo.versionCode.toLong()
-            }
+            versionCode = packageInfo.longVersionCode
         } catch (_: Exception) {}
 
         val deviceInfo = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"

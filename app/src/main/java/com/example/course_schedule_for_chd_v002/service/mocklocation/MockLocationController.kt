@@ -45,11 +45,7 @@ object MockLocationController {
             putExtra(EXTRA_LNG, location.longitude)
             putExtra(EXTRA_DURATION_MIN, durationMinutes)
         }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
+        context.startForegroundService(intent)
         AppLogger.i(
             TAG,
             "[v114] 启动 Mock 会话: ${location.name} (${location.latitude},${location.longitude}) ${durationMinutes}分钟"

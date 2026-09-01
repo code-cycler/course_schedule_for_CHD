@@ -16,7 +16,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.course_schedule_for_chd_v002"
-        minSdk = 31
+        minSdk = 28
         targetSdk = 36
         versionCode = 1
         versionName = "2.4"

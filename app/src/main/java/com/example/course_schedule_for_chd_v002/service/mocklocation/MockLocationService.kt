@@ -152,17 +152,15 @@ class MockLocationService : Service() {
     }
 
     private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "签到虚拟定位",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "签到辅助：虚拟定位开启时的持久通知"
-            }
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(channel)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "签到虚拟定位",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "签到辅助：虚拟定位开启时的持久通知"
         }
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .createNotificationChannel(channel)
     }
 
     private fun cleanupAndStop() {

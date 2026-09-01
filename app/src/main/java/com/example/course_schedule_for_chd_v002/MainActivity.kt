@@ -53,12 +53,7 @@ class MainActivity : ComponentActivity() {
         try {
             val packageInfo = packageManager.getPackageInfo(packageName, 0)
             val versionName = packageInfo.versionName ?: "未知"
-            val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                packageInfo.versionCode.toLong()
-            }
+            val versionCode = packageInfo.longVersionCode
             AppLogger.i(TAG, "应用版本: $versionName ($versionCode)")
         } catch (e: Exception) {
             AppLogger.e(TAG, "获取应用版本失败", e)
