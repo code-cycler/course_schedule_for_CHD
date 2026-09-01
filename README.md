@@ -12,7 +12,7 @@
 
 ### 下载
 
-前往本仓库的 [Releases](https://github.com/code-cycler/course_schedule_for_CHD/releases) 页面，下载最新版 APK（如 `课程表_CHD_v2.3_debug_20260714_091409.apk`）。
+前往本仓库的 [Releases](https://github.com/code-cycler/course_schedule_for_CHD/releases) 页面，下载最新版 APK（如 `CHD_v2.4_debug_20260901_194503.apk`）。
 
 ### 安装步骤
 
