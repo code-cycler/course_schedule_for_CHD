@@ -46,6 +46,14 @@ class ScheduleViewModel(
      */
     val reminderSettings: StateFlow<ReminderSettings> = _reminderSettings.asStateFlow()
 
+    // [v119] 设备日历列表（「同步目标日历」选择器数据源）
+    private val _deviceCalendars = MutableStateFlow<List<CalendarSyncService.DeviceCalendarInfo>>(emptyList())
+
+    /**
+     * [v119] 设备日历列表
+     */
+    val deviceCalendars: StateFlow<List<CalendarSyncService.DeviceCalendarInfo>> = _deviceCalendars.asStateFlow()
+
     // [v37] 添加初始化保护，防止启动崩溃
     init {
         try {
@@ -442,7 +450,23 @@ class ScheduleViewModel(
                old.calendarEarlyMorningReminderEnabled != new.calendarEarlyMorningReminderEnabled ||
                old.beforeClassReminderMinutes != new.beforeClassReminderMinutes ||
                old.earlyMorningReminderHour != new.earlyMorningReminderHour ||
-               old.earlyMorningReminderMinute != new.earlyMorningReminderMinute
+               old.earlyMorningReminderMinute != new.earlyMorningReminderMinute ||
+               old.calendarId != new.calendarId  // [v119] 切换目标日历后自动重同步
+    }
+
+    /**
+     * [v119] 加载设备日历列表（打开目标日历选择器时调用）
+     */
+    fun loadDeviceCalendars() {
+        viewModelScope.launch {
+            try {
+                val calendars = calendarSyncService.queryDeviceCalendars()
+                _deviceCalendars.value = calendars
+                AppLogger.d("ScheduleViewModel", "[v119] 设备日历列表加载完成: ${calendars.size} 个")
+            } catch (e: Exception) {
+                AppLogger.e("ScheduleViewModel", "[v119] 加载设备日历列表失败", e)
+            }
+        }
     }
 
     /**
@@ -531,7 +555,7 @@ class ScheduleViewModel(
             _uiState.update { it.copy(calendarSyncState = CalendarSyncState.Deleting) }
 
             try {
-                val deleted = calendarSyncService.deleteCalendar()
+                val deleted = calendarSyncService.deleteAllAppEvents()
                 if (deleted) {
                     _uiState.update {
                         it.copy(

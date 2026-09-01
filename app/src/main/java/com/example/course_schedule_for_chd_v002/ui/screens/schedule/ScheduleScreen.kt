@@ -95,6 +95,7 @@ fun ScheduleScreen(
 
     // 日历同步设置
     val reminderSettings by viewModel.reminderSettings.collectAsStateWithLifecycle()
+    val deviceCalendars by viewModel.deviceCalendars.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
 
@@ -236,6 +237,8 @@ fun ScheduleScreen(
         drawerState = drawerState,
         settings = reminderSettings,
         calendarSyncState = uiState.calendarSyncState,
+        deviceCalendars = deviceCalendars,
+        onRefreshCalendars = { viewModel.loadDeviceCalendars() },
         onSettingsChange = {
             AppLogger.d("ScheduleScreen", "设置变化: $it")
             viewModel.updateReminderSettings(it)

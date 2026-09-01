@@ -26,6 +26,18 @@ import java.time.format.DateTimeFormatter
  */
 class CalendarSyncService(private val context: Context) {
 
+    /**
+     * [v119] 设备日历信息（设置里「同步目标日历」选择器的数据源）
+     */
+    data class DeviceCalendarInfo(
+        val id: Long,
+        val displayName: String,
+        val accountName: String,
+        val accountType: String,
+        val isPrimary: Boolean,     // 该账户的主日历（如 Google「我的日历」）
+        val isAppLocal: Boolean     // 本应用自建的本地日历
+    )
+
     companion object {
         private const val TAG = "CalendarSyncService"
 
@@ -46,6 +58,8 @@ class CalendarSyncService(private val context: Context) {
         private const val CALENDAR_ACCOUNT_NAME = "course_schedule_chd"
         // 日历账户类型
         private const val CALENDAR_ACCOUNT_TYPE = CalendarContract.ACCOUNT_TYPE_LOCAL
+        // [v119] Google 账户的日历账户类型（CalendarContract 未提供常量，此为 Google 事实值）
+        private const val GOOGLE_ACCOUNT_TYPE = "com.google"
 
         // 应用专用日历名称
         private const val CALENDAR_DISPLAY_NAME = "长安大学课程表"
@@ -173,6 +187,8 @@ class CalendarSyncService(private val context: Context) {
             put(CalendarContract.Events.DTEND, endMillis)
             put(CalendarContract.Events.EVENT_TIMEZONE, timeZone.id)
             put(CalendarContract.Events.HAS_ALARM, 1)
+            // [v119] 应用标记：写入账户日历时用于识别本应用事件，删除时绝不误删用户日程
+            put(CalendarContract.Events.CUSTOM_APP_PACKAGE, context.packageName)
         }
 
         return try {
@@ -220,6 +236,123 @@ class CalendarSyncService(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "获取或创建日历失败", e)
             null
+        }
+    }
+
+    /**
+     * [v119] 查询设备上所有日历（目标日历选择器数据源）
+     */
+    suspend fun queryDeviceCalendars(): List<DeviceCalendarInfo> = withContext(Dispatchers.IO) {
+        val result = mutableListOf<DeviceCalendarInfo>()
+        val projection = arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+            CalendarContract.Calendars.ACCOUNT_NAME,
+            CalendarContract.Calendars.ACCOUNT_TYPE,
+            CalendarContract.Calendars.IS_PRIMARY
+        )
+        var cursor: Cursor? = null
+        try {
+            cursor = contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                projection, null, null, null
+            )
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Calendars._ID))
+                    val displayName = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME))
+                        ?: "未命名日历"
+                    val accountName = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_NAME))
+                        ?: ""
+                    val accountType = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_TYPE))
+                        ?: ""
+                    val isPrimary = cursor.getInt(cursor.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)) == 1
+                    val isAppLocal = accountName == CALENDAR_ACCOUNT_NAME && accountType == CALENDAR_ACCOUNT_TYPE
+                    result.add(DeviceCalendarInfo(id, displayName, accountName, accountType, isPrimary, isAppLocal))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[v119] 查询设备日历列表失败", e)
+        } finally {
+            cursor?.close()
+        }
+        Log.i(TAG, "[v119] 设备日历列表: ${result.size} 个")
+        result
+    }
+
+    /**
+     * [v119] 解析同步目标日历，优先级：
+     * 1. 设置里指定的 calendarId 仍存在 → 用它
+     * 2. 设备上的 Google 主日历（Google 日历 app 一定显示——Pixel 等原生设备不显示本地日历）
+     * 3. 回退自建本地日历（旧行为，荣耀等显示本地日历的设备可用）
+     */
+    private suspend fun resolveTargetCalendarId(preferred: Long?): Long? {
+        // 1. 用户指定的日历仍存在
+        if (preferred != null && calendarExists(preferred)) {
+            Log.i(TAG, "[v119] 目标日历: 用户指定 ID=$preferred")
+            return preferred
+        }
+        // 2. Google 主日历
+        val primaryId = queryPrimaryGoogleCalendarId()
+        if (primaryId != null) {
+            Log.i(TAG, "[v119] 目标日历: Google 主日历 ID=$primaryId")
+            return primaryId
+        }
+        // 3. 回退自建本地日历
+        val localId = getOrCreateCalendarId()
+        Log.i(TAG, "[v119] 目标日历: 回退自建本地日历 ID=$localId")
+        return localId
+    }
+
+    /**
+     * [v119] 指定 ID 的日历是否仍存在（用户可能在系统里删掉了它）
+     */
+    private fun calendarExists(calendarId: Long): Boolean {
+        var cursor: Cursor? = null
+        return try {
+            cursor = contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                arrayOf(CalendarContract.Calendars._ID),
+                "${CalendarContract.Calendars._ID} = ?",
+                arrayOf(calendarId.toString()), null
+            )
+            cursor != null && cursor.moveToFirst()
+        } catch (e: Exception) {
+            Log.e(TAG, "[v119] 查询日历是否存在失败: ID=$calendarId", e)
+            false
+        } finally {
+            cursor?.close()
+        }
+    }
+
+    /**
+     * [v119] 查询设备上的 Google 主日历（isPrimary=1 且账户类型 com.google）
+     */
+    private fun queryPrimaryGoogleCalendarId(): Long? {
+        var cursor: Cursor? = null
+        return try {
+            cursor = contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                arrayOf(
+                    CalendarContract.Calendars._ID,
+                    CalendarContract.Calendars.ACCOUNT_NAME
+                ),
+                "${CalendarContract.Calendars.ACCOUNT_TYPE} = ? AND ${CalendarContract.Calendars.IS_PRIMARY} = 1",
+                arrayOf(GOOGLE_ACCOUNT_TYPE), null
+            )
+            if (cursor != null && cursor.moveToFirst()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(CalendarContract.Calendars._ID))
+                val account = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_NAME))
+                Log.i(TAG, "[v119] 找到 Google 主日历: ID=$id, 账户=$account")
+                id
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[v119] 查询 Google 主日历失败", e)
+            null
+        } finally {
+            cursor?.close()
         }
     }
 
@@ -320,16 +453,16 @@ class CalendarSyncService(private val context: Context) {
             return@withContext SyncResult(0, 0, 0, 0)
         }
 
-        // 获取或创建日历
-        val calendarId = getOrCreateCalendarId()
+        // [v119] 解析同步目标日历（用户指定 → Google 主日历 → 自建本地日历）
+        val calendarId = resolveTargetCalendarId(settings.calendarId)
         if (calendarId == null) {
             Log.e(TAG, "[v101] 无法获取或创建日历")
             return@withContext SyncResult(0, courses.size, 0, 0)
         }
         Log.i(TAG, "[v101] 日历ID: $calendarId")
 
-        // 删除该日历的所有旧事件
-        deleteCalendarEvents(calendarId)
+        // [v119] 删除旧事件（自建本地日历整清 + 目标日历只删本应用标记的事件，不误删用户日程）
+        deleteAppOwnedEvents(calendarId)
         Log.i(TAG, "[v102] 已删除日历中的旧事件")
 
         var successCount = 0
@@ -534,6 +667,8 @@ class CalendarSyncService(private val context: Context) {
             put(CalendarContract.Events.DTEND, endMillis)
             put(CalendarContract.Events.EVENT_TIMEZONE, timeZone.id)
             put(CalendarContract.Events.HAS_ALARM, 1)
+            // [v119] 应用标记：写入账户日历时用于识别本应用事件，删除时绝不误删用户日程
+            put(CalendarContract.Events.CUSTOM_APP_PACKAGE, context.packageName)
         }
 
         return try {
@@ -556,42 +691,69 @@ class CalendarSyncService(private val context: Context) {
     }
 
     /**
-     * 删除指定日历的所有事件
+     * [v119] 同步前清理旧事件：
+     * - 目标是自建本地日历 → 整清（旧版本事件无应用标记，日历本身就是本应用的）
+     * - 目标是账户日历（如 Google 主日历）→ 只删带本应用标记的事件；
+     *   同时整清自建本地日历（迁移场景：从本地日历切到账户日历后清掉旧库存）
      */
-    private fun deleteCalendarEvents(calendarId: Long) {
+    private fun deleteAppOwnedEvents(targetCalendarId: Long) {
+        val localId = queryCalendarId()
         try {
-            val selection = "${CalendarContract.Events.CALENDAR_ID} = ?"
-            val selectionArgs = arrayOf(calendarId.toString())
-            contentResolver.delete(CalendarContract.Events.CONTENT_URI, selection, selectionArgs)
-            Log.i(TAG, "已删除日历 $calendarId 的所有事件")
+            if (localId != null && localId == targetCalendarId) {
+                // 目标就是自建本地日历：整清（兼容无标记的旧版本事件）
+                val count = contentResolver.delete(
+                    CalendarContract.Events.CONTENT_URI,
+                    "${CalendarContract.Events.CALENDAR_ID} = ?",
+                    arrayOf(localId.toString())
+                )
+                Log.i(TAG, "[v119] 清理自建本地日历事件: $count 条")
+            } else {
+                // 自建本地日历若存在（非当前目标），整清迁移残留
+                if (localId != null) {
+                    val count = contentResolver.delete(
+                        CalendarContract.Events.CONTENT_URI,
+                        "${CalendarContract.Events.CALENDAR_ID} = ?",
+                        arrayOf(localId.toString())
+                    )
+                    Log.i(TAG, "[v119] 清理自建本地日历事件(迁移残留): $count 条")
+                }
+                // 目标日历只删本应用标记的事件
+                val count = contentResolver.delete(
+                    CalendarContract.Events.CONTENT_URI,
+                    "${CalendarContract.Events.CALENDAR_ID} = ? AND ${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ?",
+                    arrayOf(targetCalendarId.toString(), context.packageName)
+                )
+                Log.i(TAG, "[v119] 清理目标日历中本应用事件: $count 条")
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "删除日历事件失败", e)
+            Log.e(TAG, "[v119] 清理旧事件失败", e)
         }
     }
 
     /**
-     * 删除应用创建的日历
+     * [v119] 删除本应用写入的所有日历事件（设置里「删除日历事件」按钮）：
+     * 自建本地日历整清 + 所有日历中带本应用标记的事件。
+     * 不删除日历本身（目标可能是用户的主日历，绝不能删）。
      */
-    suspend fun deleteCalendar(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun deleteAllAppEvents(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val calendarId = queryCalendarId()
-            if (calendarId != null) {
-                val selection = "${CalendarContract.Calendars._ID} = ?"
-                val selectionArgs = arrayOf(calendarId.toString())
-                val uri = CalendarContract.Calendars.CONTENT_URI.buildUpon()
-                    .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
-                    .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, CALENDAR_ACCOUNT_NAME)
-                    .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, CALENDAR_ACCOUNT_TYPE)
-                    .build()
-                val deleted = contentResolver.delete(uri, selection, selectionArgs)
-                Log.i(TAG, "删除日历结果: $deleted")
-                deleted > 0
-            } else {
-                Log.i(TAG, "没有找到应用日历")
-                true
+            var total = 0
+            queryCalendarId()?.let { localId ->
+                total += contentResolver.delete(
+                    CalendarContract.Events.CONTENT_URI,
+                    "${CalendarContract.Events.CALENDAR_ID} = ?",
+                    arrayOf(localId.toString())
+                )
             }
+            total += contentResolver.delete(
+                CalendarContract.Events.CONTENT_URI,
+                "${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ?",
+                arrayOf(context.packageName)
+            )
+            Log.i(TAG, "[v119] 已删除本应用日历事件: $total 条")
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "删除日历失败", e)
+            Log.e(TAG, "[v119] 删除本应用日历事件失败", e)
             false
         }
     }

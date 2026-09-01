@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -33,14 +34,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Divider
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
+import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncService
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.CalendarSyncState
 
 /**
@@ -63,6 +66,8 @@ fun SettingsDrawer(
     drawerState: DrawerState,
     settings: ReminderSettings,
     calendarSyncState: CalendarSyncState = CalendarSyncState.Idle,
+    deviceCalendars: List<CalendarSyncService.DeviceCalendarInfo> = emptyList(),
+    onRefreshCalendars: () -> Unit = {},
     onSettingsChange: (ReminderSettings) -> Unit,
     onCalendarSyncClick: () -> Unit,
     onDeleteCalendarClick: () -> Unit,
@@ -89,6 +94,8 @@ fun SettingsDrawer(
                 SettingsDrawerContent(
                     settings = settings,
                     calendarSyncState = calendarSyncState,
+                    deviceCalendars = deviceCalendars,
+                    onRefreshCalendars = onRefreshCalendars,
                     onSettingsChange = onSettingsChange,
                     onCalendarSyncClick = onCalendarSyncClick,
                     onDeleteCalendarClick = onDeleteCalendarClick,
@@ -115,6 +122,8 @@ fun SettingsDrawer(
 private fun SettingsDrawerContent(
     settings: ReminderSettings,
     calendarSyncState: CalendarSyncState,
+    deviceCalendars: List<CalendarSyncService.DeviceCalendarInfo>,
+    onRefreshCalendars: () -> Unit,
     onSettingsChange: (ReminderSettings) -> Unit,
     onCalendarSyncClick: () -> Unit,
     onDeleteCalendarClick: () -> Unit,
@@ -302,6 +311,134 @@ private fun SettingsDrawerContent(
 
         if (settings.calendarSyncEnabled) {
             Spacer(modifier = Modifier.height(16.dp))
+
+            // ===== [v119] 同步目标日历 =====
+            var showCalendarPicker by remember { mutableStateOf(false) }
+
+            val targetCalendarLabel = if (settings.calendarId == null) {
+                "自动（推荐）"
+            } else {
+                deviceCalendars.find { it.id == settings.calendarId }?.displayName
+                    ?: "日历 #${settings.calendarId}"
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showCalendarPicker = true }
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "同步目标日历",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = targetCalendarLabel,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Google 日历等不显示本地日历，选账户日历即可见",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (showCalendarPicker) {
+                LaunchedEffect(Unit) { onRefreshCalendars() }
+                AlertDialog(
+                    onDismissRequest = { showCalendarPicker = false },
+                    confirmButton = {},
+                    dismissButton = {
+                        TextButton(onClick = { showCalendarPicker = false }) {
+                            Text("取消")
+                        }
+                    },
+                    title = { Text("选择同步目标日历") },
+                    text = {
+                        Column(
+                            modifier = Modifier.verticalScroll(rememberScrollState())
+                        ) {
+                            // 自动（默认）
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onSettingsChange(settings.copy(calendarId = null))
+                                        showCalendarPicker = false
+                                    }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = settings.calendarId == null,
+                                    onClick = {
+                                        onSettingsChange(settings.copy(calendarId = null))
+                                        showCalendarPicker = false
+                                    }
+                                )
+                                Column {
+                                    Text("自动（推荐）", fontWeight = FontWeight.Medium)
+                                    Text(
+                                        "优先 Google 主日历，无则用本地日历",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            // 设备日历列表
+                            deviceCalendars.forEach { cal ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onSettingsChange(settings.copy(calendarId = cal.id))
+                                            showCalendarPicker = false
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = settings.calendarId == cal.id,
+                                        onClick = {
+                                            onSettingsChange(settings.copy(calendarId = cal.id))
+                                            showCalendarPicker = false
+                                        }
+                                    )
+                                    Column {
+                                        Text(
+                                            text = cal.displayName + if (cal.isPrimary) " · 主日历" else "",
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = if (cal.isAppLocal) "本应用本地日历" else cal.accountName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                            if (deviceCalendars.isEmpty()) {
+                                Text(
+                                    text = "正在加载日历列表…（若无反应请检查日历权限）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             // ===== 日历课前提醒 =====
             Row(
