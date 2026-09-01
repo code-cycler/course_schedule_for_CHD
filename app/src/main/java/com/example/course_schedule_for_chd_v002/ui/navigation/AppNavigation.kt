@@ -1,6 +1,7 @@
 package com.example.course_schedule_for_chd_v002.ui.navigation
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,6 +30,8 @@ import com.example.course_schedule_for_chd_v002.util.LogExporter.CrashLogSummary
 import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.login.WebViewScreen
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleScreen
+import com.example.course_schedule_for_chd_v002.ui.screens.schedule.inferCurrentSemester
+import com.example.course_schedule_for_chd_v002.ui.screens.schedule.semesterCode
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.CrashHandler
@@ -111,7 +114,8 @@ fun AppNavigation(
                     // [v113] 冷启动把 WebView cookie 灌进 OkHttp（cookieStore 纯内存重启即丢，
                     // 需在 OkHttp 请求前从持久化的 WebView cookie 同步）
                     runCatching { repository.syncCookiesFromWebView(Constants.EamsUrls.HOME_PAGE, "") }
-                    repository.getCurrentSemester() ?: "2024-2025-1"
+                    // [v117] 不再回退硬编码 "2024-2025-1"：当前学期 → 最近本地学期 → 日期推断
+                    repository.resolveViewSemester()
                 }
                 AppLogger.i(TAG, "[NAV] ScheduleRoot 读到真实学期=$semester，跳转 schedule/$semester")
                 navController.navigate(Screen.Schedule.createRoute(semester)) {
@@ -138,12 +142,21 @@ fun AppNavigation(
                 viewModel.navigateBackEvent.collect {
                     // 2026-07-13 修正：原硬编码 "2024-2025-1"，同步成功后导航到错学期，
                     // 用户看不到刚同步的课。同步时 saveCurrentSemester 已写真实学期，读偏好拿。
-                    val target = repository.getCurrentSemester() ?: "2024-2025-1"
+                    // [v117] 目标学期 = 同步后的当前学期（只升不降语义，ADR-0005）；空则最近本地/日期推断。
+                    val target = repository.resolveViewSemester()
                     AppLogger.i(TAG, "[NAV] [v29] >>> 收到导航事件，目标学期=$target")
                     navController.navigate(Screen.Schedule.createRoute(target)) {
                         popUpTo(Screen.Login.route) { inclusive = true }
                     }
                     AppLogger.i(TAG, "[NAV] [v29] >>> 导航到 Schedule 完成")
+                }
+            }
+
+            // [v117] 同步结果反馈 toast（未能识别教务学期 / 教务仍显示旧学期 / Step3.5 结果）。
+            // Toast 是系统级，跨导航到 Schedule 仍可见。
+            LaunchedEffect(viewModel) {
+                viewModel.uiMessage.collect { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
             }
 
@@ -166,7 +179,7 @@ fun AppNavigation(
             )
         ) { backStackEntry ->
             val semester = backStackEntry.arguments?.getString(Screen.Schedule.SEMESTER_ARG)
-                ?: "2024-2025-1"
+                ?: ""  // [v117] 防御性空回退（正常导航必带参数）；空串降级为空态，不再硬编码 "2024-2025-1"
             AppLogger.i(TAG, "=== 进入 Schedule 屏幕, semester=$semester ===")
             ScheduleScreen(
                 semester = semester,
@@ -202,4 +215,19 @@ fun AppNavigation(
             )
         }
     }
+}
+
+/**
+ * [v117] 解析「当前应展示的学期」：DataStore currentSemester → 本地最近入库学期（按单调编码）→
+ * 日期推断学期。替代 AppNavigation 曾 3 处的硬编码 "2024-2025-1" 回退（D6，ADR-0005）。
+ */
+private suspend fun ICourseRepository.resolveViewSemester(): String {
+    getCurrentSemester()?.takeIf { it.isNotBlank() }?.let { return it }
+    return getAllSemesters()
+        .mapNotNull { s -> semesterCode(s)?.let { it to s } }
+        .maxByOrNull { it.first }?.second
+        ?: run {
+            val now = java.time.LocalDate.now()
+            inferCurrentSemester(now.year, now.monthValue, now.dayOfMonth)
+        }
 }

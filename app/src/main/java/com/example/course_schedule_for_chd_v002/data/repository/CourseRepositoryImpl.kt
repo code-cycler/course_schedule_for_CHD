@@ -215,8 +215,7 @@ class CourseRepositoryImpl(
                 WebViewLogger.logError("OkHttp", "解析结果为空，请检查 HTML 结构")
             }
 
-            // 更新当前学期
-            userPreferences.saveCurrentSemester(semester)
+            // [v117] 不在此设 currentSemester（同步语义归调用方，见 parseHtmlToCourses 注释 / ADR-0005）
 
             // 转换为领域模型
             val courses = entities.map { it.toDomainModel() }
@@ -344,8 +343,9 @@ class CourseRepositoryImpl(
                 WebViewLogger.logParseDetail("[WARN] Parsing result is empty, not saved to database")
             }
 
-            // 更新当前学期
-            userPreferences.saveCurrentSemester(semester)
+            // [v117] 不在此设 currentSemester：解析入库只写数据，「当前学期」由调用方决策
+            // （onCasLoginSuccess 只升不降 / promoteCurrentSemester / 用户操作）。否则同步无条件
+            // 覆盖 currentSemester，跨学期窗口会把用户切到的新学期打回旧学期（ADR-0005）。
 
             // 转换为领域模型
             val courses = entities.map { it.toDomainModel() }
@@ -402,8 +402,7 @@ class CourseRepositoryImpl(
                 courseDao.insertAll(entities)
                 AppLogger.i(REPO_TAG, "已保存 ${courses.size} 门课程到数据库")
 
-                // 更新当前学期
-                userPreferences.saveCurrentSemester(semester)
+                // [v117] 不在此设 currentSemester（同步语义归调用方，见 parseHtmlToCourses 注释 / ADR-0005）
             }
 
             AppLogger.i(REPO_TAG, "[OK] fetchRemoteSchedule 成功")

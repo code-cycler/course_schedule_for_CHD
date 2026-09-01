@@ -52,8 +52,8 @@
 2. **[CourseRepositoryImpl] 数据方法去「current」职责**：`parseHtmlToCourses`(:348) / `fetchCourseTableWithOkHttp`(:219) / `fetchRemoteSchedule`(:406) 移除 `saveCurrentSemester`——「当前学期」是调用方（onCasLoginSuccess / promoteCurrentSemester / 用户操作）的决策，不是解析入库的副作用。`precomputeAndCacheConflicts` 不动。
 3. **[AppNavigation]** :141 导航目标 / :114 ScheduleRoot 跳板 / :169 schedule composable fallback：改为 `getCurrentSemester() ?: 本地最近入库学期(getAllSemesters 降序第一个) ?: 空态引导`（D6），移除裸 `2024-2025-1`。
 4. **[LoginUiState]** :20 默认 `currentSemester` 置空字符串，UI 展示逻辑已有空态兜底。
-5. **死代码清理**（D6）：`LoginViewModel.login()` / `onWebViewLoginSuccess()` / `onFetchCourseTable()` / `fetchCourseTableAndNavigate()` 及其余 `2024-2025-1` 散点。⚠ 按 CLAUDE.md 铁律：**登录只走 WebView，不重新引入表单登录**。
-6. **`promoteCurrentSemester`（防御）**：内部加只升不降守卫（新编码 > 旧编码才 `saveCurrentSemester`），banner/Step3.5 调用语义不变。
+5. **死代码清理**（D6）：`LoginViewModel.login()` / `onWebViewLoginSuccess()` / `onFetchCourseTable()` / `fetchCourseTableAndNavigate()` / `onUsernameChange` / `onPasswordChange` / `switchToWebView` / `switchToForm` + `LoginScreen.kt` 整文件 + `LoginUiState` 表单字段。⚠ 按 CLAUDE.md 铁律：**登录只走 WebView，不重新引入表单登录**。
+6. **只升守卫落点**：在 `onCasLoginSuccess` Step3.5 调用 `promoteCurrentSemester` 前判断（`inferred > current` 才 promote，防 pre-fetch 后错过日期边界的降级）；`promoteCurrentSemester` 本体不加守卫（避免 data 层反向依赖 ui 层 `semesterCode` 纯函数）。advance 实现：banner/Step3.5 两调用方本就只升。
 
 ## 验收（可独立验证）
 

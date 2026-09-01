@@ -7,6 +7,7 @@ import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlP
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.inferCurrentSemester
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.isSemesterOutdated
+import com.example.course_schedule_for_chd_v002.ui.screens.schedule.semesterCode
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
@@ -21,16 +22,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * 登录界面 ViewModel (v67)
- * 管理登录流程和UI状态
+ * 登录界面 ViewModel
+ * 管理登录流程和 UI 状态。
  *
- * v67: WebView 完成整个流程
- *      - CAS 登录
- *      - 自动导航到课表页面
- *      - 提取 HTML 并解析
- *
- * @param repository 课程仓库接口
- * @param userPreferences 用户偏好设置
+ * v67: WebView 完成整个流程（CAS 登录 → 首页教学周 → 课表提取 → 回调 onCasLoginSuccess）。
+ * v117: 表单登录死代码删除（登录只走 WebView，见 CLAUDE.md 铁律）；onCasLoginSuccess 学期写入
+ *      改为「只升不降」，同步不再把 currentSemester 打回旧学期（跨学期窗口修复，ADR-0005）。
  */
 private const val TAG = "LoginViewModel"
 
@@ -46,10 +43,12 @@ class LoginViewModel(
     private val _navigateBackEvent = MutableSharedFlow<Unit>(replay = 0, extraBufferCapacity = 1)
     val navigateBackEvent: SharedFlow<Unit> = _navigateBackEvent.asSharedFlow()
 
+    // [v117] 同步结果反馈（toast 由 AppNavigation Login composable 收集展示，跨导航存活）
+    private val _uiMessage = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 4)
+    val uiMessage: SharedFlow<String> = _uiMessage.asSharedFlow()
+
     init {
         AppLogger.d(TAG, "=== LoginViewModel 初始化 ===")
-        // [v28] 不再重置 isLoggedIn，因为这会导致状态混乱
-        // 使用 navigateBackEvent 替代状态标志进行导航
     }
 
     /**
@@ -61,101 +60,12 @@ class LoginViewModel(
     }
 
     /**
-     * 更新用户名
-     */
-    fun onUsernameChange(value: String) {
-        _uiState.update {
-            it.copy(
-                username = value,
-                usernameError = null,
-                errorMessage = null
-            )
-        }
-    }
-
-    /**
-     * 更新密码
-     */
-    fun onPasswordChange(value: String) {
-        _uiState.update {
-            it.copy(
-                password = value,
-                passwordError = null,
-                errorMessage = null
-            )
-        }
-    }
-
-    /**
-     * 执行登录
-     */
-    fun login() {
-        // 验证输入
-        val currentState = _uiState.value
-        var hasError = false
-
-        if (currentState.username.isBlank()) {
-            _uiState.update { it.copy(usernameError = "Please enter student ID") }
-            hasError = true
-        }
-
-        if (currentState.password.isBlank()) {
-            _uiState.update { it.copy(passwordError = "Please enter password") }
-            hasError = true
-        }
-
-        if (hasError) return
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-
-            val result = repository.login(
-                username = currentState.username,
-                password = currentState.password
-            )
-
-            result.fold(
-                onSuccess = { loginResult ->
-                    if (loginResult.success) {
-                        // 登录成功，获取课表
-                        val defaultSemester = "2024-2025-1"
-                        repository.fetchRemoteSchedule(defaultSemester)
-
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                isLoggedIn = true,
-                                studentName = loginResult.studentName,
-                                studentId = loginResult.studentId,
-                                currentSemester = defaultSemester
-                            )
-                        }
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                errorMessage = loginResult.errorMessage ?: "Login failed"
-                            )
-                        }
-                    }
-                },
-                onFailure = { error ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            errorMessage = error.message ?: "Login failed"
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-    // ================ WebView 登录相关 ================
-
-    /**
      * [v73] CAS 登录成功后的处理
-     * WebView 完成登录、首页（教学周）、课表获取
+     * WebView 完成登录、首页（教学周）、课表获取。
+     *
+     * [v117 只升不降，ADR-0005] 同步退化为「按真实学期入库课表」：currentSemester 仅当候选
+     * 学期编码 ≥ 当前编码时更新（允许升级/持平，禁止降级）。跨学期窗口教务首页仍显示旧学期时，
+     * 不再把用户已切换的新学期打回旧学期。首页教学周解析失败/homePage null → 中止同步（零写入）。
      *
      * @param courseTableHtml 课表页面的 HTML 内容
      * @param homePageHtml 首页 HTML 内容（包含教学周信息），可能为 null
@@ -168,108 +78,108 @@ class LoginViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-            // [Cookie 同步] WebView 登录成功后，把 Cookie 灌进 OkHttp（CookieManager），
-            // 供后续 OkHttp 请求用（获取新学期 dataQuery.action / 抓指定学期课表等）。
-            // 2026-07-13 修复：原 onCasLoginSuccess 不同步，OkHttp Cookie 永远空，
-            // 导致 getSemesterOptions 返回"登录已过期"。
+            // [Cookie 同步]（不变）WebView 登录成功后把 Cookie 灌进 OkHttp，供 OkHttp 请求用
             val cookieSynced = repository.syncCookiesFromWebView(Constants.EamsUrls.HOME_PAGE, "")
-            AppLogger.i("CHD_CurrentWeek", "[Cookie] 同步 WebView→OkHttp: success=$cookieSynced（syncFromWebView 内含 flush 写盘）")
+            AppLogger.i("CHD_CurrentWeek", "[Cookie] 同步 WebView→OkHttp: success=$cookieSynced")
 
-            // 步骤1：先从首页 HTML 解析真实学期+教学周（决定课程入哪个学期 key）
-            // 2026-07-12 修正：原硬编码 defaultSemester="2024-2025-1" 导致课程存错学期，
-            // 与 saveCurrentSemester 保存的真实学期错位 → 启动卡在老学期。
+            // 步骤1：从首页 HTML 解析真实学期+教学周（决定课程入哪个学期 key）
+            // [v117 D2] 首页缺失或「本周为」解析失败 → 无法确定课表所属学期 → 中止同步（零写入 + toast），
+            // 消灭原硬编码回退 "2024-2025-1"（曾把课表写进两年前学期 key、currentSemester 打回老学期）。
             val currentWeekInfo = homePageHtml?.let { repository.parseCurrentWeekFromHtml(it) }
-            val realSemester = currentWeekInfo?.first
-            val targetSemester = realSemester ?: "2024-2025-1"  // 回退：首页无教学周信息时
-            AppLogger.i("CHD_CurrentWeek", "[Step1] 真实学期=$realSemester, 入库用 targetSemester=$targetSemester")
-
-            if (homePageHtml != null && currentWeekInfo == null) {
-                val weekInfoIndex = homePageHtml.indexOf("本周为")
-                if (weekInfoIndex >= 0) {
-                    val start = maxOf(0, weekInfoIndex - 50)
-                    val end = minOf(homePageHtml.length, weekInfoIndex + 200)
-                    AppLogger.w("CHD_CurrentWeek", "[Step1] 首页教学周解析失败，'本周为'附近: ${homePageHtml.substring(start, end)}")
-                } else {
-                    AppLogger.w("CHD_CurrentWeek", "[Step1] 首页 HTML 不含'本周为'关键字，回退 defaultSemester")
-                }
+            if (homePageHtml == null || currentWeekInfo == null) {
+                AppLogger.w("CHD_CurrentWeek", "[Step1] 无法识别教务学期（首页=${homePageHtml != null} 解析=${currentWeekInfo != null}），中止同步")
+                _uiState.update { it.copy(isLoading = false, errorMessage = "未能识别教务学期，请重试") }
+                _uiMessage.tryEmit("未能识别教务学期，请重试")
+                return@launch
             }
+            val realSemester = currentWeekInfo.first
+            AppLogger.i("CHD_CurrentWeek", "[Step1] 真实学期=$realSemester，入库用 targetSemester=$realSemester")
 
-            // 步骤2：用真实学期解析+入库课表（替代原硬编码 defaultSemester）
-            AppLogger.i("CHD_CurrentWeek", "[Step2] 开始解析课表 HTML，存入学期=$targetSemester")
-            val result = repository.parseHtmlToCourses(courseTableHtml, targetSemester)
+            // 步骤2：用真实学期解析+入库课表
+            AppLogger.i("CHD_CurrentWeek", "[Step2] 开始解析课表 HTML，存入学期=$realSemester")
+            val result = repository.parseHtmlToCourses(courseTableHtml, realSemester)
 
             result.fold(
                 onSuccess = { courses ->
                     WebViewLogger.logSuccess("课表", "解析成功，共 ${courses.size} 门课程")
-                    AppLogger.i("CHD_CurrentWeek", "[Step2] 课表解析成功，课程数: ${courses.size}, 学期: $targetSemester")
+                    AppLogger.i("CHD_CurrentWeek", "[Step2] 课表解析成功，课程数: ${courses.size}, 学期: $realSemester")
 
-                    // 步骤3：保存教学周/学期/开始日期（来自 Step1 的 currentWeekInfo）
-                    if (currentWeekInfo != null) {
-                        val (semester, week) = currentWeekInfo
-                        WebViewLogger.logSuccess("教学周", "当前: $semester 第${week}周")
-
-                        val semesterStartDate = TimeUtils.calculateSemesterStartDate(week)
-                        AppLogger.i("CHD_Semester", "[新功能] 反推学期开始日期: $semesterStartDate (当前周=$week)")
-
-                        userPreferences.saveCurrentWeek(week)
-                        userPreferences.saveCurrentSemester(semester)
-                        userPreferences.saveSemesterStartDate(semesterStartDate)
-                        userPreferences.saveLastParsedWeek(week)
-                        AppLogger.i("CHD_CurrentWeek", "[Step3] 已保存: week=$week, semester=$semester, startDate=$semesterStartDate")
-                    } else {
-                        // 首页无教学周信息，至少保证 currentSemester 与入库 key 一致
-                        userPreferences.saveCurrentSemester(targetSemester)
-                        AppLogger.w("CHD_CurrentWeek", "[Step3] 首页无教学周信息，仅保存 currentSemester=$targetSemester")
+                    // 步骤3：[v117 D1 只升不降 + D5 时间线绑定] 候选学期编码 ≥ 当前编码才更新
+                    // currentSemester + 时间线；教务学期落后于当前（跨学期窗口）→ 不动，只入库 + toast。
+                    val current = repository.getCurrentSemester()
+                    val rc = semesterCode(realSemester)
+                    val cc = current?.let { semesterCode(it) }
+                    val shouldWriteCurrent = when {
+                        current.isNullOrBlank() -> true     // 首次同步/无当前学期 → 直接建立
+                        rc == null -> false                  // 候选串格式异常，保守不写
+                        cc == null -> false                  // 当前串格式异常，保守不写
+                        else -> rc >= cc                     // 只升不降
                     }
 
-                    // [跨学期] 步骤3.5：教务返回学期落后于日期推断学期（2/15、8/15 规则）时，
-                    // 自动追加抓取推断学期课表（假期/开学初教务首页仍显示旧学期的场景）。
-                    // 抓到 >0 门 → 升级当前学期（导航事件由 AppNavigation 读 DataStore，自然去新学期）；
-                    // 0 门（教务未发布）/ 失败 → 静默降级，不影响本次同步结果。
-                    var promotedSemester: String? = null
+                    if (shouldWriteCurrent) {
+                        val (semester, week) = currentWeekInfo
+                        val semesterStartDate = TimeUtils.calculateSemesterStartDate(week)
+                        AppLogger.i("CHD_Semester", "[新功能] 反推学期开始日期: $semesterStartDate (当前周=$week)")
+                        userPreferences.saveCurrentWeek(week)
+                        userPreferences.saveCurrentSemester(realSemester)
+                        userPreferences.saveSemesterStartDate(semesterStartDate)
+                        userPreferences.saveLastParsedWeek(week)
+                        AppLogger.i("CHD_CurrentWeek", "[Step3] 已保存: week=$week, semester=$realSemester, startDate=$semesterStartDate")
+                    } else {
+                        AppLogger.w("CHD_Semester", "[Step3] 教务学期($realSemester) 落后于当前($current)，只升不降：不写 currentSemester/timeline")
+                        _uiMessage.tryEmit("教务仍显示 $realSemester，已更新其课表；当前仍展示 $current")
+                    }
+
+                    // [跨学期] 步骤3.5：教务返回学期落后于日期推断学期（2/15、8/15 规则）时，自动追加
+                    // 抓取推断学期课表。抓到 >0 门且推断学期新于当前 → 只升 promote；0 门/失败 → toast（D4，不再静默）。
                     val today = java.time.LocalDate.now()
                     val inferredSemester = inferCurrentSemester(today.year, today.monthValue, today.dayOfMonth)
-                    if (isSemesterOutdated(targetSemester, inferredSemester)) {
-                        AppLogger.i("CHD_Semester", "[Step3.5] 教务学期($targetSemester) 落后于推断学期($inferredSemester)，尝试自动追加抓取")
-                        promotedSemester = runCatching {
+                    if (isSemesterOutdated(realSemester, inferredSemester)) {
+                        AppLogger.i("CHD_Semester", "[Step3.5] 教务学期($realSemester) 落后于推断学期($inferredSemester)，尝试自动追加抓取")
+                        runCatching {
                             val remoteId = repository.getRemoteSemesterOptions().getOrNull()
                                 ?.firstOrNull { ScheduleHtmlParser.parseSemesterString(it.label) == inferredSemester }
                                 ?.remoteId
                             if (remoteId == null) {
                                 AppLogger.w("CHD_Semester", "[Step3.5] 教务学期列表中无 $inferredSemester，跳过追加")
-                                null
                             } else {
                                 repository.fetchSpecifiedSemester(remoteId, inferredSemester)
                                     .fold(
                                         onSuccess = { count ->
                                             if (count > 0) {
-                                                repository.promoteCurrentSemester(inferredSemester)
-                                                AppLogger.i("CHD_Semester", "[Step3.5] 已自动获取 $inferredSemester（$count 门课）并升级为当前学期")
-                                                inferredSemester
+                                                val currentAfter = repository.getCurrentSemester()
+                                                val ci = currentAfter?.let { semesterCode(it) }
+                                                val ii = semesterCode(inferredSemester)
+                                                if (!currentAfter.isNullOrBlank() && ci != null && ii != null && ii <= ci) {
+                                                    // [D1 只升不降] 推断学期不新于当前 → 课程已按推断学期入库，不 promote（防 pre-fetch 边界降级）
+                                                    AppLogger.i("CHD_Semester", "[Step3.5] $inferredSemester 不新于当前($currentAfter)，课程已入库不升级")
+                                                } else {
+                                                    repository.promoteCurrentSemester(inferredSemester)
+                                                    AppLogger.i("CHD_Semester", "[Step3.5] 已自动获取 $inferredSemester（$count 门课）并升级为当前学期")
+                                                }
                                             } else {
                                                 AppLogger.w("CHD_Semester", "[Step3.5] 教务尚未发布 $inferredSemester 课表（0 门），跳过升级")
-                                                null
+                                                _uiMessage.tryEmit("教务尚未发布 $inferredSemester 课表")
                                             }
                                         },
                                         onFailure = { e ->
                                             AppLogger.w("CHD_Semester", "[Step3.5] 自动追加抓取失败: ${e.message}")
-                                            null
+                                            _uiMessage.tryEmit("自动获取 $inferredSemester 失败，可从顶部横幅重试")
                                         }
                                     )
                             }
-                        }.getOrNull()
+                        }
                     }
 
-                    // 步骤4：发射导航事件 + UI 状态
+                    // 步骤4：发射导航事件 + UI 状态（显示学期 = 当前 currentSemester 真实值）
                     val navResult = _navigateBackEvent.tryEmit(Unit)
                     AppLogger.i("CHD_CurrentWeek", "[Step4] 导航事件已发射: $navResult")
-
+                    val displaySemester = repository.getCurrentSemester() ?: realSemester
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             isLoggedIn = true,
-                            showWebView = false,
-                            currentSemester = promotedSemester ?: targetSemester
+                            currentSemester = displaySemester
                         )
                     }
                     AppLogger.i("CHD_CurrentWeek", "========== [LoginViewModel] onCasLoginSuccess 成功结束 ==========")
@@ -286,177 +196,5 @@ class LoginViewModel(
                 }
             )
         }
-    }
-
-    /**
-     * 切换到 WebView 登录界面
-     */
-    fun switchToWebView() {
-        _uiState.update { it.copy(showWebView = true) }
-    }
-
-    /**
-     * 从 WebView 返回表单登录
-     */
-    fun switchToForm() {
-        _uiState.update { it.copy(showWebView = false) }
-    }
-
-    /**
-     * WebView 登录成功后的处理
-     * 同步 Cookie 并验证登录状态
-     */
-    fun onWebViewLoginSuccess() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-
-            // 验证 WebView 登录状态（内部会同步 Cookie）
-            val isLoggedIn = repository.verifyWebViewLogin()
-
-            if (isLoggedIn) {
-                // 获取学生信息
-                val studentName = repository.getStudentName()
-                val studentId = repository.getStudentId()
-
-                // 获取课表
-                val defaultSemester = "2024-2025-1"
-                repository.fetchRemoteSchedule(defaultSemester)
-
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoggedIn = true,
-                        showWebView = false,
-                        studentName = studentName,
-                        studentId = studentId,
-                        currentSemester = defaultSemester
-                    )
-                }
-            } else {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        showWebView = false,
-                        errorMessage = "Login verification failed, please try again"
-                    )
-                }
-            }
-        }
-    }
-
-    /**
-     * 用户点击"获取课表"按钮后的处理
-     * v52: 使用 WebViewLogger 统一日志输出
-     *
-     * @param url 当前页面 URL
-     * @param htmlContent WebView 获取的页面 HTML 内容
-     */
-    fun onFetchCourseTable(url: String, htmlContent: String) {
-        WebViewLogger.logParseDetail("=== onFetchCourseTable 开始 ===")
-        WebViewLogger.logParseDetail("URL: $url, HTML长度: ${htmlContent.length}")
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-
-            // 检查 URL 是否在课表页面
-            val isOnCourseTablePage = url.contains("courseTableForStd")
-            WebViewLogger.logParseDetail("URL 检查: isOnCourseTablePage=$isOnCourseTablePage")
-
-            if (!isOnCourseTablePage) {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        errorMessage = "Please navigate to course table page first"
-                    )
-                }
-                return@launch
-            }
-
-            // 直接解析 WebView 获取的 HTML
-            if (htmlContent.isNotEmpty()) {
-                WebViewLogger.logParseDetail("[步骤1] 解析 HTML 内容...")
-
-                val defaultSemester = "2024-2025-1"
-                val result = repository.parseHtmlToCourses(htmlContent, defaultSemester)
-
-                result.fold(
-                    onSuccess = { courses ->
-                        WebViewLogger.logParseDetail("[OK] 解析成功，共 ${courses.size} 门课程")
-
-                        // [v28] 发射一次性导航事件
-                        val navResult = _navigateBackEvent.tryEmit(Unit)
-                        WebViewLogger.logNavigationEventEmit(navResult)
-
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                showWebView = false,
-                                currentSemester = defaultSemester
-                            )
-                        }
-                    },
-                    onFailure = { error ->
-                        WebViewLogger.logParseDetail("[FAIL] 解析失败: ${error.message}")
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                errorMessage = "Parse failed: ${error.message}"
-                            )
-                        }
-                    }
-                )
-            } else {
-                WebViewLogger.logParseDetail("[FAIL] HTML 内容为空")
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        errorMessage = "Failed to get page content"
-                    )
-                }
-            }
-        }
-    }
-
-    /**
-     * 获取课表并导航到课程表视图
-     */
-    private suspend fun fetchCourseTableAndNavigate() {
-        AppLogger.d(TAG, "fetchCourseTableAndNavigate: 开始")
-
-        // 获取学生信息
-        val studentName = repository.getStudentName()
-        val studentId = repository.getStudentId()
-        AppLogger.d(TAG, "学生信息: name=$studentName, id=$studentId")
-
-        // 获取课表
-        val defaultSemester = "2024-2025-1"
-        AppLogger.d(TAG, "调用 fetchRemoteSchedule...")
-        val fetchResult = repository.fetchRemoteSchedule(defaultSemester)
-
-        fetchResult.fold(
-            onSuccess = { courses ->
-                AppLogger.i(TAG, "[OK] fetchRemoteSchedule 成功，共 ${courses.size} 门课程")
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isLoggedIn = true,
-                        showWebView = false,
-                        studentName = studentName,
-                        studentId = studentId,
-                        currentSemester = defaultSemester
-                    )
-                }
-                AppLogger.i(TAG, "[STATE] 状态已更新，isLoggedIn=true，等待 LaunchedEffect 触发导航")
-            },
-            onFailure = { error ->
-                AppLogger.e(TAG, "[FAIL] fetchRemoteSchedule 失败: ${error.message}")
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        errorMessage = "Failed to fetch course table: ${error.message}"
-                    )
-                }
-            }
-        )
     }
 }
