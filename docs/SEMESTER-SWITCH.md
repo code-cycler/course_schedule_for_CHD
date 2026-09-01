@@ -169,3 +169,21 @@ Regex("""semesterId:"(\d+)"""").find(resp)
 **currentSemester 升级规则（`CourseRepositoryImpl.promoteCurrentSemester`）**：先 `clearSemesterTimeline()`（移除旧 `semesterStartDate`、`lastParsedWeek`=0、`currentWeek`=1——三者是全局单值且只属于旧学期，保留会导致新学期表头日期错，v113 同类坑），再尝试教务首页教学周重算开学日期（拿不到就留空优雅降级），最后 `saveCurrentSemester`。抓历史学期仍走 `fetchSpecifiedSemester` 原路径不升级（v113 语义不变）。
 
 **未验证假设（开学后需真实账号校准，见 TODO.md）**：教务首页「本周为第X教学周」在 8/15–开学间的实际显示；`dataQuery.action` 的 `semesterId` 切换时点；新学期课表发布时点（0 门降级路径的触发频率）。
+
+---
+
+## 同步不再把展示学期打回旧学期（2026-09-01，见 [harness/design/cross-semester/L0-sync-preserve-semester.md](../harness/design/cross-semester/L0-sync-preserve-semester.md)）
+
+> 用户反馈：「26-27 第一学期切出来成功后，在同步一下又变成上学期的还切不回去，直接覆盖了。」日志实证：启动/结束态停在 `2024-2025-1`。根因 = 同步无条件把 `currentSemester` 覆盖成教务首页显示学期 + 解析失败回退硬编码 `2024-2025-1` + Step3.5 失败不恢复。决策 [ADR-0005](./adr/0005-sync-current-semester-monotonic.md)。
+
+**核心规则 = currentSemester「只升不降」**：
+
+- 自动路径（同步 Step3 / Step3.5 / banner）仅当候选学期编码 ≥ 当前编码才写；候选 < 当前（过渡期，教务未切）不写、不动时间线。
+- 首页「本周为」解析失败 → 本次同步中止（不写课表/学期）+ toast「未能识别教务学期，请重试」；**消灭 `2024-2025-1` 回退**。
+- 同步完成导航目标不变 = currentSemester（升级后或原学期）。
+- Step3.5 补抓失败/0 门 → toast（「教务尚未发布新学期课表」/「可从顶部横幅重试」），不再静默。
+- 时间线（`semesterStartDate`/`currentWeek`/`lastParsedWeek`）只在候选最终成为 currentSemester 时写。
+- 全仓清理硬编码 `2024-2025-1`（活动 5 处 + 表单登录死代码 4 处；登录只走 WebView 不变）。
+- `parseHtmlToCourses`/:219/:406 等数据方法移除 `saveCurrentSemester`——「当前学期」归调用方决策；`promoteCurrentSemester` 加只升守卫。
+
+**手动回归清单**：正常同步（同学期）刷新、跨期窗口同步不踢回、横幅获取/关闭/次日重现、「获取其它学期」、本地切换、非当前学期表头降级、启动进 DataStore 真实学期。

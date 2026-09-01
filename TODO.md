@@ -30,3 +30,9 @@
 - [ ] **荣耀机型坑汇总到 `CLAUDE.md`**：NLS 装机不绑定（需重开通知使用权）、USB 安装确认框、自启动/后台保活、增量构建残包——单源可查，避免重复踩。——核验：下次连真机前先查。
 - [ ] **编码规范（反射/系统 API）**：反射必须解包 `InvocationTargetException`；系统 API 方法名用 `javap -classpath android.jar` 查 jar 不信网传；能编译期直接调用就不反射。——核验：写反射代码时。
 - [ ] **权限设计覆盖两类**：运行时申请 + 外部设置页（含回到前台刷新机制）。——核验：下次做权限功能时。
+
+## 同步不再打回旧学期（design 2026-09-01，轻量模式，见 [harness/design/cross-semester/L0-sync-preserve-semester.md](harness/design/cross-semester/L0-sync-preserve-semester.md) + [ADR-0005](docs/adr/0005-sync-current-semester-monotonic.md)）
+
+- [ ] **实现 D1–D6**：`onCasLoginSuccess` 只升不降 + 解析失败中止 + Step3.5/0 门 toast；`parseHtmlToCourses`:348 / `fetchCourseTableWithOkHttp`:219 / `fetchRemoteSchedule`:406 移除 `saveCurrentSemester`；`AppNavigation`:114/141/169 回退改「当前学期→最近入库学期→空态」；`LoginUiState`:20 默认置空；`promoteCurrentSemester` 加只升守卫；删除表单登录死代码 4 处（login/onWebViewLoginSuccess/onFetchCourseTable/fetchCourseTableAndNavigate）。——核验：`./gradlew test` 全绿 + 新增 onCasLoginSuccess 场景单测（教务旧+用户新 → 不降级；教务新+用户旧 → 升级；解析失败 → 零写入）。
+- [ ] **静态清点**：`grep -rn "2024-2025-1" app/src/main/java` 仅剩注释/语义说明，无活动路径。——核验：grep 时。
+- [ ] **真机验证跨期窗口同步**（真实账号，校园网/VPN）：过渡期点「同步」不踢回旧学期、toast 正确；教务已切新学期时同步自动升级。——核验：下一个跨期窗口首次同步时。
