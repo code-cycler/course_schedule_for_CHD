@@ -167,6 +167,7 @@ CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView �
 - **非当前学期表头日期错**（v113 修）：`semesterStartDate` 全局单值只存当前学期的，`fetchSpecifiedSemester` 不存指定学期开始日期，非当前学期表头用当前学期的算 → 全错。处置：`fetchSpecifiedSemester` 不再 `saveCurrentSemester`；`ScheduleViewModel` 判断 `semester == currentSemester`，非当前学期 `weekStartDate=null`（表头只显示周几）+ `actualCurrentWeek=null`。详见 [SEMESTER-SWITCH.md](./SEMESTER-SWITCH.md)「非当前学期表头日期坑」。
 - **i18n 不完整**：`values-en/strings.xml` 缺水课等字符串，英文环境下回退中文；实际界面以中文为主。
 - **本地日历在 Google 日历 app 不可见**（v119 修）：应用原写入自建本地日历（`ACCOUNT_TYPE_LOCAL`，账户 `course_schedule_chd`）。该类型日历不与服务器同步，**Google 日历 app（Pixel 等原生设备）不列出本地日历账户**——事件在 CalendarProvider 里存在但用户看不到（荣耀等国产系统日历会把本软件列为日历账户、显示其日历，故曾实机验证可行）。处置：v119 同步目标解析改为「用户指定日历 → Google 主日历（`com.google` + `isPrimary=1`）→ 回退自建本地日历」；设置加「同步目标日历」选择器（激活遗留的 `ReminderSettings.calendarId` 字段）；写入账户日历的事件带 `CUSTOM_APP_PACKAGE=包名` 标记，删除按标记过滤（绝不误删用户自己的日程），自建本地日历仍整清（兼容无标记的旧版本事件）。
+- **多教室课程整卡丢失**（v120 修，2026-09-11 用户报告「周四人工智能课消失」）：教务系统一门课挂**多个教室**时，TaskActivity 的教室参数是逗号连接（`"*WM2303机房,*WM2301机房"`，与教师 ID `join(',')` 同风格）。原提取正则的教室分组 `[^",]*` 不允许逗号 → 主/备正则双双失配 → **教室和周数位图一起丢**，课程按默认周 1-16 入库且 remark 无 `weeksBitmap:`。再被 v90 合并逻辑放大：`mergeCourseGroup` 只从 remark 位图提周次，无位图记录贡献为空被静默丢弃，同位置另一条记录（第 13 周单周 \*WM3305）完全主导合并结果 → 周四这张卡只剩第 13 周。处置：教室分组放宽为 `[^"]*`；合并时无位图成员回退用 `startWeek..endWeek` 参与并集（与 `Course.isWeekInRange` 回退语义对齐）+ 过滤空教室；双正则仍失配时打 WARN 带原始 TaskActivity 片段。回归测试：`parse_taskActivity多教室逗号分隔_教室与位图不丢失`、`parse_合并时无位图记录回退周次范围_不被丢弃`。
 
 ---
 

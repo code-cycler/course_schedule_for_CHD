@@ -116,6 +116,105 @@ class ScheduleHtmlParserTest {
         assertFalse("第10周应无课", domain.isWeekInRange(10))
     }
 
+    // ================ TaskActivity 多教室 + 解析降级合并回退（v120 回归）================
+
+    /**
+     * 回归测试：多教室课程整卡丢失 bug（用户报告 2026-09-11，周四人工智能课消失）
+     *
+     * 计算机与人工智能 周四第5-6节，教务系统挂两个机房教室（逗号连接）：
+     *   - 教室参数 "*WM2303机房,*WM2301机房"，位图 3-14 周
+     *
+     * 修复前：教室分组 [^",]* 不允许逗号 → 主/备正则双双失配 → 教室和位图一起丢失，
+     *         课程按默认周 1-16 入库且 remark 无 weeksBitmap，再被合并逻辑丢弃 → 周四近乎空白。
+     * 修复后：教室原样解析（含逗号），位图正常提取。
+     */
+    @Test
+    fun parse_taskActivity多教室逗号分隔_教室与位图不丢失() {
+        val bitmap = "000" + "1".repeat(12) + "0".repeat(38)  // 3-14周
+        val html = """
+            <script>
+            var unitCount = 11;
+            var table0 = new CourseTable(2026, 77);
+            var teachers = [{id:1,name:"刘海英",lab:false}];
+            var courseName = "计算机与人工智能(TH506001.33)";
+            activity = new TaskActivity("1","刘海英","8965(TH506001.33)",courseName,"TH506001.33","800,801","*WM2303机房,*WM2301机房","$bitmap",null,"","","");
+            index = 3*unitCount+4;
+            table0.activities[index][table0.activities[index].length] = activity;
+            index = 3*unitCount+5;
+            table0.activities[index][table0.activities[index].length] = activity;
+            </script>
+        """.trimIndent()
+
+        val result = parser.parse(html, "2026-2027-1")
+
+        val course = result.find { it.name.contains("计算机与人工智能") && it.dayOfWeek == 4 && it.startNode == 5 }
+        assertNotNull("人工智能 周四第5-6节应被解析", course)
+
+        assertEquals("多教室应原样保留（含逗号）", "*WM2303机房,*WM2301机房", course!!.location)
+        assertEquals(3, course.startWeek)
+        assertEquals(14, course.endWeek)
+        assertTrue("remark 应包含位图", course.remark.contains("weeksBitmap:$bitmap"))
+
+        val domain = course.toDomainModel()
+        assertTrue("第3周（3-14周段）应有课", domain.isWeekInRange(3))
+        assertTrue("第14周（3-14周段）应有课", domain.isWeekInRange(14))
+        assertFalse("第2周应无课", domain.isWeekInRange(2))
+    }
+
+    /**
+     * 回归测试：解析降级记录（教室+位图提取失败，按默认周 1-16 入库、remark 无位图）
+     * 参与合并时不再被静默丢弃。
+     *
+     * 场景同 2026-09-11 日志：周四第5-6节两条记录——
+     *   - 记录1：位图提取失败（bitmap 参数为空串）→ 降级为默认周 1-16、remark 无 weeksBitmap
+     *   - 记录2：仅第 13 周（*WM3305）
+     *
+     * 修复前：合并只从 remark 位图提周次 → 记录1 贡献为空 → 合并后周次只剩 [13]。
+     * 修复后：记录1 回退用 startWeek..endWeek（1-16）参与并集 → 合并后 1-16 周；
+     *         空教室被过滤，合并教室列表不再出现 ", *WM3305"。
+     */
+    @Test
+    fun parse_合并时无位图记录回退周次范围_不被丢弃() {
+        val bitmapWeek13 = "0".repeat(13) + "1" + "0".repeat(39)  // 仅第13周
+        val html = """
+            <script>
+            var unitCount = 11;
+            var table0 = new CourseTable(2026, 77);
+            var teachers = [{id:1,name:"刘海英",lab:false}];
+            var courseName = "计算机与人工智能(TH506001.33)";
+            activity = new TaskActivity("1","刘海英","8965(TH506001.33)",courseName,"TH506001.33","800","*WM2303机房","");
+            index = 3*unitCount+4;
+            table0.activities[index][table0.activities[index].length] = activity;
+            index = 3*unitCount+5;
+            table0.activities[index][table0.activities[index].length] = activity;
+            var teachers = [{id:1,name:"刘海英",lab:false}];
+            var courseName = "计算机与人工智能(TH506001.33)";
+            activity = new TaskActivity("1","刘海英","8965(TH506001.33)",courseName,"TH506001.33","801","*WM3305","$bitmapWeek13",null,"","","");
+            index = 3*unitCount+4;
+            table0.activities[index][table0.activities[index].length] = activity;
+            index = 3*unitCount+5;
+            table0.activities[index][table0.activities[index].length] = activity;
+            </script>
+        """.trimIndent()
+
+        val result = parser.parse(html, "2026-2027-1")
+
+        val course = result.find { it.name.contains("计算机与人工智能") && it.dayOfWeek == 4 && it.startNode == 5 }
+        assertNotNull("周四第5-6节应有一条合并记录", course)
+
+        // 修复前：合并后周次只剩 [13]；修复后：默认周 1-16 参与并集
+        assertEquals(1, course!!.startWeek)
+        assertEquals(16, course.endWeek)
+        // 空教室被过滤，教室列表干净
+        assertEquals("*WM3305", course.location)
+        assertTrue("应标注多班合并", course.remark.contains("多班合并"))
+
+        val domain = course.toDomainModel()
+        assertTrue("第3周应有课（修复前丢失）", domain.isWeekInRange(3))
+        assertTrue("第13周（记录2）应有课", domain.isWeekInRange(13))
+        assertFalse("第17周应无课", domain.isWeekInRange(17))
+    }
+
     @Test
     fun `parseSemesterString converts eams label to local semester`() {
         // 标准 label → 本地串

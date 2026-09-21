@@ -46,9 +46,11 @@ import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
 import com.example.course_schedule_for_chd_v002.ui.components.WeekSelector
 import com.example.course_schedule_for_chd_v002.ui.components.SettingsDrawer
 import com.example.course_schedule_for_chd_v002.ui.components.LogExportDialog
+import com.example.course_schedule_for_chd_v002.ui.components.CourseDataExportDialog
 import com.example.course_schedule_for_chd_v002.ui.components.CourseReportDialog
 import com.example.course_schedule_for_chd_v002.ui.components.edit.CourseEditorSheet
 import com.example.course_schedule_for_chd_v002.util.AppLogger
+import com.example.course_schedule_for_chd_v002.util.CourseDataExporter
 import com.example.course_schedule_for_chd_v002.util.HtmlCache
 import com.example.course_schedule_for_chd_v002.util.LogExporter
 import com.example.course_schedule_for_chd_v002.util.ReportGenerator
@@ -66,6 +68,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import com.example.course_schedule_for_chd_v002.data.remote.parser.ScheduleHtmlParser
 import com.example.course_schedule_for_chd_v002.ui.components.ExportableScheduleGrid
+import com.example.course_schedule_for_chd_v002.ui.theme.ExportScheduleTheme
 import com.example.course_schedule_for_chd_v002.ui.util.OffscreenScheduleCapture
 import com.example.course_schedule_for_chd_v002.ui.util.ScheduleImageExporter
 import com.example.course_schedule_for_chd_v002.ui.util.rememberScheduleCaptureState
@@ -92,6 +95,11 @@ fun ScheduleScreen(
     var showLogExportDialog by remember { mutableStateOf(false) }
     var logExportResult by remember { mutableStateOf<LogExporter.ExportResult?>(null) }
     var isExportingLogs by remember { mutableStateOf(false) }
+
+    // [v120] 课程数据导出对话框状态
+    var showCourseDataExportDialog by remember { mutableStateOf(false) }
+    var courseDataExportResult by remember { mutableStateOf<CourseDataExporter.ExportResult?>(null) }
+    var isExportingCourseData by remember { mutableStateOf(false) }
 
     // 日历同步设置
     val reminderSettings by viewModel.reminderSettings.collectAsStateWithLifecycle()
@@ -168,6 +176,28 @@ fun ScheduleScreen(
                     AppLogger.i("ScheduleScreen", "[保存] 日志已保存到: $uri")
                 } catch (e: Exception) {
                     AppLogger.e("ScheduleScreen", "[保存] 保存日志失败", e)
+                }
+            }
+            pendingSaveFile = null
+        }
+    }
+
+    // [v120] 课程数据 ZIP 保存 Launcher (SAF CreateDocument)
+    val courseDataSaveLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        uri?.let {
+            val file = pendingSaveFile
+            if (file != null && file.exists()) {
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { output: java.io.OutputStream ->
+                        file.inputStream().use { input: java.io.InputStream ->
+                            input.copyTo(output)
+                        }
+                    }
+                    AppLogger.i("ScheduleScreen", "[保存] 课程数据已保存到: $uri")
+                } catch (e: Exception) {
+                    AppLogger.e("ScheduleScreen", "[保存] 保存课程数据失败", e)
                 }
             }
             pendingSaveFile = null
@@ -266,6 +296,7 @@ fun ScheduleScreen(
         onSemesterClick = { showSemesterDialog = true },
         onCampusClick = { showCampusDialog = true },
         onExportLogsClick = { showLogExportDialog = true },
+        onExportCourseDataClick = { showCourseDataExportDialog = true },
         onCheckInAssistClick = {
             scope.launch { drawerState.close() }
             onNavigateToCheckInAssist()
@@ -623,6 +654,7 @@ fun ScheduleScreen(
                 }
 
                 // [导出图片] 离屏渲染当前周课表（仅 captureArmed 时组合，等一帧捕获后移除）
+                // [v121] ExportScheduleTheme：固定深浅两套配色 + Surface 填底，修复深色模式导出异常
                 if (captureArmed) {
                     val parts = semester.split("-")
                     val semDisplay = if (parts.size == 3) "${parts[0]}-${parts[1]} 第${parts[2]}学期" else semester
@@ -630,16 +662,18 @@ fun ScheduleScreen(
                         captureState = captureState,
                         widthPx = screenWidthPx
                     ) {
-                        ExportableScheduleGrid(
-                            courses = displayCourses,
-                            conflictingCourseIds = uiState.conflictingCourseIds,
-                            waterCourseNames = uiState.waterCourseNames,
-                            isWeekendExpanded = hasWeekendCourses,
-                            campus = uiState.campus,
-                            todayDayOfWeek = uiState.todayDayOfWeek,
-                            isCurrentWeek = uiState.currentWeek == uiState.actualCurrentWeek,
-                            titleText = "$semDisplay 第${uiState.currentWeek}周·${uiState.campus.displayName}"
-                        )
+                        ExportScheduleTheme {
+                            ExportableScheduleGrid(
+                                courses = displayCourses,
+                                conflictingCourseIds = uiState.conflictingCourseIds,
+                                waterCourseNames = uiState.waterCourseNames,
+                                isWeekendExpanded = hasWeekendCourses,
+                                campus = uiState.campus,
+                                todayDayOfWeek = uiState.todayDayOfWeek,
+                                isCurrentWeek = uiState.currentWeek == uiState.actualCurrentWeek,
+                                titleText = "$semDisplay 第${uiState.currentWeek}周·${uiState.campus.displayName}"
+                            )
+                        }
                     }
                 }
 
@@ -839,6 +873,41 @@ fun ScheduleScreen(
             onDismiss = {
                 showLogExportDialog = false
                 logExportResult = null
+            }
+        )
+    }
+
+    // [v120] 课程数据导出对话框
+    if (showCourseDataExportDialog) {
+        CourseDataExportDialog(
+            semester = semester,
+            isExporting = isExportingCourseData,
+            result = courseDataExportResult,
+            onExport = {
+                isExportingCourseData = true
+                courseDataExportResult = null
+                scope.launch {
+                    courseDataExportResult = CourseDataExporter.exportCourseData(
+                        context, semester, uiState.courses
+                    )
+                    isExportingCourseData = false
+                }
+            },
+            onShare = { file ->
+                try {
+                    val shareIntent = CourseDataExporter.shareCourseDataFile(context, file)
+                    context.startActivity(Intent.createChooser(shareIntent, "分享课程数据"))
+                } catch (e: Exception) {
+                    AppLogger.e("ScheduleScreen", "分享课程数据失败", e)
+                }
+            },
+            onSave = { file ->
+                pendingSaveFile = file
+                courseDataSaveLauncher.launch(file.name)
+            },
+            onDismiss = {
+                showCourseDataExportDialog = false
+                courseDataExportResult = null
             }
         )
     }

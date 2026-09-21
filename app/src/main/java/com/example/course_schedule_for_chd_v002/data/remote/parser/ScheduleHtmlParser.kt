@@ -50,6 +50,12 @@ data class WeekParseResult(
  *      修改 parseActivitiesJson 的分组 key：使用 教室+周次位图 替代 周次范围
  *      确保同一教学班的连续节次被正确合并，不同教学班分开处理
  *
+ * v120: 修复多教室课程整卡丢失问题（用户报告：周四人工智能课消失）
+ *      教务系统多教室时 TaskActivity 教室参数为逗号连接（如 "*WM2303机房,*WM2301机房"），
+ *      原正则教室分组 [^",]* 不允许逗号 → 主/备正则双双失配 → 教室+周数位图一起丢失。
+ *      修复：教室分组放宽为 [^"]*；合并阶段对无位图记录回退用 startWeek..endWeek 参与并集
+ *      （与 Course.isWeekInRange 回退语义对齐），避免降级记录被静默丢弃。
+ *
  * HTML 结构：
  * ```javascript
  * var teachers = [{id:3613,name:"朱依水",lab:false}];
@@ -199,7 +205,9 @@ class ScheduleHtmlParser {
                 // [v26] 提取教室名称和周数位图
                 // 格式: "...,"教室名","周数位图","..."
                 // 教室名可以以 * 或 # 开头（*普通教室 #实验室）
-                val roomAndWeeksPattern = ""","([*#]?[^",]*)","([01]{53})"""".toRegex()
+                // [v120] 教室分组放宽为 [^"]*：多教室时教务系统用逗号连接（"*WM2303机房,*WM2301机房"），
+                //        原 [^",]* 不允许逗号导致整条正则失配，教室和位图一起丢失
+                val roomAndWeeksPattern = ""","([*#]?[^"]*)","([01]{53})"""".toRegex()
                 val roomWeeksMatch = roomAndWeeksPattern.find(activityBlock)
 
                 // [v26] 使用 var 以便备用模式可以更新
@@ -209,13 +217,24 @@ class ScheduleHtmlParser {
                 if (location.isEmpty() || weeksBitmap.isEmpty()) {
                     WebViewLogger.logParseDetail("[$blockIndex] 未找到教室或周数位图，尝试其他模式")
                     // [v26] 尝试另一种模式：直接在 activity 行中查找
-                    val altPattern = """new\s+TaskActivity\([^)]+,\s*"([*#]?[^",]*)"\s*,\s*"([01]{53})"""".toRegex()
+                    val altPattern = """new\s+TaskActivity\([^)]+,\s*"([*#]?[^"]*)"\s*,\s*"([01]{53})""""".toRegex()
                     val altMatch = altPattern.find(activityBlock)
                     if (altMatch != null) {
                         location = altMatch.groupValues[1]
                         weeksBitmap = altMatch.groupValues[2]
                         WebViewLogger.logParseDetail("[$blockIndex] 使用备用模式找到: location=$location, bitmap长度=${weeksBitmap.length}")
                     }
+                }
+
+                // [v120] 双正则仍失败：打 WARN 带原始 TaskActivity 片段，方便远程排障
+                if (location.isEmpty() || weeksBitmap.isEmpty()) {
+                    val snippetStart = activityBlock.indexOf("new TaskActivity")
+                    val snippet = if (snippetStart >= 0) {
+                        activityBlock.substring(snippetStart, minOf(activityBlock.length, snippetStart + 150))
+                    } else {
+                        activityBlock.take(150)
+                    }
+                    AppLogger.w("CHD_WebView", "[v120] [WARN] [$blockIndex] $courseName 教室/位图提取失败，课程将按默认周1-16入库，原始片段: $snippet")
                 }
 
                 WebViewLogger.logParseDetail("[$blockIndex] 教师: $teacherNames, 教室: $location, 位图长度: ${weeksBitmap.length}")
@@ -471,8 +490,8 @@ class ScheduleHtmlParser {
                 val (startNode, endNode) = nodes
                 val position = "周${dayOfWeek}第${startNode}-${endNode}节"
 
-                // 提取合并后的教室列表
-                val rooms = group.map { it.location }.distinct()
+                // 提取合并后的教室列表（[v120] 过滤空教室，避免出现 ", *WM3305" 这种显示）
+                val rooms = group.map { it.location }.filter { it.isNotBlank() }.distinct()
                 // 提取合并后的周次
                 val mergedWeeks = extractActiveWeeksFromRemark(merged.remark)
 
@@ -507,11 +526,23 @@ class ScheduleHtmlParser {
         val allRooms = mutableSetOf<String>()
 
         for (course in courses) {
-            allRooms.add(course.location)
+            // [v120] 过滤空教室，避免合并后出现 ", *WM3305" 这种首尾逗号
+            if (course.location.isNotBlank()) {
+                allRooms.add(course.location)
+            }
 
             // 从 remark 中提取周数位图
             val weeks = extractActiveWeeksFromRemark(course.remark)
-            allActiveWeeks.addAll(weeks)
+            if (weeks.isNotEmpty()) {
+                allActiveWeeks.addAll(weeks)
+            } else {
+                // [v120] 无位图记录回退：用周次范围参与合并（与 Course.isWeekInRange 的回退语义对齐）。
+                // 修复前：解析降级（位图丢失、按默认周1-16入库、remark 无 weeksBitmap）的记录
+                // 在合并时贡献为空被静默丢弃，同位置另一记录的周次完全主导合并结果，
+                // 曾致「周四人工智能」合并后只剩另一条记录的第13周、整卡近乎消失。
+                allActiveWeeks.addAll(course.startWeek..course.endWeek)
+                WebViewLogger.logParseDetail("[v120] 合并组内记录无位图，回退周次范围 ${course.startWeek}-${course.endWeek}: ${course.name}")
+            }
         }
 
         // 如果没有提取到位图，使用原有的周范围

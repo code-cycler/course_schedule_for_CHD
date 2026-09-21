@@ -2,6 +2,20 @@
 
 > 来自 [docs/retro/checkin-assist_v1.md](docs/retro/checkin-assist_v1.md) 的行动项。格式：问题 → 行动 → 核验时机。
 
+## ux-perf-export 压测修订（design 2026-09-13，grill-W01 全 7 题已逐题裁决，2026-09-13 用户授权后已全部落地工件）
+
+- [x] **R1（Q1）**：L2 D-1 的 `fetchRemoteCoursesOnly` 实现基准由「从 fetchRemoteSchedule 抽」改为「`getRemoteSemesterOptions()` 解析当前学期 remoteId → `getCourseTableHtml(remoteId)`」（在用验证路径）；L1 模块边界表与接口规格同步补 remoteId 解析步骤。——核验通过：grep「从 fetchRemoteSchedule 抽」零命中。
+- [x] **R2（Q2）**：L0 风险节补「静默同步更新检测覆盖率取决于 cookie 存活窗口（CAS session 时效），冷启动多为静默 no-op」；L2 D-5 开关文案加「需近期登录过教务系统后生效」。——核验通过：两文件关键词命中。
+- [x] **R3（Q3）**：L2 D-4 确认对话框加明示「确认后将以教务数据替换本地全部课程（含你手动添加/编辑的 N 门）」+ 差异清单「本地独有」打标；L0 验收 D2–D3 补该警示要求。——核验通过：L0/L2 各命中。
+- [x] **R4（Q4）**：L2 D 新增第 7 点「手动同步导航（onNavigateToLogin）前重置 silentSyncState 为 Idle」，防过期 diff 二次覆盖。——核验通过：设计含互斥条款。
+- [x] **R5（Q5）**：L2 D-1 补两边界——`getCurrentSemester()` 为 null 时静默跳过；拉取前 `cookieManager.syncFromWebView` 兜底（对齐 fetchSpecifiedSemester）。——核验通过：syncFromWebView 命中。
+- [x] **R6（Q6）**：L1 契约第 8 条 + L2 接口规格表：`lastSilentSyncAt` 由 Long 键改 `stringPreferencesKey` 存 epoch millis 字符串（项目范式一致性）。——核验通过：「Long, 0」零残留。
+- [x] **R7（Q7）**：L2 B 批阶段表与详细设计前插「先补 `onWeekSelected`/`coursesByWeek` 派生行为单测作迁移前回归锚」；B 批 DoD「行为目视不变」降级为补充冒烟。——核验通过：回归锚 3 处命中。
+
+## 桌面小部件（design 2026-09-13，ux-perf-export W01 Q1-E 用户勾选但明确「放 TODO」）
+
+- [ ] **今日课程桌面小部件**：Glance/AppWidget 新链路（体量大），从 ux-perf-export 批拆出为独立 feature 后再走设计。——触发：ux-perf-export 批（A/B/C 交付）完成后启动。
+
 ## minSdk 28（Android 9）兼容（design 2026-09-01，轻量模式）
 
 - [x] **实现**（2026-09-01）：minSdk 31→28；清理 8 处 ObsoleteSdkInt 恒真守卫；补 2 条 values-en 水课翻译；README/AGENTS.md/CLAUDE.md 版本行同步。`test + lintDebug + assembleDebug` 全绿，APK minSdkVersion=28。

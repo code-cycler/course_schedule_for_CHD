@@ -39,6 +39,16 @@
 
 ---
 
+## 静默同步更新检测覆盖率受 cookie 存活窗口限制 — 预期管理已落文档，实际覆盖率待实测
+
+**Status:** deferred（grill-W01 Q2，2026-09-13）
+**Why deferred:** cannot anticipate（CAS session 实际存活时长未知——数小时到数天不等，且教务系统策略可变）。v113 修的只是「cookie 重启不丢」，session 时效本身无法由 App 延长。
+**Current placeholder:** 设计已按用户裁决落地预期管理——L0 风险节说明「覆盖率取决于 cookie 存活窗口，冷启动多为静默 no-op」+ 设置开关文案「需近期登录过教务系统后生效」（TODO R2）。静默失败语义不变（无 toast/无引导）。
+**Reversibility:** 高——若实测覆盖率过低，可改「过期轻提示引导重登」（破坏静默）或接受现状，纯行为开关级改动。
+**Trigger — revisit when:** D 批真机实测后发现 cookie 存活期过短（如登录后不足半天即失效）导致静默同步实际命中率极低时；或用户反馈「功能感觉没生效」时。
+
+---
+
 ## 另一台荣耀设备日历同步「未生效」— 根因未诊断
 
 **Status:** deferred（等待设备侧信息）

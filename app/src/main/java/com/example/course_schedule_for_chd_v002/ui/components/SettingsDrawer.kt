@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -78,6 +79,7 @@ fun SettingsDrawer(
     onSemesterClick: () -> Unit = {},
     onCampusClick: () -> Unit = {},
     onExportLogsClick: () -> Unit = {},
+    onExportCourseDataClick: () -> Unit = {},
     onCheckInAssistClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
@@ -106,6 +108,7 @@ fun SettingsDrawer(
                     onSemesterClick = onSemesterClick,
                     onCampusClick = onCampusClick,
                     onExportLogsClick = onExportLogsClick,
+                    onExportCourseDataClick = onExportCourseDataClick,
                     onCheckInAssistClick = onCheckInAssistClick,
                     modifier = Modifier
                         .fillMaxSize()
@@ -134,6 +137,7 @@ private fun SettingsDrawerContent(
     onSemesterClick: () -> Unit = {},
     onCampusClick: () -> Unit = {},
     onExportLogsClick: () -> Unit = {},
+    onExportCourseDataClick: () -> Unit = {},
     onCheckInAssistClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -710,6 +714,23 @@ private fun SettingsDrawerContent(
             Spacer(modifier = Modifier.width(8.dp))
             Text("导出日志")
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // [v120] 导出课程数据（识别后 JSON + 教务原始 HTML，ZIP 打包）
+        OutlinedButton(
+            onClick = onExportCourseDataClick,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Share, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("导出课程数据")
+        }
+        Text(
+            text = "打包识别后课程(JSON)与教务原始页面(HTML)，当前学期",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 

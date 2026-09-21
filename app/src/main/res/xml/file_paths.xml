@@ -29,4 +29,9 @@
     <external-files-path
         name="reports"
         path="reports/" />
+
+    <!-- [v120] 课程数据导出回退目录 -->
+    <external-files-path
+        name="exports"
+        path="exports/" />
 </paths>
