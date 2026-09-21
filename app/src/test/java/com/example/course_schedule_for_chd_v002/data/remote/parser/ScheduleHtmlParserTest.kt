@@ -70,10 +70,11 @@ class ScheduleHtmlParserTest {
      *
      * 修复前：位图提取正则尾部多了 `,"` 对所有 TaskActivity 都不匹配 → 班1位图提取失败 →
      *         合并时单5-9 整段丢失 → 第5/7/9周 C语言 消失。
-     * 修复后：两班位图都正确提取 → 合并活跃周 = [1..9]。
+     * [v121] 语义更新：两班活跃周不相交（[5,7,9] vs [1,2,3,4,6,8]）→ 不再合并，
+     *         各自独立成卡、各带自己的教室+位图；周覆盖断言不变（任一卡覆盖即有课）。
      */
     @Test
-    fun parse_taskActivity多班合并_单双周班不丢失() {
+    fun parse_taskActivity多班单双周_周次不相交拆分独立成卡() {
         val bitmapOdd = "0000010101" + "0".repeat(43)    // 单5,7,9周
         val bitmapMixed = "0111101010" + "0".repeat(43)  // 1,2,3,4,6,8周
         val html = """
@@ -99,21 +100,104 @@ class ScheduleHtmlParserTest {
 
         val result = parser.parse(html, "2024-2025-1")
 
-        val cCourse = result.find { it.name.contains("C语言") && it.dayOfWeek == 2 && it.startNode == 5 }
-        assertNotNull("C语言 周二第5-6节应被解析", cCourse)
+        val cCourses = result.filter { it.name.contains("C语言") && it.dayOfWeek == 2 && it.startNode == 5 }
+        assertEquals("周次不相交应拆为两条独立记录", 2, cCourses.size)
 
-        val domain = cCourse!!.toDomainModel()
+        val oddCard = cCourses.find { it.location == "*WM2104机房" }
+        val mixedCard = cCourses.find { it.location == "*WM3105" }
+        assertNotNull("单5-9周机房卡应存在", oddCard)
+        assertNotNull("1-4+双6-8周教室卡应存在", mixedCard)
+
         // 学期传递
-        assertEquals("2024-2025-1", domain.semester)
+        assertEquals("2024-2025-1", oddCard!!.toDomainModel().semester)
+
+        val oddDomain = oddCard.toDomainModel()
+        val mixedDomain = mixedCard!!.toDomainModel()
         // 单5-9 班的周次必须保留（修复前会丢失）
-        assertTrue("第5周（单5-9）应有课", domain.isWeekInRange(5))
-        assertTrue("第7周（单5-9）应有课", domain.isWeekInRange(7))
-        assertTrue("第9周（单5-9）应有课", domain.isWeekInRange(9))
+        assertTrue("第5周（单5-9）应有课", oddDomain.isWeekInRange(5))
+        assertTrue("第7周（单5-9）应有课", oddDomain.isWeekInRange(7))
+        assertTrue("第9周（单5-9）应有课", oddDomain.isWeekInRange(9))
         // 班2 的周次
-        assertTrue("第1周（班2）应有课", domain.isWeekInRange(1))
-        assertTrue("第6周（班2 双6-8）应有课", domain.isWeekInRange(6))
-        // 不在范围内的周
-        assertFalse("第10周应无课", domain.isWeekInRange(10))
+        assertTrue("第1周（班2）应有课", mixedDomain.isWeekInRange(1))
+        assertTrue("第6周（班2 双6-8）应有课", mixedDomain.isWeekInRange(6))
+        // 两卡各管各周，互不越界
+        assertFalse("第6周不属于机房卡（属另一卡）", oddDomain.isWeekInRange(6))
+        assertFalse("第5周不属于班2卡", mixedDomain.isWeekInRange(5))
+        // 周次不相交 → 第1-9周每周恰有一张卡活跃，第10周无课
+        for (week in 1..9) {
+            assertEquals("第${week}周应恰有一张卡活跃", 1,
+                listOf(oddDomain, mixedDomain).count { it.isWeekInRange(week) })
+        }
+        assertFalse("第10周应无课", oddDomain.isWeekInRange(10) || mixedDomain.isWeekInRange(10))
+    }
+
+    // ================ TaskActivity 分周切换线上/线下（v121 回归）================
+
+    /**
+     * 回归测试：分周切换线上/线下课程被并卡 bug（用户报告 2026-09-15，心理健康教育）
+     *
+     * 大学生心理健康教育 周三第5-6节，同一教学班（61603）两条记录：
+     *   - 线上「虚拟教室-同步学习平台」周 [3,5-8,10-11,13-14,16-18]
+     *   - 线下「*WM1403」周 [4,9,12,15]
+     * 周次完全不相交（逐周交替切换线上线下）。
+     *
+     * 修复前：v90 无条件合并 → 周次拉平成 3-18 连续区间、教室拼接
+     *         「虚拟教室-同步学习平台,*WM1403」、「哪周在哪上课」映射丢失
+     *         （第4周线下课详情也显示成线上教室拼接）。
+     * 修复后：各自独立成卡，各带各的教室+位图。
+     */
+    @Test
+    fun parse_taskActivity分周切换线上线下_不合并各带教室位图() {
+        val bitmapOnline = "0001011110110110111" + "0".repeat(34)  // 周3,5-8,10-11,13-14,16-18
+        val bitmapOffline = "0000100001001001" + "0".repeat(37)    // 周4,9,12,15
+        val html = """
+            <script>
+            var unitCount = 11;
+            var table0 = new CourseTable(2026, 77);
+            var teachers = [{id:3804,name:"郭羽熙",lab:false}];
+            var courseName = "大学生心理健康教育(TB206004.J1)";
+            activity = new TaskActivity("3804","郭羽熙","61603(TB206004.J1)",courseName,"TB206004.J1","1459","虚拟教室-同步学习平台","$bitmapOnline",null,"","","");
+            index = 2*unitCount+4;
+            table0.activities[index][table0.activities[index].length] = activity;
+            index = 2*unitCount+5;
+            table0.activities[index][table0.activities[index].length] = activity;
+            var teachers = [{id:3804,name:"郭羽熙",lab:false}];
+            var courseName = "大学生心理健康教育(TB206004.J1)";
+            activity = new TaskActivity("3804","郭羽熙","61603(TB206004.J1)",courseName,"TB206004.J1","210","*WM1403","$bitmapOffline",null,"","","");
+            index = 2*unitCount+4;
+            table0.activities[index][table0.activities[index].length] = activity;
+            index = 2*unitCount+5;
+            table0.activities[index][table0.activities[index].length] = activity;
+            </script>
+        """.trimIndent()
+
+        val result = parser.parse(html, "2026-2027-1")
+
+        val psyCourses = result.filter { it.name.contains("大学生心理健康教育") && it.dayOfWeek == 3 && it.startNode == 5 }
+        assertEquals("周次不相交应拆为两条独立记录", 2, psyCourses.size)
+
+        val onlineCard = psyCourses.find { it.location == "虚拟教室-同步学习平台" }
+        val offlineCard = psyCourses.find { it.location == "*WM1403" }
+        assertNotNull("线上卡应存在", onlineCard)
+        assertNotNull("线下卡应存在", offlineCard)
+
+        // 各带各的位图，周次不拉平，不再标「多班合并」
+        assertTrue(onlineCard!!.remark.contains("weeksBitmap:$bitmapOnline"))
+        assertTrue(offlineCard!!.remark.contains("weeksBitmap:$bitmapOffline"))
+        assertFalse("不应再标多班合并", psyCourses.any { it.remark.contains("多班合并") })
+
+        val onlineDomain = onlineCard.toDomainModel()
+        val offlineDomain = offlineCard.toDomainModel()
+        // 第3周只有线上卡活跃，第4周只有线下卡活跃
+        assertTrue("第3周线上卡应有课", onlineDomain.isWeekInRange(3))
+        assertFalse("第3周线下卡应无课", offlineDomain.isWeekInRange(3))
+        assertFalse("第4周线上卡应无课", onlineDomain.isWeekInRange(4))
+        assertTrue("第4周线下卡应有课", offlineDomain.isWeekInRange(4))
+        // 周范围各是各的（修复前被拉平成 3-18 连续）
+        assertEquals(3, onlineCard.startWeek)
+        assertEquals(18, onlineCard.endWeek)
+        assertEquals(4, offlineCard.startWeek)
+        assertEquals(15, offlineCard.endWeek)
     }
 
     // ================ TaskActivity 多教室 + 解析降级合并回退（v120 回归）================

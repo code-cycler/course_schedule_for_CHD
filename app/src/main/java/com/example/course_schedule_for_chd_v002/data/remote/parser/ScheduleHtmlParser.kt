@@ -56,6 +56,12 @@ data class WeekParseResult(
  *      修复：教室分组放宽为 [^"]*；合并阶段对无位图记录回退用 startWeek..endWeek 参与并集
  *      （与 Course.isWeekInRange 回退语义对齐），避免降级记录被静默丢弃。
  *
+ * v121: 修复分周切换线上/线下课程被并卡问题（用户报告 2026-09-15，心理健康教育）
+ *      同一教学班在同一时间位置挂多条周次【不相交】的记录（线上 N 周线下 M 周交替，或
+ *      分周换教室）时，v90 无条件合并会把周次拉平成并集区间、教室拼接，丢失「哪周在哪」映射。
+ *      修复：合并前按「活跃周是否相交」聚类——相交的照旧合并（多教学班/v120 降级回退场景），
+ *      不相交的各自独立成卡（课表按周过滤显示，任何一周同槽最多显示一张卡，拆卡无副作用）。
+ *
  * HTML 结构：
  * ```javascript
  * var teachers = [{id:3613,name:"朱依水",lab:false}];
@@ -152,8 +158,10 @@ class ScheduleHtmlParser {
 
         // 去重：同一课程在同一时间只保留一个
         // [v89] 扩展去重 key，包含 endNode 和 endWeek，避免不同时长的课程被错误去重
+        // [v121] 再加入教室：周次不相交拆开的记录周范围可能恰好相同（如 {3,5} 与 {4,6} 都是 3-5/3-6），
+        //        不加教室会被 distinctBy 误吞
         val distinctCourses = mergedCourses.distinctBy {
-            "${it.name}-${it.dayOfWeek}-${it.startNode}-${it.endNode}-${it.startWeek}-${it.endWeek}"
+            "${it.name}-${it.dayOfWeek}-${it.startNode}-${it.endNode}-${it.startWeek}-${it.endWeek}-${it.location}"
         }
 
         WebViewLogger.logParseDetail("原始: ${courses.size}, 合并后: ${mergedCourses.size}, 去重后: ${distinctCourses.size}")
@@ -460,6 +468,11 @@ class ScheduleHtmlParser {
      * 例如：C语言程序设计在周2第5节有"双周机房"和"每周普通教室"两条记录
      * 这是因为课程有多个教学班，教务系统将所有教学班数据合并显示
      *
+     * [v121] 组内不再无条件合并：先按「活跃周是否相交」聚类——
+     * 相交的照旧合并（v90 多教学班 / v120 降级回退场景，行为不变）；
+     * 不相交的各自独立成卡（同一教学班分周切换线上/线下或换教室，合并会丢失「哪周在哪」映射）。
+     * 课表按周过滤显示（isWeekInRange），不相交的卡在任何一周同槽最多显示一张，拆卡无重叠副作用。
+     *
      * @param courses 原始课程列表
      * @return 合并后的课程列表
      */
@@ -474,42 +487,109 @@ class ScheduleHtmlParser {
 
         val mergedList = mutableListOf<CourseEntity>()
         var mergeCount = 0
+        var splitCount = 0
 
         for ((key, group) in groupedCourses) {
             if (group.size == 1) {
                 // 只有一条记录，直接添加
                 mergedList.add(group.first())
-            } else {
-                // 多条记录，需要合并
-                val merged = mergeCourseGroup(group)
-                mergedList.add(merged)
-                mergeCount++
+                continue
+            }
 
-                // 记录合并日志
+            // [v121] 组内先按活跃周相交聚类
+            val clusters = clusterByWeekOverlap(group)
+            if (clusters.size > 1) {
+                splitCount++
                 val (courseName, dayOfWeek, nodes) = key
                 val (startNode, endNode) = nodes
-                val position = "周${dayOfWeek}第${startNode}-${endNode}节"
-
-                // 提取合并后的教室列表（[v120] 过滤空教室，避免出现 ", *WM3305" 这种显示）
-                val rooms = group.map { it.location }.filter { it.isNotBlank() }.distinct()
-                // 提取合并后的周次
-                val mergedWeeks = extractActiveWeeksFromRemark(merged.remark)
-
-                WebViewLogger.logCourseMerge(
-                    courseName = courseName,
-                    position = position,
-                    originalCount = group.size,
-                    mergedWeeks = mergedWeeks,
-                    mergedRooms = rooms
+                WebViewLogger.logParseDetail(
+                    "[v121] $courseName @ 周${dayOfWeek}第${startNode}-${endNode}节 " +
+                        "组内活跃周不相交，保持 ${clusters.size} 条独立记录（分周切换线上/线下或换教室），不合并"
                 )
+            }
+
+            for (cluster in clusters) {
+                if (cluster.size == 1) {
+                    mergedList.add(cluster.first())
+                } else {
+                    // 同一簇内多条记录，合并
+                    val merged = mergeCourseGroup(cluster)
+                    mergedList.add(merged)
+                    mergeCount++
+
+                    // 记录合并日志
+                    val (courseName, dayOfWeek, nodes) = key
+                    val (startNode, endNode) = nodes
+                    val position = "周${dayOfWeek}第${startNode}-${endNode}节"
+
+                    // 提取合并后的教室列表（[v120] 过滤空教室，避免出现 ", *WM3305" 这种显示）
+                    val rooms = cluster.map { it.location }.filter { it.isNotBlank() }.distinct()
+                    // 提取合并后的周次
+                    val mergedWeeks = extractActiveWeeksFromRemark(merged.remark)
+
+                    WebViewLogger.logCourseMerge(
+                        courseName = courseName,
+                        position = position,
+                        originalCount = cluster.size,
+                        mergedWeeks = mergedWeeks,
+                        mergedRooms = rooms
+                    )
+                }
             }
         }
 
         if (mergeCount > 0) {
             WebViewLogger.logParseDetail("[v90] 共合并 $mergeCount 组课程记录")
         }
+        if (splitCount > 0) {
+            WebViewLogger.logParseDetail("[v121] 共 $splitCount 组因活跃周不相交保持独立")
+        }
 
         return mergedList
+    }
+
+    /**
+     * [v121] 按活跃周是否相交对同位置记录做聚类
+     *
+     * 相交 → 归入同一簇（后续 mergeCourseGroup 合并）；不相交 → 各自独立。
+     * 传递性：簇合并后周集会增长（A∩B、B∪C 而 A∩C=∅ 时 C 也应并入），故循环重试直到稳定。
+     *
+     * @param courses 同一位置（课程名+星期+节次）的记录列表
+     * @return 聚类结果，每个子列表内记录活跃周两两（传递）相交
+     */
+    private fun clusterByWeekOverlap(courses: List<CourseEntity>): List<List<CourseEntity>> {
+        val weekSets = courses.map { activeWeeksOf(it) }
+        // 初始每条记录自成一簇（存下标）
+        val clusters = courses.indices.map { mutableListOf(it) }.toMutableList()
+
+        var changed = true
+        while (changed) {
+            changed = false
+            outer@ for (i in 0 until clusters.size) {
+                for (j in i + 1 until clusters.size) {
+                    val weeksI = clusters[i].flatMap { weekSets[it] }.toSet()
+                    val weeksJ = clusters[j].flatMap { weekSets[it] }.toSet()
+                    if (weeksI.intersect(weeksJ).isNotEmpty()) {
+                        clusters[i].addAll(clusters[j])
+                        clusters.removeAt(j)
+                        changed = true
+                        break@outer
+                    }
+                }
+            }
+        }
+        return clusters.map { indexes -> indexes.map { courses[it] } }
+    }
+
+    /**
+     * [v121] 取一条记录的活跃周集
+     *
+     * 优先 remark 里的 weeksBitmap（bitmap[index] = 第 index 周）；
+     * 无位图回退 startWeek..endWeek（与 Course.isWeekInRange / v120 合并回退语义对齐）
+     */
+    private fun activeWeeksOf(course: CourseEntity): Set<Int> {
+        val weeks = extractActiveWeeksFromRemark(course.remark)
+        return if (weeks.isNotEmpty()) weeks.toSet() else (course.startWeek..course.endWeek).toSet()
     }
 
     /**
