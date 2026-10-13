@@ -63,7 +63,7 @@
 
 **Status:** deferred（双向门推迟；checkin-assist-v2 L0 W00 要点 3 采纳，2026-10-13）
 **Why deferred:** 知识缺口——畅课签到 API（假设 B）与登录态来源（假设 C）均未抓包验证；TronClass 社区通用逆向资料与 CHD 实际部署（畅课 v2.16.0）可能不一致。
-**Current placeholder:** NLS 通知监听为主通道（现有 `CheckInNotificationListener` 加固）；轮询通道在 L1/L2 中以「验证闸通过」为前提条件性存在，闸门不过则整通道不做（触发源管线抽象保留，未来可插）。验证行动项见 TODO.md「验证假设 B/C」。
+**Current placeholder:** NLS 通知监听为主通道（现有 `CheckInNotificationListener` 加固）；轮询通道在 L1/L2 中以「验证闸通过」为前提条件性存在，闸门不过则整通道不做（触发源管线抽象保留，未来可插）。若闸门通过后实现，**执行载体已定**：课时有窗前台服务（`dataSync` 型），WorkManager（15 分钟粒度不足）与 AlarmManager 链（复杂易杀）已否决——见 [L1-contract-checkin-assist-v2.md](../harness/design/checkin-assist-v2/L1-contract-checkin-assist-v2.md) 选型表。验证行动项见 TODO.md「验证假设 B/C」。
 **Reversibility:** 高——双向门；不做轮询 = 退化为纯通知监听（现状加固版），随时可重启该方向零沉没成本。
 **Trigger — revisit when:** 假设 B/C 抓包/调研完成——接口存在且登录态可复用 → 重启轮询设计；确认不存在/不可复用 → 本条移入「已解决」记录结论。
 
