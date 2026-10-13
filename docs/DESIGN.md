@@ -169,6 +169,22 @@ CAS 有验证码/风控，纯接口登录极不稳定。**让用户在 WebView �
 - **本地日历在 Google 日历 app 不可见**（v119 修）：应用原写入自建本地日历（`ACCOUNT_TYPE_LOCAL`，账户 `course_schedule_chd`）。该类型日历不与服务器同步，**Google 日历 app（Pixel 等原生设备）不列出本地日历账户**——事件在 CalendarProvider 里存在但用户看不到（荣耀等国产系统日历会把本软件列为日历账户、显示其日历，故曾实机验证可行）。处置：v119 同步目标解析改为「用户指定日历 → Google 主日历（`com.google` + `isPrimary=1`）→ 回退自建本地日历」；设置加「同步目标日历」选择器（激活遗留的 `ReminderSettings.calendarId` 字段）；写入账户日历的事件带 `CUSTOM_APP_PACKAGE=包名` 标记，删除按标记过滤（绝不误删用户自己的日程），自建本地日历仍整清（兼容无标记的旧版本事件）。
 - **多教室课程整卡丢失**（v120 修，2026-09-11 用户报告「周四人工智能课消失」）：教务系统一门课挂**多个教室**时，TaskActivity 的教室参数是逗号连接（`"*WM2303机房,*WM2301机房"`，与教师 ID `join(',')` 同风格）。原提取正则的教室分组 `[^",]*` 不允许逗号 → 主/备正则双双失配 → **教室和周数位图一起丢**，课程按默认周 1-16 入库且 remark 无 `weeksBitmap:`。再被 v90 合并逻辑放大：`mergeCourseGroup` 只从 remark 位图提周次，无位图记录贡献为空被静默丢弃，同位置另一条记录（第 13 周单周 \*WM3305）完全主导合并结果 → 周四这张卡只剩第 13 周。处置：教室分组放宽为 `[^"]*`；合并时无位图成员回退用 `startWeek..endWeek` 参与并集（与 `Course.isWeekInRange` 回退语义对齐）+ 过滤空教室；双正则仍失配时打 WARN 带原始 TaskActivity 片段。回归测试：`parse_taskActivity多教室逗号分隔_教室与位图不丢失`、`parse_合并时无位图记录回退周次范围_不被丢弃`。
 - **分周切换线上/线下课程被并卡**（v121 修，2026-09-15 用户报告「心理健康教育识别错误」）：同一教学班在同一时间位置挂多条**周次不相交**的记录（线上 N 周线下 M 周逐周交替，或分周换教室）时，v90 的 `mergeSamePositionCourses` 按「课程名+星期+节次」分组后**无条件合并**：周次取并集拉平成连续区间、教室拼接 → 「哪周在哪上课」映射丢失（第 4 周线下 \*WM1403 的课，详情弹窗也显示「虚拟教室-同步学习平台,\*WM1403」拼接、周次「第3-18周」）。v90 的假设「同位置多记录 = 多教学班」没覆盖此场景。处置：合并前按「活跃周是否相交」聚类（`clusterByWeekOverlap`；活跃周优先 remark 位图、无位图回退 `startWeek..endWeek`，与 v120 回退语义对齐）——**相交照旧合并**（多教学班/v120 降级回退场景行为不变），**不相交各自独立成卡**、各带各的教室+位图；`parse()` 去重 key 加入教室防误吞。课表按周过滤显示（`isWeekInRange`），不相交两卡任何一周同槽最多显示一张，拆卡无重叠副作用；副作用为课程总数 19→21（心理课、计机周五 1-2 节各拆两卡）。已知限制（未修）：infoTitle 兜底路径的周次正则 `\d+-\d+` 吃不下空格分隔周列表（如 `3 5-8 10-11…`），仅 TaskActivity JS 解析整体失败时触发。回归测试：`parse_taskActivity分周切换线上线下_不合并各带教室位图`、`parse_taskActivity多班单双周_周次不相交拆分独立成卡`（v121 语义更新）。
+- **Gradle daemon 落在 JDK 26 时 mockk 全挂**（v125 期发现）：系统只装 Oracle JDK 26，daemon 重启若被它拉起，mockk 的 Byte Buddy 1.14.6 不支持 Java 26（`Failed to transform class`）→ mock 不生效 → 单测 `UncaughtExceptionsBeforeTest` 成片挂。命令行构建前 `export JAVA_HOME` 指向 Gradle toolchain 缓存的 Temurin 17（路径见 TODO.md）。
+- **Kotlin 成员初始化顺序 + Unconfined 协程 = NPE**（v125 期发现）：`init` 块里启动的协程在 `UnconfinedTestDispatcher` 下**同步立即执行**——若协程体引用的成员属性声明在 init 块**之后**，此刻尚未初始化（null）直接 NPE，且以「未捕获异常」形态炸掉整个测试类。规则：ViewModel 里被 init 调用的方法所需成员，声明必须前置于 init 块。
+- **静默同步 diff 必须忽略 `Course.id`**（v125）：本地 `Course.id` 是 Room 自增、远端解析出的 id 恒为 0，diff 若用 data class 默认 `equals`（含 id）会把**所有课程**判成「全删+全增」。`ScheduleDiffCalculator` 用除 id 外的业务全字段拼 key 比对（含 remark 周位图）。
+
+---
+
+## 6¾. 课表体验优化 ux-perf-export（v122–v125，2026-09-13）
+
+> 三需求一批交付：深色导出修复 + 主线程计算迁移 + UI 修缮/静默同步。三层设计与压测修订见 [harness/design/ux-perf-export/](../harness/design/ux-perf-export/)，两条 ADR：[0006](./adr/0006-export-fixed-color-scheme.md)、[0007](./adr/0007-silent-sync-confirm-before-save.md)。
+>
+> **迭代号说明**：设计期文档写的 [v121]–[v124]；实际发布时 [v120]（课程数据导出）与 [v121]（分周并卡修复）先占了号，且 A 批（导出修复）代码随 [v120] 一并入库——故代码注释实际顺延为 [v122]（导出修复，随 v120 提交）–[v125]（静默同步）。
+
+- **导出固定配色（v122/ADR-0006）**：深色系统下导出图颜色异常的根因 = 导出网格根容器无背景（PNG 透明）+ 取色随 `MaterialTheme` 深浅变化。修复 = `ExportScheduleTheme`：仅导出链路用**固定深浅两套配色**（复用 `Theme.kt` 紫色系常量，不随 Material You）+ `Surface` 填底；分享图跨设备颜色稳定。
+- **性能线程迁移（v123）**：瓶颈实测在主线程数据计算（`coursesByWeek` 全周索引 O(周数×课程数)、冲突预计算+DataStore JSON、PNG 压缩），非 UI 绘制。ViewModel/Repository **注入式 dispatcher**（Koin `named("default")/("io")`，单测传 `TestDispatcher`——硬编码 `Dispatchers.Default` 会因真实线程切换让 `advanceUntilIdle` 等不到恢复）；`PerfLog` tag 三场景打点；`Course` 标 `@Immutable`。**迁移纪律：先写行为锚单测（迁移前快照），迁移后不加修改必须仍绿。**
+- **UI 修缮（v124）**：首载骨架屏（`ScheduleSkeleton`，仅首载显示切周不显示）；课表统计（`ScheduleStatsCalculator` 纯函数：学分按课名去重、学时同名多条累加、水课按名单交集；抽屉「课表统计」区）；网格打磨（卡片圆角 8dp、正文格线 alpha 弱化）；周切换 tween(260ms)；文案无障碍中文化（周几单字、课程卡 `semantics` 描述——原来读屏读不出课程）；周末折叠手动状态切周不重置（`weekendUserToggled` 标记）。
+- **启动静默同步（v125/ADR-0007）**：ON_RESUME 触发 + 15 分钟节流（**每次尝试含失败都更新时间戳**，防失败后反复重试）+ 设置抽屉独立开关（默认开）。链路 = `fetchRemoteCoursesOnly` **只读拉取**（在用路径：`getRemoteSemesterOptions` 解析 remoteId → `getCourseTableHtml`，前置 `syncFromWebView` cookie 兜底；死代码 `fetchRemoteSchedule`/`getCourseTablePage` 不得作为实现基准——压测 Q1 抓过）→ diff → 有差异弹确认框（**明示全量替换语义**：「将替换本地全部课程（含手动添加/编辑的 N 门）」+ 删除条目打「本地独有」标——diff 无法区分教务删除与本地自建）→ 用户确认才走现有入库链路 + 刷新；取消/失败（cookie 过期/网络异常）完全静默。手动同步导航前自动重置静默状态（防过期 diff 二次覆盖）。**已知边界**：更新检测覆盖率取决于 CAS cookie 存活窗口，冷启动多为静默 no-op（OPEN-DECISIONS 有条目，revisit 触发 = 实测命中率极低）。
 
 ---
 
