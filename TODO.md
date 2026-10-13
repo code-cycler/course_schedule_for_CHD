@@ -8,7 +8,7 @@
 - [x] **B 批 PerfLog 数据留档**（关闭）：打点与迁移同批落地、迁移前基线无法回溯，行为等价以 4 个锚单测（迁移前后全绿）为最终证据；打点已就位，后续任何真机会话 `adb logcat -s PerfLog` 可随时取数。
 - [x] **API 28 模拟器核验**（关闭，降为可选）：导出用固定两套配色不依赖 Material You，API 28 与 31+ 走同一份导出代码路径；真机（API 31+）验证已通过，风险极低。若未来收到 API 28 用户反馈再回补。
 - [ ] **JDK 固定**（仍开放）：Gradle daemon 若被系统 JDK 26 拉起，mockk（Byte Buddy 1.14.6）不支持会致单测挂——命令行构建前 `export JAVA_HOME=/Users/miao/.gradle/jdks/eclipse_adoptium-17-aarch64-os_x.2/jdk-17.0.19+10/Contents/Home`，或在 `~/.gradle/gradle.properties`（用户级，不入库）固定 `org.gradle.java.home`。——核验：下次命令行跑 test 前。
-- [ ] **DESIGN.md 补记**（提交后做）：本批新增静默同步（ADR-0007 链路）、课表统计、骨架屏、导出固定配色（ADR-0006）等设计要点，按项目惯例在 DESIGN.md 增补对应小节。——触发：四批 commit 落库后。
+- [x] **DESIGN.md 补记**（2026-09-13 完成，commit b8f7a4d）：§6¾ ux-perf-export 专区（导出配色/性能迁移/UI 修缮/静默同步 + 迭代号映射）+ §6 三条新坑（JDK26 mockk/成员初始化顺序/diff 忽略 id）。
 
 ## ux-perf-export 压测修订（design 2026-09-13，grill-W01 全 7 题已逐题裁决，2026-09-13 用户授权后已全部落地工件）
 
