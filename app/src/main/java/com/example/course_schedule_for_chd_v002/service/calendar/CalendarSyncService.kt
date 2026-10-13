@@ -266,7 +266,10 @@ class CalendarSyncService(private val context: Context) {
                         ?: ""
                     val accountType = cursor.getString(cursor.getColumnIndexOrThrow(CalendarContract.Calendars.ACCOUNT_TYPE))
                         ?: ""
-                    val isPrimary = cursor.getInt(cursor.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)) == 1
+                    // IS_PRIMARY 是可选列（旧 API 设备可能不返回）：列缺失时降级为非主日历，
+                    // 避免 getColumnIndex 返回 -1 使 getInt 抛异常、整个日历列表查询被 catch 吞掉
+                    val primaryIdx = cursor.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)
+                    val isPrimary = primaryIdx >= 0 && cursor.getInt(primaryIdx) == 1
                     val isAppLocal = accountName == CALENDAR_ACCOUNT_NAME && accountType == CALENDAR_ACCOUNT_TYPE
                     result.add(DeviceCalendarInfo(id, displayName, accountName, accountType, isPrimary, isAppLocal))
                 }
