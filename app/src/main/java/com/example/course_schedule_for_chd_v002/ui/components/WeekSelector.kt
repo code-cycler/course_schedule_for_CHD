@@ -50,7 +50,7 @@ fun WeekSelector(
         ) {
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowLeft,
-                contentDescription = "Previous week",
+                contentDescription = "上一周",  // [v124] 无障碍文案中文化（原 "Previous week"）
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -84,7 +84,7 @@ fun WeekSelector(
         ) {
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowRight,
-                contentDescription = "Next week",
+                contentDescription = "下一周",  // [v124] 无障碍文案中文化（原 "Next week"）
                 modifier = Modifier.size(20.dp)
             )
         }

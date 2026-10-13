@@ -6,7 +6,21 @@ import com.example.course_schedule_for_chd_v002.domain.model.CourseType
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.domain.model.SemesterOption
 import com.example.course_schedule_for_chd_v002.util.AppLogger
+import com.example.course_schedule_for_chd_v002.util.ScheduleDiff
+import com.example.course_schedule_for_chd_v002.util.ScheduleStats
 import java.io.File
+
+/**
+ * [v125] 启动静默同步状态机（L1 契约第 3 条）。
+ * Failed 与 NoUpdate 在 UI 层同表现（完全静默，grill-W01 Q5）。
+ */
+sealed class SilentSyncState {
+    object Idle : SilentSyncState()
+    object Checking : SilentSyncState()
+    object NoUpdate : SilentSyncState()
+    data class HasUpdate(val diff: ScheduleDiff) : SilentSyncState()
+    object Failed : SilentSyncState()
+}
 
 /**
  * 日历同步状态
@@ -76,7 +90,10 @@ data class ScheduleUiState(
     // 课程识别错误报告
     val showCourseReport: Boolean = false,
     val reportTargetCourse: Course? = null,
-    val reportState: ReportState = ReportState.Idle
+    val reportState: ReportState = ReportState.Idle,
+
+    // [v124] 本学期课表统计（设置抽屉「课表统计」区数据源，loadSchedule 时派生）
+    val scheduleStats: ScheduleStats = ScheduleStats(0.0, 0, 0, 0)
 ) {
     fun isWaterCourse(courseName: String): Boolean {
         return courseName in waterCourseNames

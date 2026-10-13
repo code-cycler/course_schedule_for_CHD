@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import com.example.course_schedule_for_chd_v002.util.ScheduleStats
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -81,6 +82,11 @@ fun SettingsDrawer(
     onExportLogsClick: () -> Unit = {},
     onExportCourseDataClick: () -> Unit = {},
     onCheckInAssistClick: () -> Unit = {},
+    // [v124] 本学期课表统计（「课表统计」区数据）
+    scheduleStats: ScheduleStats = ScheduleStats(0.0, 0, 0, 0),
+    // [v125] 静默同步开关状态与回调
+    silentSyncEnabled: Boolean = true,
+    onSilentSyncChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -110,6 +116,9 @@ fun SettingsDrawer(
                     onExportLogsClick = onExportLogsClick,
                     onExportCourseDataClick = onExportCourseDataClick,
                     onCheckInAssistClick = onCheckInAssistClick,
+                    scheduleStats = scheduleStats,
+                    silentSyncEnabled = silentSyncEnabled,
+                    onSilentSyncChange = onSilentSyncChange,
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
@@ -139,6 +148,11 @@ private fun SettingsDrawerContent(
     onExportLogsClick: () -> Unit = {},
     onExportCourseDataClick: () -> Unit = {},
     onCheckInAssistClick: () -> Unit = {},
+    // [v124] 本学期课表统计
+    scheduleStats: ScheduleStats = ScheduleStats(0.0, 0, 0, 0),
+    // [v125] 静默同步开关
+    silentSyncEnabled: Boolean = true,
+    onSilentSyncChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -246,6 +260,44 @@ private fun SettingsDrawerContent(
                 imageVector = Icons.Filled.KeyboardArrowRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // [v124] ===== 课表统计区 =====（总学分 / 门数 / 总学时 / 水课，纯展示）
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            StatCell(value = formatStatCredit(scheduleStats.totalCredits), label = "总学分")
+            StatCell(value = scheduleStats.courseCount.toString(), label = "课程门数")
+            StatCell(value = scheduleStats.totalNodes.toString(), label = "总学时")
+            StatCell(value = scheduleStats.waterCourseCount.toString(), label = "水课")
+        }
+
+        // [v125] 静默同步开关（独立开关由用户控制；文案注明 cookie 窗口限制，grill-W01 Q2 预期管理）
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onSilentSyncChange(!silentSyncEnabled) }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "进 App 自动检查课表更新",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "检测到变化时询问是否更新；需近期登录过教务系统后生效",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = silentSyncEnabled,
+                onCheckedChange = { onSilentSyncChange(it) }
             )
         }
 
@@ -769,4 +821,27 @@ private fun SettingsDrawerContent(
 
         Spacer(modifier = Modifier.height(24.dp))
     }
+}
+
+/** [v124] 统计单元格：数值 + 标签纵向排列 */
+@Composable
+private fun StatCell(value: String, label: String) {
+    Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** [v124] 学分展示：整数不带小数点（如 "18"），非整数保留一位（如 "18.5"） */
+private fun formatStatCredit(credits: Double): String {
+    return if (credits % 1.0 == 0.0) credits.toInt().toString() else String.format("%.1f", credits)
 }

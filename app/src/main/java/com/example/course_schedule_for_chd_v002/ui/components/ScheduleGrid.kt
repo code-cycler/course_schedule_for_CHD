@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale  // [视觉优化] 水课缩放效果
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription  // [v124] 课程卡无障碍描述
+import androidx.compose.ui.semantics.semantics  // [v124]
 import androidx.compose.ui.text.font.FontWeight  // [v73] 添加 FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -196,7 +198,7 @@ fun ScheduleGrid(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "Sat",
+                            text = "六",  // [v124] 周几中文化（原 "Sat"）
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = if (isSaturdayToday) FontWeight.Bold else FontWeight.Normal,
                             color = if (isSaturdayToday)
@@ -244,7 +246,7 @@ fun ScheduleGrid(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "Sun",
+                            text = "日",  // [v124] 周几中文化（原 "Sun"）
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = if (isSundayToday) FontWeight.Bold else FontWeight.Normal,
                             color = if (isSundayToday)
@@ -413,7 +415,7 @@ fun ScheduleGrid(
                                 modifier = Modifier
                                     .width(labelWidth)
                                     .height(cellHeight)
-                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),  // [v124] 正文格线弱化，降低平铺感
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
@@ -442,7 +444,7 @@ fun ScheduleGrid(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxHeight()
-                                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))  // [v124] 正文格线弱化
                                         .then(
                                             if (isToday) {
                                                 // [视觉优化] 更明显的背景高亮
@@ -463,7 +465,7 @@ fun ScheduleGrid(
                                         modifier = Modifier
                                             .weight(1f)
                                             .fillMaxHeight()
-                                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))  // [v124] 正文格线弱化
                                             .then(
                                             if (isToday) {
                                                     // [视觉优化] 更明显的背景高亮
@@ -679,7 +681,16 @@ private fun CourseCardInternal(
         modifier = Modifier
             .fillMaxSize()
             .scale(scale)  // [视觉优化] 应用缩放
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(8.dp))  // [v124] 圆角 4→8dp，更现代的卡片轮廓
+            .semantics(mergeDescendants = true) {
+                // [v124] 课程卡无障碍描述（原卡片无 contentDescription，读屏无法读出课程）
+                contentDescription = buildString {
+                    append(course.name)
+                    if (course.location.isNotBlank()) append("，${course.location}")
+                    append("，第${course.startNode}至${course.endNode}节")
+                    if (hasConflict) append("，存在时间冲突")
+                }
+            }
             .then(
                 if (onClick != null) {
                     Modifier.clickable { onClick(course) }
@@ -687,8 +698,8 @@ private fun CourseCardInternal(
                     Modifier
                 }
             )
-            .border(borderWidth, borderColor, RoundedCornerShape(4.dp)),
-        shape = RoundedCornerShape(4.dp),
+            .border(borderWidth, borderColor, RoundedCornerShape(8.dp)),
+        shape = RoundedCornerShape(8.dp),
         color = backgroundColor.copy(alpha = cardAlpha)  // [视觉优化] 应用不透明度
     ) {
         // [视觉优化] 水课文字也降低透明度
@@ -708,7 +719,7 @@ private fun CourseCardInternal(
                     if (hasConflict) {
                         Icon(
                             imageVector = Icons.Filled.Warning,
-                            contentDescription = "Conflict",
+                            contentDescription = "时间冲突",  // [v124] 无障碍中文化（原 "Conflict"）
                             tint = Color.White.copy(alpha = textAlpha),
                             modifier = Modifier.size(12.dp)
                         )
@@ -732,7 +743,7 @@ private fun CourseCardInternal(
                         .fillMaxWidth()
                         .background(
                             color = Color.Black.copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(bottomStart = 4.dp, bottomEnd = 4.dp)
+                            shape = RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)  // [v124] 与卡片圆角同步
                         )
                         .padding(horizontal = 4.dp, vertical = 2.dp)
                 ) {
@@ -746,20 +757,21 @@ private fun CourseCardInternal(
                         color = Color.White.copy(alpha = if (isWaterCourse) 0.5f else 0.9f)  // [视觉优化]
                     )
                 }
-9            }
+            }
         }
     }
 }
 
+// [v124] 周几缩写中文化为单字（原 Mon/Tue/... 与中文界面混用，W01 Q4-C）
 @Composable
 private fun getDayAbbreviation(day: DayOfWeek): String {
     return when (day) {
-        DayOfWeek.MONDAY -> "Mon"
-        DayOfWeek.TUESDAY -> "Tue"
-        DayOfWeek.WEDNESDAY -> "Wed"
-        DayOfWeek.THURSDAY -> "Thu"
-        DayOfWeek.FRIDAY -> "Fri"
-        DayOfWeek.SATURDAY -> "Sat"
-        DayOfWeek.SUNDAY -> "Sun"
+        DayOfWeek.MONDAY -> "一"
+        DayOfWeek.TUESDAY -> "二"
+        DayOfWeek.WEDNESDAY -> "三"
+        DayOfWeek.THURSDAY -> "四"
+        DayOfWeek.FRIDAY -> "五"
+        DayOfWeek.SATURDAY -> "六"
+        DayOfWeek.SUNDAY -> "日"
     }
 }

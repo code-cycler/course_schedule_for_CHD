@@ -13,7 +13,10 @@ import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 
 /**
  * 应用级 Koin 模块
@@ -29,6 +32,10 @@ val appModule = module {
     // 日历同步服务
     single { CalendarSyncService(androidContext()) }
 
+    // [v123] 协程调度器（named）：ViewModel/Repository 注入，单测可换 TestDispatcher（L2-build B 批契约）
+    single<CoroutineDispatcher>(named("default")) { Dispatchers.Default }
+    single<CoroutineDispatcher>(named("io")) { Dispatchers.IO }
+
     // Repository
     single<ICourseRepository> {
         CourseRepositoryImpl(
@@ -37,7 +44,8 @@ val appModule = module {
             cookieManager = get(),
             htmlParser = get(),
             userPreferences = get(),
-            courseDao = get()
+            courseDao = get(),
+            ioDispatcher = get(named("io"))
         )
     }
 
@@ -49,7 +57,16 @@ val appModule = module {
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
-    viewModel { params -> ScheduleViewModel(get(), get(), params.get(), get()) }
+    viewModel { params ->
+        ScheduleViewModel(
+            repository = get(),
+            userPreferences = get(),
+            semester = params.get(),
+            calendarSyncService = get(),
+            defaultDispatcher = get(named("default")),
+            ioDispatcher = get(named("io"))
+        )
+    }
 
     // [v114] 签到辅助 ViewModel
     viewModel { CheckInAssistViewModel(get(), get(), get(), get()) }

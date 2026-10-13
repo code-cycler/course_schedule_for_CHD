@@ -408,6 +408,30 @@ class UserPreferences(private val context: Context) {
 
     private val KEY_WATER_COURSES = stringPreferencesKey("water_courses")  // JSON 格式
 
+    // ================ [v125] 静默同步相关（L1 契约第 8 条） ================
+
+    // [R6] 时间戳用 String 存 epoch millis：项目无 longPreferencesKey 先例（String/Int 是既有范式）
+    private val KEY_SILENT_SYNC_ENABLED = booleanPreferencesKey("silent_sync_enabled")
+    private val KEY_LAST_SILENT_SYNC_AT = stringPreferencesKey("last_silent_sync_at")
+
+    /** [v125] 静默同步开关（独立开关，默认开） */
+    suspend fun getSilentSyncEnabledOnce(): Boolean {
+        return context.dataStore.data.map { it[KEY_SILENT_SYNC_ENABLED] ?: true }.first()
+    }
+
+    suspend fun saveSilentSyncEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_SILENT_SYNC_ENABLED] = enabled }
+    }
+
+    /** [v125] 上次静默同步尝试时刻（无论成败都更新，节流 15 分钟） */
+    suspend fun getLastSilentSyncAtOnce(): Long {
+        return context.dataStore.data.map { it[KEY_LAST_SILENT_SYNC_AT]?.toLongOrNull() ?: 0L }.first()
+    }
+
+    suspend fun saveLastSilentSyncAt(timestamp: Long) {
+        context.dataStore.edit { it[KEY_LAST_SILENT_SYNC_AT] = timestamp.toString() }
+    }
+
     /**
      * [新功能] 获取水课名称列表（按学期）
      */

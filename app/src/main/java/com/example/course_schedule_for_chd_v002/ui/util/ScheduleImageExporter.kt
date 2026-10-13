@@ -16,7 +16,10 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.unit.Constraints
 import androidx.core.content.FileProvider
+import com.example.course_schedule_for_chd_v002.util.PerfLog
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * [导出图片] 持有 [GraphicsLayer]，提供 captureToFile：把 layer 捕获为 Bitmap 写临时文件、返回 FileProvider Uri。
@@ -25,9 +28,14 @@ import java.io.File
 class ScheduleCaptureState internal constructor(val graphicsLayer: GraphicsLayer) {
     suspend fun captureToFile(context: Context, fileName: String = "schedule.png"): Uri? {
         return try {
-            val bitmap = graphicsLayer.toImageBitmap().asAndroidBitmap()
-            if (bitmap.width <= 0 || bitmap.height <= 0) return null
-            ScheduleImageExporter.writeBitmap(context, bitmap, fileName)
+            PerfLog.timed(PerfLog.SCENE_EXPORT) {
+                val bitmap = graphicsLayer.toImageBitmap().asAndroidBitmap()
+                if (bitmap.width <= 0 || bitmap.height <= 0) return null
+                // [v123] PNG 压缩 + 文件写入移到 IO 线程（toImageBitmap 读 layer 仍需在主线程）
+                withContext(Dispatchers.IO) {
+                    ScheduleImageExporter.writeBitmap(context, bitmap, fileName)
+                }
+            }
         } catch (e: Exception) {
             android.util.Log.e("ScheduleCaptureState", "captureToFile failed", e)
             null

@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.compose.animation.core.FastOutSlowInEasing  // [v124] 周切换过渡曲线
+import androidx.compose.animation.core.tween  // [v124]
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +45,7 @@ import com.example.course_schedule_for_chd_v002.domain.model.Campus
 import com.example.course_schedule_for_chd_v002.domain.model.Course
 import com.example.course_schedule_for_chd_v002.domain.model.DayOfWeek
 import com.example.course_schedule_for_chd_v002.ui.components.ScheduleGrid
+import com.example.course_schedule_for_chd_v002.ui.components.ScheduleSkeleton
 import com.example.course_schedule_for_chd_v002.ui.components.WeekSelector
 import com.example.course_schedule_for_chd_v002.ui.components.SettingsDrawer
 import com.example.course_schedule_for_chd_v002.ui.components.LogExportDialog
@@ -104,6 +107,10 @@ fun ScheduleScreen(
     // 日历同步设置
     val reminderSettings by viewModel.reminderSettings.collectAsStateWithLifecycle()
     val deviceCalendars by viewModel.deviceCalendars.collectAsStateWithLifecycle()
+
+    // [v125] 静默同步状态与开关（差异确认框 + 设置抽屉开关）
+    val silentSyncState by viewModel.silentSyncState.collectAsStateWithLifecycle()
+    val silentSyncEnabled by viewModel.silentSyncEnabled.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
 
@@ -248,6 +255,8 @@ fun ScheduleScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 AppLogger.d("ScheduleScreen", "ON_RESUME 触发，刷新当前时间和教学周")
                 viewModel.refreshCurrentTimeInfo()
+                // [v125] 静默同步检查（ViewModel 内自带开关/节流/静默失败控制）
+                viewModel.checkForUpdatesSilently()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -300,7 +309,12 @@ fun ScheduleScreen(
         onCheckInAssistClick = {
             scope.launch { drawerState.close() }
             onNavigateToCheckInAssist()
-        }
+        },
+        // [v124] 本学期课表统计
+        scheduleStats = uiState.scheduleStats,
+        // [v125] 静默同步开关
+        silentSyncEnabled = silentSyncEnabled,
+        onSilentSyncChange = { viewModel.setSilentSyncEnabled(it) }
     ) {
         Scaffold(
             topBar = {
@@ -361,7 +375,12 @@ fun ScheduleScreen(
 
                         // 同步按钮
                         TextButton(
-                            onClick = { onNavigateToLogin() }
+                            onClick = {
+                                // [v125] 手动同步导航前重置静默状态（grill-W01 Q4）：
+                                // 差异确认框随状态消失，防 WebView 同步返回后过期 diff 二次覆盖
+                                viewModel.cancelSilentUpdate()
+                                onNavigateToLogin()
+                            }
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
@@ -392,14 +411,19 @@ fun ScheduleScreen(
                 }
 
                 var isWeekendExpanded by remember { mutableStateOf(false) }
+                // [v124][C1] 用户手动切换过周末展开后，切周不再强制重置其选择
+                var weekendUserToggled by remember { mutableStateOf(false) }
 
                 val displayCourses = uiState.displayCourses
                 val hasSaturdayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SATURDAY }
                 val hasSundayCourses = displayCourses.any { it.dayOfWeek == DayOfWeek.SUNDAY }
                 val hasWeekendCourses = hasSaturdayCourses || hasSundayCourses
 
+                // 仅在用户未手动干预时跟随本周课况自动展开/折叠（原实现切周即重置手动状态）
                 LaunchedEffect(uiState.currentWeek, hasWeekendCourses) {
-                    isWeekendExpanded = hasWeekendCourses
+                    if (!weekendUserToggled) {
+                        isWeekendExpanded = hasWeekendCourses
+                    }
                 }
 
                 // 周选择行
@@ -421,7 +445,10 @@ fun ScheduleScreen(
                     // 周末折叠按钮
                     FilterChip(
                         selected = isWeekendExpanded,
-                        onClick = { isWeekendExpanded = !isWeekendExpanded },
+                        onClick = {
+                            isWeekendExpanded = !isWeekendExpanded
+                            weekendUserToggled = true  // [v124][C1] 标记手动干预，后续切周保持用户选择
+                        },
                         modifier = Modifier.wrapContentWidth(),
                         label = {
                             Row(
@@ -653,8 +680,60 @@ fun ScheduleScreen(
                     )
                 }
 
+                // [v125] 静默同步：检测到课表差异时弹确认框（先展示后确认，ADR-0007；
+                // 无差异/失败完全静默，不产生任何 UI）。确认走现有入库链路，取消数据不动。
+                val silentDiff = (silentSyncState as? SilentSyncState.HasUpdate)?.diff
+                if (silentDiff != null) {
+                    AlertDialog(
+                        onDismissRequest = { viewModel.cancelSilentUpdate() },
+                        title = { Text("检测到课表更新" ) },
+                        text = {
+                            Column {
+                                // [R3] 全量替换语义明示：手动添加/编辑的课程会被清除，知情是唯一防线
+                                Text(
+                                    text = "确认后将以教务数据替换本地全部课程（含你手动添加/编辑的 ${silentDiff.removed.size} 门）。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("新增 ${silentDiff.added.size} 门 / 删除 ${silentDiff.removed.size} 门 / 变更 ${silentDiff.changed.size} 门")
+                                if (silentDiff.added.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("新增：", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                    Text(silentDiff.added.joinToString("、") { it.name }, style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (silentDiff.changed.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("变更：", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                    silentDiff.changed.take(6).forEach { (old, new) ->
+                                        Text(
+                                            "· ${old.name}（${diffBrief(old, new)}）",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                                if (silentDiff.removed.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("删除（含本地独有）：", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                    // [R3] 删除条目统一打「本地独有」标：diff 无法区分教务删除与本地自建
+                                    Text(
+                                        silentDiff.removed.joinToString("、") { it.name } + "（标记：本地独有/教务已无）",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { viewModel.confirmSilentUpdate() }) { Text("更新") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { viewModel.cancelSilentUpdate() }) { Text("取消") }
+                        }
+                    )
+                }
+
                 // [导出图片] 离屏渲染当前周课表（仅 captureArmed 时组合，等一帧捕获后移除）
-                // [v121] ExportScheduleTheme：固定深浅两套配色 + Surface 填底，修复深色模式导出异常
+                // [v122] ExportScheduleTheme：固定深浅两套配色 + Surface 填底，修复深色模式导出异常
                 if (captureArmed) {
                     val parts = semester.split("-")
                     val semDisplay = if (parts.size == 3) "${parts[0]}-${parts[1]} 第${parts[2]}学期" else semester
@@ -678,13 +757,9 @@ fun ScheduleScreen(
                 }
 
                 // Loading state
+                // [v124] 首载骨架屏替代全屏转圈（课表形状占位 + 呼吸动画；切周不走此分支）
                 if (uiState.isLoading) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
+                    ScheduleSkeleton()
                 }
                 // Empty state
                 else if (uiState.courses.isEmpty()) {
@@ -729,7 +804,14 @@ fun ScheduleScreen(
                             if (distance >= 3) {
                                 pagerState.scrollToPage(targetPage)
                             } else {
-                                pagerState.animateScrollToPage(targetPage)
+                                // [v124] 短距离周切换过渡：tween + 标准减速曲线（原默认 spring 过冲感偏重）
+                                pagerState.animateScrollToPage(
+                                    targetPage,
+                                    animationSpec = tween(
+                                        durationMillis = 260,
+                                        easing = FastOutSlowInEasing
+                                    )
+                                )
                             }
                         }
                     }
@@ -968,7 +1050,9 @@ private fun CourseDetailDialog(
                     Text(stringResource(R.string.location, course.location))
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                Text(course.getWeeksDisplayText())
+                // [v123] 位图周次文本计算包 remember：弹窗每次重组不再重复遍历 53 位位图
+                val weeksDisplayText = remember(course.id) { course.getWeeksDisplayText() }
+                Text(weeksDisplayText)
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(stringResource(R.string.time, course.startNode, course.endNode))
 
@@ -1104,6 +1188,18 @@ private fun getDayDisplayName(day: DayOfWeek): String {
         DayOfWeek.SATURDAY -> "周六"
         DayOfWeek.SUNDAY -> "周日"
     }
+}
+
+/** [v125] 静默同步差异简述：变更课程的关键字段对比（教室/节次/教师/周次） */
+private fun diffBrief(old: Course, new: Course): String {
+    val parts = mutableListOf<String>()
+    if (old.location != new.location) parts.add("教室 ${old.location}→${new.location}")
+    if (old.startNode != new.startNode || old.endNode != new.endNode) {
+        parts.add("节次 ${old.startNode}-${old.endNode} → ${new.startNode}-${new.endNode}")
+    }
+    if (old.teacher != new.teacher) parts.add("教师 ${old.teacher}→${new.teacher}")
+    if (old.remark != new.remark) parts.add("周次变化")
+    return parts.joinToString("，").ifEmpty { "详情变化" }
 }
 
 /**

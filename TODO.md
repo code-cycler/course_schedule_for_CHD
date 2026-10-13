@@ -2,6 +2,14 @@
 
 > 来自 [docs/retro/checkin-assist_v1.md](docs/retro/checkin-assist_v1.md) 的行动项。格式：问题 → 行动 → 核验时机。
 
+## ux-perf-export 四批实现收尾（2026-09-13 代码全绿：149 测试 + lintDebug + assembleDebug；同日真机验证通过）
+
+- [x] **C/D 批真机冒烟**（2026-09-13 用户确认真机验证通过；A 批此前已单独验证）。
+- [x] **B 批 PerfLog 数据留档**（关闭）：打点与迁移同批落地、迁移前基线无法回溯，行为等价以 4 个锚单测（迁移前后全绿）为最终证据；打点已就位，后续任何真机会话 `adb logcat -s PerfLog` 可随时取数。
+- [x] **API 28 模拟器核验**（关闭，降为可选）：导出用固定两套配色不依赖 Material You，API 28 与 31+ 走同一份导出代码路径；真机（API 31+）验证已通过，风险极低。若未来收到 API 28 用户反馈再回补。
+- [ ] **JDK 固定**（仍开放）：Gradle daemon 若被系统 JDK 26 拉起，mockk（Byte Buddy 1.14.6）不支持会致单测挂——命令行构建前 `export JAVA_HOME=/Users/miao/.gradle/jdks/eclipse_adoptium-17-aarch64-os_x.2/jdk-17.0.19+10/Contents/Home`，或在 `~/.gradle/gradle.properties`（用户级，不入库）固定 `org.gradle.java.home`。——核验：下次命令行跑 test 前。
+- [ ] **DESIGN.md 补记**（提交后做）：本批新增静默同步（ADR-0007 链路）、课表统计、骨架屏、导出固定配色（ADR-0006）等设计要点，按项目惯例在 DESIGN.md 增补对应小节。——触发：四批 commit 落库后。
+
 ## ux-perf-export 压测修订（design 2026-09-13，grill-W01 全 7 题已逐题裁决，2026-09-13 用户授权后已全部落地工件）
 
 - [x] **R1（Q1）**：L2 D-1 的 `fetchRemoteCoursesOnly` 实现基准由「从 fetchRemoteSchedule 抽」改为「`getRemoteSemesterOptions()` 解析当前学期 remoteId → `getCourseTableHtml(remoteId)`」（在用验证路径）；L1 模块边界表与接口规格同步补 remoteId 解析步骤。——核验通过：grep「从 fetchRemoteSchedule 抽」零命中。
@@ -29,7 +37,8 @@
 ## 签到辅助
 
 - [x] **App 内加「停止虚拟定位」入口**（2026-07-28 实现）：签到辅助页「模拟签到触发」下方加了「停止虚拟定位」按钮，`MockLocationService.isRunning` 标志控制其仅在会话激活时显示，点击调 `MockLocationController.stop`。代码已编译通过，待真机重连验证。
-- [ ] **开学后校准签到关键字**：收到真实畅课签到通知（雷达/数字/二维码）后，若不命中默认「签到/考勤/点名」，在签到辅助设置页直接改（免重编译）。——触发：开学首次签到。
+- [ ] **验证假设 A：签到通知可达性 + 关键字校准**（checkin-assist-v2 L0 W00 要点 16，合并原「开学后校准签到关键字」遗留项）：下次真实签到时，先强杀畅课进程（最近任务划掉或应用信息里强停），观察系统通知是否仍到达——裁决荣耀厂商通道对签到类推送是否兜底（L0 验收 A1）；同时记录通知实际标题/正文，校准默认关键字「签到/考勤/点名」（L0 验收 A2）。——触发：下次课堂签到。手机端可自助完成，不依赖电脑。
+- [ ] **验证假设 B/C：畅课签到 API 与登录态来源**（checkin-assist-v2 L0 W00 要点 3）：抓包或调研畅课「进行中签到列表 / 提交签到」HTTP 接口是否存在、可否复用登录态，以及畅课登录是复用学校 CAS 还是独立账号——轮询通道与自动签到方向的共同前置闸门，闸门不过则轮询通道不做。——触发：L1 契约层设计轮询通道前。
 
 ## 跨学期自动检测与切换（design 2026-08-31，见 [harness/design/cross-semester/L0-cross-semester.md](../harness/design/cross-semester/L0-cross-semester.md)）
 

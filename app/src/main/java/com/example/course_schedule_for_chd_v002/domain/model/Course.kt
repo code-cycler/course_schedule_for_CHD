@@ -1,11 +1,14 @@
 package com.example.course_schedule_for_chd_v002.domain.model
 
+import androidx.compose.runtime.Immutable
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 
 /**
  * 课程领域模型
  * 表示一门课程的所有信息
  */
+// [v123] 标注不可变：主构造字段全 val，帮助 Compose 跳过不必要的重组（单模块工程，无跨模块依赖代价）
+@Immutable
 data class Course(
     val id: Long = 0,
     val name: String,

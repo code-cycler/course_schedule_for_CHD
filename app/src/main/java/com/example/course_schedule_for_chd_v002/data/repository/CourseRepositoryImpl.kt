@@ -17,7 +17,10 @@ import com.example.course_schedule_for_chd_v002.util.HtmlCache
 import com.example.course_schedule_for_chd_v002.util.JsonUtils
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import com.example.course_schedule_for_chd_v002.util.WebViewLogger
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 /**
  * 课程仓库实现
@@ -37,7 +40,9 @@ class CourseRepositoryImpl(
     private val cookieManager: CookieManager,
     private val htmlParser: ScheduleHtmlParser,
     private val userPreferences: UserPreferences,
-    private val courseDao: CourseDao
+    private val courseDao: CourseDao,
+    // [v123] 注入式 IO 调度器：冲突缓存 JSON 序列化/写盘移出调用方线程（单测可换 TestDispatcher）
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ICourseRepository {
 
     /**
@@ -500,10 +505,51 @@ class CourseRepositoryImpl(
         }
     }
 
+    // ================ [v125] 静默同步：只读拉取（L1 契约第 1 条） ================
+
+    override suspend fun resolveRemoteSemesterId(semester: String): Result<String> {
+        return try {
+            // [R5] cookie 兜底同步（对齐 getRemoteSemesterOptions/fetchSpecifiedSemester 的前置动作）
+            runCatching { cookieManager.syncFromWebView(Constants.EamsUrls.HOME_PAGE) }
+            val options = eamsApi.getSemesterOptions().getOrNull()
+                ?: return Result.failure(Exception("无法获取学期列表"))
+            val remoteId = options.firstOrNull {
+                ScheduleHtmlParser.parseSemesterString(it.label) == semester
+            }?.remoteId
+            if (remoteId != null) Result.success(remoteId)
+            else Result.failure(Exception("教务未找到学期 $semester"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun fetchRemoteCoursesOnly(semester: String): Result<List<Course>> {
+        return try {
+            val remoteId = resolveRemoteSemesterId(semester).getOrNull()
+                ?: return Result.failure(Exception("学期解析失败"))
+            val html = eamsApi.getCourseTableHtml(remoteId, null).getOrNull()
+                ?: return Result.failure(Exception("无法获取课表"))
+            val entities = htmlParser.parse(html, semester)
+            if (entities.isEmpty()) {
+                // 登录页判定（与 fetchSpecifiedSemester 一致）：cookie 过期时教务返回登录页而非课表
+                val looksLikeLoginPage = html.contains("登录") || html.contains("cas")
+                        || (!html.contains("TaskActivity") && !html.contains("table0"))
+                return if (looksLikeLoginPage) {
+                    Result.failure(Exception("登录已过期"))
+                } else {
+                    Result.success(emptyList())
+                }
+            }
+            // 零入库、零学期状态写入（契约硬约束：静默检查只读远端）
+            Result.success(entities.map { it.toDomainModel() })
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     override suspend fun promoteCurrentSemester(newSemester: String) {
         // 旧学期时间线对新学期无效：先清空，避免表头日期错（v113 同类坑）与周次错位
-        userPreferences.clearSemesterTimeline()
-        // 尝试从教务首页拿教学周重算开学日期；拿不到（教务未切学期/网络失败）就留空，
+        userPreferences.clearSemesterTimeline()        // 尝试从教务首页拿教学周重算开学日期；拿不到（教务未切学期/网络失败）就留空，
         // 表头优雅降级为只显示周几，待下次顶栏同步（onCasLoginSuccess Step3）补全
         runCatching {
             val weekInfo = fetchCurrentWeek()
@@ -641,7 +687,10 @@ class CourseRepositoryImpl(
             }
         }
 
-        userPreferences.saveConflictCache(semester, conflictCache)
+        // [v123] JSON 序列化 + DataStore 写盘移到 IO 线程（CPU 循环部分由 ViewModel 层 withContext(Default) 覆盖）
+        withContext(ioDispatcher) {
+            userPreferences.saveConflictCache(semester, conflictCache)
+        }
 
         AppLogger.i(REPO_TAG, "预计算完成: ${conflictCache.size} 周有冲突, 共 $totalConflicts 个冲突标记")
         AppLogger.i(REPO_TAG, "========== [v74] 预计算冲突结束 ==========")

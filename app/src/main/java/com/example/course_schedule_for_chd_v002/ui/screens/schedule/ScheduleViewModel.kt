@@ -12,12 +12,18 @@ import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncSer
 import com.example.course_schedule_for_chd_v002.util.Constants
 import com.example.course_schedule_for_chd_v002.util.TimeUtils
 import com.example.course_schedule_for_chd_v002.util.AppLogger
+import com.example.course_schedule_for_chd_v002.util.PerfLog
 import com.example.course_schedule_for_chd_v002.util.ReportGenerator
+import com.example.course_schedule_for_chd_v002.util.ScheduleDiffCalculator
+import com.example.course_schedule_for_chd_v002.util.ScheduleStatsCalculator
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 课程表界面 ViewModel
@@ -27,16 +33,35 @@ import kotlinx.coroutines.launch
  * @param userPreferences 用户偏好设置
  * @param semester 当前学期
  * @param calendarSyncService 日历同步服务
+ * @param defaultDispatcher CPU 重计算调度器（[v123] 注入式，单测可换 TestDispatcher）
+ * @param ioDispatcher IO 调度器（[v123] 注入式）
  */
 class ScheduleViewModel(
     private val repository: ICourseRepository,
     private val userPreferences: UserPreferences,
     private val semester: String,
-    private val calendarSyncService: CalendarSyncService
+    private val calendarSyncService: CalendarSyncService,
+    private val defaultDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScheduleUiState(semester = semester))
     val uiState: StateFlow<ScheduleUiState> = _uiState.asStateFlow()
+
+    // ================ [v125] 启动静默同步（L2-build D 批，ADR-0007 先展示后确认） ================
+    // 注意：以下成员必须声明在 init 块之前（Kotlin 按声明顺序初始化，Unconfined 协程立即执行
+    // loadSilentSyncEnabled 时若字段尚未初始化会 NPE——测试实测踩过）
+
+    private val _silentSyncState = MutableStateFlow<SilentSyncState>(SilentSyncState.Idle)
+    val silentSyncState: StateFlow<SilentSyncState> = _silentSyncState.asStateFlow()
+
+    private val _silentSyncEnabled = MutableStateFlow(true)
+    val silentSyncEnabled: StateFlow<Boolean> = _silentSyncEnabled.asStateFlow()
+
+    companion object {
+        /** [v125] 静默同步节流窗（L1 契约第 8 条） */
+        private const val SILENT_SYNC_THROTTLE_MS = 15L * 60 * 1000
+    }
 
     // 日历同步设置状态
     private val _reminderSettings = MutableStateFlow<ReminderSettings>(ReminderSettings())
@@ -61,10 +86,98 @@ class ScheduleViewModel(
             loadCampus()
             loadSchedule()
             loadReminderSettings()
+            loadSilentSyncEnabled()
         } catch (e: Exception) {
             AppLogger.e("ScheduleViewModel", "[v37] 初始化失败: ${e.message}", e)
             _uiState.update { it.copy(isLoading = false, errorMessage = "初始化失败: ${e.message}") }
         }
+    }
+
+    // ================ [v125] 静默同步方法区（成员声明已前置到 init 之前） ================
+
+    private fun loadSilentSyncEnabled() {
+        viewModelScope.launch {
+            _silentSyncEnabled.value = userPreferences.getSilentSyncEnabledOnce()
+        }
+    }
+
+    /** [v125] 设置抽屉「静默同步」开关（独立开关，由用户控制） */
+    fun setSilentSyncEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferences.saveSilentSyncEnabled(enabled)
+            _silentSyncEnabled.value = enabled
+        }
+    }
+
+    /**
+     * [v125] 静默检查：ON_RESUME 触发（节流 15 分钟），拉取当前学期课表 diff；
+     * 有差异 → HasUpdate（弹确认框，不自动入库）；无差异/失败 → 完全静默（ADR-0007）。
+     */
+    fun checkForUpdatesSilently() {
+        viewModelScope.launch {
+            if (!_silentSyncEnabled.value) return@launch
+            if (_silentSyncState.value is SilentSyncState.Checking) return@launch
+            // 已有差异待确认时不重复检查（差异框还在时不打挠）
+            if (_silentSyncState.value is SilentSyncState.HasUpdate) return@launch
+            // [R5] currentSemester 未设置 → 静默跳过；只检查当前学期视图
+            val currentSemester = repository.getCurrentSemester() ?: return@launch
+            if (semester != currentSemester) return@launch
+            // 节流：距上次尝试 < 15 分钟直接返回；每次尝试（含失败）都更新时间戳，防失败后反复重试
+            val now = System.currentTimeMillis()
+            if (now - userPreferences.getLastSilentSyncAtOnce() < SILENT_SYNC_THROTTLE_MS) return@launch
+            userPreferences.saveLastSilentSyncAt(now)
+
+            _silentSyncState.value = SilentSyncState.Checking
+            AppLogger.d("ScheduleViewModel", "[v125] 静默同步检查开始: $semester")
+            repository.fetchRemoteCoursesOnly(currentSemester)
+                .onSuccess { remoteCourses ->
+                    val localCourses = repository.getLocalSchedule(currentSemester)
+                    val diff = ScheduleDiffCalculator.computeDiff(localCourses, remoteCourses)
+                    if (diff.isEmpty) {
+                        _silentSyncState.value = SilentSyncState.NoUpdate
+                        AppLogger.d("ScheduleViewModel", "[v125] 静默同步: 无更新")
+                    } else {
+                        _silentSyncState.value = SilentSyncState.HasUpdate(diff)
+                        AppLogger.i("ScheduleViewModel", "[v125] 静默同步: 检测到差异 新增${diff.added.size}/删除${diff.removed.size}/变更${diff.changed.size}")
+                    }
+                }
+                .onFailure { e ->
+                    // cookie 过期/网络异常 → 完全静默（D5 验收：不干扰使用）
+                    _silentSyncState.value = SilentSyncState.Failed
+                    AppLogger.d("ScheduleViewModel", "[v125] 静默同步失败(静默): ${e.message}")
+                }
+        }
+    }
+
+    /**
+     * [v125] 用户确认更新：解析 remoteId → 走现有入库链路 fetchSpecifiedSemester
+     * （全量替换学期 + 冲突缓存重算，ADR-0007）→ 刷新课表。
+     */
+    fun confirmSilentUpdate() {
+        if (_silentSyncState.value !is SilentSyncState.HasUpdate) return
+        viewModelScope.launch {
+            _silentSyncState.value = SilentSyncState.Checking
+            val remoteId = repository.resolveRemoteSemesterId(semester).getOrNull()
+            if (remoteId == null) {
+                _silentSyncState.value = SilentSyncState.Failed
+                return@launch
+            }
+            repository.fetchSpecifiedSemester(remoteId, semester)
+                .onSuccess {
+                    AppLogger.i("ScheduleViewModel", "[v125] 静默同步确认入库: $it 门")
+                    _silentSyncState.value = SilentSyncState.Idle
+                    loadSchedule()
+                }
+                .onFailure { e ->
+                    AppLogger.e("ScheduleViewModel", "[v125] 确认入库失败", e)
+                    _silentSyncState.value = SilentSyncState.Failed
+                }
+        }
+    }
+
+    /** [v125] 取消/关闭差异确认框：本地数据不动（D4 验收）；也用于手动同步导航前的互斥重置（grill-W01 Q4） */
+    fun cancelSilentUpdate() {
+        _silentSyncState.value = SilentSyncState.Idle
     }
 
     /**
@@ -110,6 +223,8 @@ class ScheduleViewModel(
      */
     private fun loadSchedule() {
         viewModelScope.launch {
+            // [v123] PerfLog 打点：load_schedule 场景（L2-build B 批）
+            val perfStart = PerfLog.begin(PerfLog.SCENE_LOAD)
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
             AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 开始 ==========")
@@ -168,7 +283,10 @@ class ScheduleViewModel(
 
                 if (!isComplete) {
                     AppLogger.i("CHD_Conflict", "缓存不完整: 缓存覆盖周1-$cachedMaxWeek, 需要1-$maxWeek, 重新预计算...")
-                    repository.precomputeAndCacheConflicts(courses, semester)
+                    // [v123] 冲突预计算（CPU 循环 + JSON 序列化）移出主线程
+                    withContext(defaultDispatcher) {
+                        repository.precomputeAndCacheConflicts(courses, semester)
+                    }
                 } else {
                     AppLogger.i("CHD_Conflict", "缓存完整: 覆盖周1-$cachedMaxWeek")
                 }
@@ -188,10 +306,17 @@ class ScheduleViewModel(
 
             AppLogger.i("CHD_CurrentWeek", "========== [ScheduleViewModel] loadSchedule 结束 ==========")
 
-            val initialDisplayCourses = courses.filter { it.isWeekInRange(initialWeek) }
-            val initialCoursesByWeek = (1..maxWeek).associateWith { week ->
-                courses.filter { course -> course.isWeekInRange(week) }
+            // [v123] 全周索引 O(周数×课程数) 是本场景最重的计算，移出主线程
+            val (initialDisplayCourses, initialCoursesByWeek) = withContext(defaultDispatcher) {
+                val display = courses.filter { it.isWeekInRange(initialWeek) }
+                val byWeek = (1..maxWeek).associateWith { week ->
+                    courses.filter { course -> course.isWeekInRange(week) }
+                }
+                display to byWeek
             }
+
+            // [v124] 本学期课表统计（纯函数派生，供设置抽屉统计区）
+            val stats = ScheduleStatsCalculator.calculate(courses, waterCourses)
 
             _uiState.update {
                 it.copy(
@@ -206,12 +331,15 @@ class ScheduleViewModel(
                     allSemesters = allSemesters,
                     displayCourses = initialDisplayCourses,
                     coursesByWeek = initialCoursesByWeek,
+                    scheduleStats = stats,
                     isLoading = false
                 )
             }
 
             // [跨学期] 加载完成后检测学期是否过期（横幅）
             checkSemesterOutdated()
+
+            PerfLog.end(PerfLog.SCENE_LOAD, perfStart)
         }
     }
 
@@ -257,6 +385,8 @@ class ScheduleViewModel(
         val newWeek = week.coerceIn(1, _uiState.value.maxWeeks)
 
         viewModelScope.launch {
+            // [v123] PerfLog 打点：week_switch 场景
+            val perfStart = PerfLog.begin(PerfLog.SCENE_WEEK)
             // [v113] 非当前学期不对齐日期：semesterStartDate 是当前学期的，非当前学期忽略
             val isCurrentSemester = semester == repository.getCurrentSemester()
             val semesterStartDate = if (isCurrentSemester) userPreferences.getSemesterStartDateOnce() else null
@@ -268,7 +398,10 @@ class ScheduleViewModel(
 
             val allCourses = _uiState.value.courses
             val cachedDisplayCourses = _uiState.value.coursesByWeek[newWeek]
-                ?: allCourses.filter { it.isWeekInRange(newWeek) }
+                ?: withContext(defaultDispatcher) {
+                    // 缓存未命中才过滤（与迁移前回退路径一致），过滤同样移出主线程
+                    allCourses.filter { it.isWeekInRange(newWeek) }
+                }
 
             _uiState.update {
                 it.copy(
@@ -277,6 +410,7 @@ class ScheduleViewModel(
                     displayCourses = cachedDisplayCourses
                 )
             }
+            PerfLog.end(PerfLog.SCENE_WEEK, perfStart)
         }
 
         updateConflictsForWeek(newWeek)
@@ -678,18 +812,29 @@ class ScheduleViewModel(
         val currentWeek = _uiState.value.currentWeek.coerceIn(1, maxWeek)
 
         if (courses.isNotEmpty()) {
-            repository.precomputeAndCacheConflicts(courses, semester)
+            // [v123] 冲突预计算移出主线程（与 loadSchedule 同款迁移）
+            withContext(defaultDispatcher) {
+                repository.precomputeAndCacheConflicts(courses, semester)
+            }
         }
 
         val conflicts = repository.getConflictsForWeek(semester, currentWeek) ?: emptySet()
 
-        val displayCourses = courses.filter { it.isWeekInRange(currentWeek) }
-        val coursesByWeek = (1..maxWeek).associateWith { week ->
-            courses.filter { course -> course.isWeekInRange(week) }
+        // [v123] 全周索引移出主线程（与 loadSchedule 同款迁移）
+        val (displayCourses, coursesByWeek) = withContext(defaultDispatcher) {
+            val display = courses.filter { it.isWeekInRange(currentWeek) }
+            val byWeek = (1..maxWeek).associateWith { week ->
+                courses.filter { course -> course.isWeekInRange(week) }
+            }
+            display to byWeek
         }
 
         val teachers = repository.getDistinctTeachers(semester)
         val locations = repository.getDistinctLocations(semester)
+
+        // [v124] 编辑后统计同步刷新
+        val waterCourses = userPreferences.getWaterCoursesForSemester(semester)
+        val updatedStats = ScheduleStatsCalculator.calculate(courses, waterCourses)
 
         val currentGroupName = _uiState.value.editCourseGroup?.courseName
         val updatedGroup = if (currentGroupName != null) {
@@ -716,6 +861,7 @@ class ScheduleViewModel(
                 coursesByWeek = coursesByWeek,
                 suggestedTeachers = teachers,
                 suggestedLocations = locations,
+                scheduleStats = updatedStats,
                 editCourseGroup = updatedGroup,
                 editConflicts = emptyList()
             )

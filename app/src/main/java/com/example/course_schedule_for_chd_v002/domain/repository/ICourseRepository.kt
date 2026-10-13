@@ -77,6 +77,20 @@ interface ICourseRepository {
     suspend fun getRemoteSemesterOptions(): Result<List<SemesterOption>>
     suspend fun fetchSpecifiedSemester(remoteId: String, localSemester: String): Result<Int>
 
+    // ================ [v125] 静默同步（L1 契约第 1 条） ================
+
+    /**
+     * [v125] 解析本地学期串对应的教务远程 semesterId（只读）。
+     * 实现基于在用验证路径 getRemoteSemesterOptions（grill-W01 Q1 裁决）。
+     */
+    suspend fun resolveRemoteSemesterId(semester: String): Result<String>
+
+    /**
+     * [v125] 静默同步检查专用：拉取指定学期课表并解析，**零入库、零学期状态写入**。
+     * 失败语义：Result.failure 透传，调用方只看成功/失败两态（静默场景无错误分类需求）。
+     */
+    suspend fun fetchRemoteCoursesOnly(semester: String): Result<List<Course>>
+
     /**
      * [跨学期] 把"当前学期"升级为指定学期：清旧学期时间线 → 尝试从教务首页取教学周重算开学日期 → 保存。
      * 仅在新学期已开始（编码 ≥ 日期推断学期）且课表已入库/刚抓取成功时调用；
