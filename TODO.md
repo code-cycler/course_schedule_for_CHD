@@ -36,7 +36,8 @@
 
 ## 签到辅助
 
-- [ ] **验证假设 D：`requestRebind` 程序化重绑在荣耀上的有效性**（checkin-assist-v2 grill W01 Q1）：B3 真机装机验证「断开重连」场景（javap 只验证了方法存在，MagicOS 行为未验证；v1 坑的处置是手动重开开关）；实测无效则降级为纯引导（保留警示条、去掉自动重连预期）并更新 L0 假设台账。——触发：B3 真机装机验证时。
+- [x] **验证假设 D：`requestRebind` 程序化重绑在荣耀上的有效性**（checkin-assist-v2 grill W01 Q1，2026-10-14 真机裁决）：**无效**——冷启动调用成功但未触发系统重绑（onListenerConnected 不出现）；`cmd notification allow_listener`（=手动重开开关）有效。已按设计降级纯引导（警示条 + 去设置，装机场景实证有效）；requestRebind 代码保留无害。L0 假设台账已更新。
+- [x] **真机统一验证清单**（2026-10-14，荣耀 SER-AN00）：迁移 v2→v3 ✅（备份文件生成可解析 + user_version=3 + 位置数据保留且管线正常消费）；端到端自测通知管线 ✅（发送→白名单→识别→courseHint→触发 Mock）；A5 会话去重 ✅（16 秒后二次命中跳过）；NLS 心跳 ✅（重绑后 onListenerConnected 落盘）；A6/测试按钮组/位置导出 ✅（UI dump 全元素在位 + 导出 JSON 生成）。**两项新发现**：①开机 BOOT_COMPLETED 被荣耀 BootProxy 扣留（don't meet cpuload，自启动管控，L0 假设 E）②mock channel 曾被降级（mOriginalImp=4→mImportance=3，A9 降级引导有现实意义）。——遗留：位置导出→清数据→导入回环（用户 2 分钟自测，导出已验）+ 真实签到（F007）。
 - [x] **grill W01 压测修订执行**（2026-10-13，用户授权 8/8 全部执行）：①假设 D 进 L0 风险台账 + TODO（本节上一条）②L1 契约 2 + L2 B2 加「当前节次课表推断」courseHint 兜底 ③L2 B1 加迁移前 JSON 备份 + DoD 验证项 ④L2 B3 加冷启动无条件 requestRebind + 心跳超阈值低优先级通知 ⑤L2 B4 加位置数据导出/导入入口（与 B1 备份共用序列化器）⑥L1 契约 7 + L2 B5 加无课数据默认行为与状态显示 ⑦CONTEXT 三处术语修订（畅课 ≠ 学习通、自动签到边界悬置加注、v2 选位置规则）⑧L0 验收 A9 具体化为三步验证。——核验：grep「grill W01」在 L0/L1/L2 三份层文件命中。
 - [ ] **checkin-assist-v2 收尾衔接**（design 2026-10-13 收尾面板裁决，压测已完成 2026-10-13）：由 long-running-agent 从 L2 的 B1–B5 阶段表反推 feature_list，**单线程**顺序开工（B1–B4 可立即开工，B5 挂假设 B/C 闸门）。——触发：用户发起实现时。
 

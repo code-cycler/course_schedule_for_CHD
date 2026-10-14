@@ -70,7 +70,8 @@
 | A | 教师发起签到且畅课进程已死时，系统仍弹通知（厂商通道对签到类推送兜底） | pending（旁证：普通/营销推送走 `com.hihonor.android.pushagent`，`opPkg` 已实测） | 验收 A1 真机实测，手机端可自助 |
 | B | 存在可复用登录态的畅课「进行中签到列表 / 提交签到」HTTP 接口 | pending（未抓包未调研；TronClass 社区有通用资料，CHD 部署未验证） | 抓包/调研，轮询与自动签到的共同前置闸 |
 | C | 畅课登录态来源（复用学校 CAS 还是独立账号）与 Web 端域名 | pending | 随假设 B 一并验证 |
-| D | `requestRebind()` 程序化重绑在荣耀 MagicOS 上有效（grill W01 Q1 揪出：v1 坑的处置是手动重开开关，程序化路径从未验证；javap 仅验证方法存在不验证行为） | pending | B3 真机装机验证「断开重连」场景；实测无效则降级为纯引导（保留警示条，去掉自动重连预期，文档如实记录） |
+| D | `requestRebind()` 程序化重绑在荣耀 MagicOS 上有效（grill W01 Q1 揪出：v1 坑的处置是手动重开开关，程序化路径从未验证；javap 仅验证方法存在不验证行为） | **verified-无效（2026-10-14 真机裁决）**：冷启动调用返回 true 但未触发重绑（onListenerConnected 不出现）；`cmd notification allow_listener`（= 手动重开开关）有效 | **按设计降级纯引导**：警示条 +「去设置」已实现且装机场景实证有效（装机后警示条正确出现）；requestRebind 代码保留（无害，其他机型可能有效） |
+| E | 开机 BOOT_COMPLETED 能到达 BootRebindReceiver | **verified-受控（2026-10-14 真机）**：荣耀 `HwMtmBroadcastResourceManager` BootProxy 以「don't meet cpuload」扣留广播（自启动管控），进程未拉起；receiver 注册与代码路径正确 | 用户在荣耀设置开启「自启动」白名单后预期生效；未开则依赖冷启动警示条引导路径（假设 D 降级后的兜底链） |
 
 ### 系统与合规约束
 
