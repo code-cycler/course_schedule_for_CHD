@@ -226,14 +226,15 @@ fun CheckInAssistScreen(
                 showAutoStartConfirm = false
                 viewModel.dismissAutoStartConfirm()
             },
-            title = { Text("自启动开启了吗？") },
+            title = { Text("启动权限都设置好了吗？") },
             text = {
                 Text(
-                    "请到系统「应用启动管理」找到本应用，关闭「自动管理」改为手动管理，" +
-                        "然后检查三个开关均已允许：\n" +
-                        "• 自启动——手机重启后监听自动恢复\n" +
-                        "• 关联启动——自动跳转畅课的前提（未开则拉不起畅课）\n" +
-                        "• 后台运行——课时有窗轮询不中断"
+                    "请到系统「应用启动管理」检查两个应用：\n" +
+                        "【本应用】关闭「自动管理」改手动管理，三开关全开：\n" +
+                        "• 自启动——重启后监听自动恢复\n" +
+                        "• 关联启动 / 后台运行——畅课联动与轮询的前提\n" +
+                        "【畅课】同样关闭「自动管理」，至少开启「允许关联启动」\n" +
+                        "（荣耀定义关联启动 = 可被其他应用启动；不开则本应用拉不起畅课）"
                 )
             },
             confirmButton = {
@@ -406,7 +407,7 @@ fun CheckInAssistScreen(
                 hint = if (state.settings.autoStartConfirmed) {
                     "已记录开启；系统更新可能重置该设置，建议点进来复查"
                 } else {
-                    "点击进入系统设置：关闭「自动管理」改为手动，检查自启动/关联启动/后台运行三项均允许"
+                    "点击进入系统设置：本应用与「畅课」都改为手动管理，检查自启动/关联启动/后台运行均允许"
                 },
                 onClick = {
                     val opened = com.example.course_schedule_for_chd_v002.util.AutoStartLauncher.openSettings(context)
