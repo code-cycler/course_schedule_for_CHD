@@ -30,6 +30,13 @@ data class Course(
     val weekRange: IntRange get() = startWeek..endWeek
 
     /**
+     * [v126] 该卡的教室集合。教务一门课可挂多个教室（v120：location 为逗号连接），
+     * 分周换教室课（v121）拆卡后每张卡自带其实际教室。
+     */
+    val rooms: Set<String>
+        get() = location.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+
+    /**
      * 获取节次范围
      */
     val nodeRange: IntRange get() = startNode..endNode

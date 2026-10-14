@@ -67,8 +67,15 @@ class CheckInTriggerCoordinator(
 
         val locations = locationRepository.getAll()
         val course = computeCurrentCourse()
-        val remembered = course?.let { userPreferences.getRememberedLocationId(it.name, it.location) }
-        return when (val sel = LocationSelection.select(locations, course, remembered)) {
+        // [v126] 教室 tag 匹配集合：活跃卡教室优先（course 即按 isWeekInRange 过滤出的活跃卡），
+        // 本周无活跃卡回退该课全教室并集（分周换教室课，S6）
+        val semester = courseRepository.getCurrentSemester()
+        val fallbackRooms = if (course != null && semester != null) {
+            courseRepository.getCourseRoomUnion(semester)[course.name] ?: emptySet()
+        } else emptySet()
+        val activeRooms = course?.rooms ?: emptySet()
+        val remembered = course?.let { userPreferences.getRememberedLocationId(it.name) }
+        return when (val sel = LocationSelection.select(locations, course, activeRooms, fallbackRooms, remembered)) {
             is LocationSelection.Result.Empty -> TriggerResult.NoLocation
             is LocationSelection.Result.Auto -> startMock(sel.location)
             is LocationSelection.Result.NeedManual -> TriggerResult.NeedsManualSelection(sel.candidates)
@@ -78,7 +85,7 @@ class CheckInTriggerCoordinator(
     /** 用户手动选定某位置后启动（记忆该选择 + 启动 Mock） */
     suspend fun startForLocation(location: CheckInLocation): TriggerResult {
         val course = computeCurrentCourse()
-        course?.let { userPreferences.rememberLocation(it.name, it.location, location.id) }
+        course?.let { userPreferences.rememberLocation(it.name, location.id) }
         return startMock(location)
     }
 

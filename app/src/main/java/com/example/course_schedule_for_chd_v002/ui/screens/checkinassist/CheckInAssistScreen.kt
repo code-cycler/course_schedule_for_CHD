@@ -352,7 +352,7 @@ private fun LocationCard(loc: CheckInLocation, viewModel: CheckInAssistViewModel
                 )
                 val assoc = listOfNotNull(
                     loc.linkedCourseId?.takeIf { it.isNotBlank() },
-                    loc.linkedRoomName?.takeIf { it.isNotBlank() }
+                    loc.linkedRoomNames.takeIf { it.isNotEmpty() }?.joinToString("/")
                 ).joinToString(" · ")
                 if (assoc.isNotEmpty()) {
                     Text(

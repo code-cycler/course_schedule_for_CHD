@@ -64,7 +64,8 @@ fun LocationEditorSheet(
     var lngText by remember { mutableStateOf(editing?.longitude?.let { "%.6f".format(it) } ?: "") }
     var note by remember { mutableStateOf(editing?.note ?: "") }
     var linkedCourse by remember { mutableStateOf(editing?.linkedCourseId ?: "") }
-    var linkedRoom by remember { mutableStateOf(editing?.linkedRoomName ?: "") }
+    // [v126] 教室 tag 集合的最小适配：B1 阶段保持单输入框（逗号分隔多教室），tag chip UI 留 B4 重构
+    var linkedRoom by remember { mutableStateOf(editing?.linkedRoomNames?.joinToString(",") ?: "") }
 
     var collecting by remember { mutableStateOf(false) }
     var collectedAccuracy by remember { mutableStateOf<Float?>(editing?.accuracyRadiusMeters) }
@@ -230,7 +231,8 @@ fun LocationEditorSheet(
                                 accuracyRadiusMeters = collectedAccuracy,
                                 note = note.trim().ifBlank { null },
                                 linkedCourseId = linkedCourse.trim().ifBlank { null },
-                                linkedRoomName = linkedRoom.trim().ifBlank { null },
+                                linkedRoomNames = linkedRoom.split(',')
+                                    .map { it.trim() }.filter { it.isNotEmpty() },
                                 createdAt = editing?.createdAt ?: System.currentTimeMillis()
                             )
                         )

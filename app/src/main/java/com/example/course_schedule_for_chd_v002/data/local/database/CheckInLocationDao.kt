@@ -26,17 +26,8 @@ interface CheckInLocationDao {
     @Query("SELECT * FROM checkin_locations WHERE id = :id")
     suspend fun getById(id: Long): CheckInLocationEntity?
 
-    /** 按关联课程标识或教室名查询（触发时课程匹配用） */
-    @Query(
-        "SELECT * FROM checkin_locations " +
-            "WHERE (:courseId IS NOT NULL AND linkedCourseId = :courseId) " +
-            "OR (:roomName IS NOT NULL AND linkedRoomName = :roomName) " +
-            "ORDER BY createdAt DESC"
-    )
-    suspend fun getByLinkedCourseOrRoom(
-        courseId: String?,
-        roomName: String?
-    ): List<CheckInLocationEntity>
+    // [v126] 删除 getByLinkedCourseOrRoom：v114 预留但零调用；教室 tag 集合化后
+    // JSON 数组列不适合 SQL 等值查询，课程/教室匹配统一走 LocationSelection 内存过滤（本来就是全量内存路径）。
 
     /** 插入并返回生成的主键 ID */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

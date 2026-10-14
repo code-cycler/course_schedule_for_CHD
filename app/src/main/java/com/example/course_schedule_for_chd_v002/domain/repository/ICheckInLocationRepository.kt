@@ -26,10 +26,5 @@ interface ICheckInLocationRepository {
     /** 按 ID 删除 */
     suspend fun deleteById(id: Long)
 
-    /**
-     * 按关联课程/教室查询（触发时自动匹配用）
-     * @param courseName 课程名，可为空
-     * @param roomName 教室名，可为空
-     */
-    suspend fun getByLinkedCourseOrRoom(courseName: String?, roomName: String?): List<CheckInLocation>
+    // [v126] 删除 getByLinkedCourseOrRoom（零调用预留；匹配统一走 LocationSelection 内存过滤）
 }

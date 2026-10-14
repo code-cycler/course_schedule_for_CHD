@@ -196,6 +196,14 @@ interface ICourseRepository {
      * @return 教室列表
      */
     suspend fun getDistinctLocations(semester: String): List<String>
+
+    /**
+     * [v126] 课程名 → 教室并集（checkin-assist-v2 B1）。
+     * v121 拆卡后同课程名多卡各带各教室，并集即该课全部教室（多教室课挂同一签到位置的预填/匹配基础）。
+     * @param semester 学期标识
+     * @return Map<课程名, 教室名集合>；学期无课返回空 Map
+     */
+    suspend fun getCourseRoomUnion(semester: String): Map<String, Set<String>>
 }
 
 /**

@@ -736,4 +736,16 @@ class CourseRepositoryImpl(
     override suspend fun getDistinctLocations(semester: String): List<String> {
         return courseDao.getDistinctLocations(semester)
     }
+
+    /**
+     * [v126] 课程名 → 教室并集（checkin-assist-v2 B1）。
+     * v121 拆卡后同课程名多卡（周次不相交、各带各教室），并集即该课全部教室；
+     * 供课程下拉预填（B4）与触发匹配回退（LocationSelection fallbackRooms）。
+     */
+    override suspend fun getCourseRoomUnion(semester: String): Map<String, Set<String>> {
+        return courseDao.getBySemester(semester)
+            .map { it.toDomainModel() }
+            .groupBy({ it.name }, { it.rooms })
+            .mapValues { (_, roomsList) -> roomsList.flatten().toSet() }
+    }
 }

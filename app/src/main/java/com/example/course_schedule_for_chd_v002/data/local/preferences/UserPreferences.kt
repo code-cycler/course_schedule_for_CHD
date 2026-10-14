@@ -11,6 +11,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.course_schedule_for_chd_v002.domain.model.CheckInAssistSettings
 import com.example.course_schedule_for_chd_v002.domain.model.ReminderSettings
 import com.example.course_schedule_for_chd_v002.util.AppLogger
+import com.example.course_schedule_for_chd_v002.util.LocationMemoryMigrator
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -47,6 +48,8 @@ class UserPreferences(private val context: Context) {
         private val KEY_CHECKIN_AUTO_OPEN = booleanPreferencesKey("checkin_auto_open")
         private val KEY_CHECKIN_MOCK_DURATION = intPreferencesKey("checkin_mock_duration_min")
         private val KEY_CHECKIN_LOCATION_MEMORY = stringPreferencesKey("checkin_location_memory")
+        // [v126] 位置记忆 v2：Map<"courseName", locationId>（教室名退出记忆键，tag 化后课程名是唯一选择依据）
+        private val KEY_CHECKIN_LOCATION_MEMORY_V2 = stringPreferencesKey("checkin_location_memory_v2")
         private val KEY_CHECKIN_KEYWORDS = stringPreferencesKey("checkin_keywords")
         // 默认签到关键字（与 CheckInNotificationMatcher.DEFAULT_KEYWORDS_TEXT 保持一致）
         private const val DEFAULT_CHECKIN_KEYWORDS = "签到,考勤,点名"
@@ -707,45 +710,65 @@ class UserPreferences(private val context: Context) {
         AppLogger.d("UserPreferences", "[v114] 保存签到关键字: $raw")
     }
 
-    // ---- [v114] 位置记忆：Map<"courseName|roomName", locationId> ----
+    // ---- [v126] 位置记忆 v2：Map<"courseName", locationId> ----
 
     /**
-     * [v114] 读取某课程/教室上次手动选择的位置 ID（记忆）
+     * [v126] 旧格式记忆 → 新格式一次性迁移（ADR-0007，幂等：旧键不存在即跳过）。
+     * 规则：旧键 "course|room" / "course|" / "|room" 按课程名分组；同课程多条取 locationId
+     * 最大者（自增 id 近似「最新标定的位置」）；纯教室键（"|room"，无课程名）丢弃——
+     * 教室退出记忆键。旧 JSON 原文迁移前写入备份文件（应用私有目录，与 Room 迁移备份同处）。
+     * 由新格式读写入口懒触发（DataStore 异步，不适合放同步 Room migrate）。
+     */
+    private suspend fun ensureLocationMemoryMigratedOnce() {
+        val oldRaw = context.dataStore.data.map { it[KEY_CHECKIN_LOCATION_MEMORY] ?: "" }.first()
+        if (oldRaw.isEmpty()) return
+        context.dataStore.edit { preferences ->
+            // 双检：并发/重复调用时以 DataStore 内状态为准
+            val old = preferences[KEY_CHECKIN_LOCATION_MEMORY] ?: ""
+            if (old.isEmpty()) return@edit
+            val oldMap = parseLocationMemory(old)
+            val migrated = LocationMemoryMigrator.migrate(oldMap)
+            // 旧格式原文备份（幂等：同批只写一次）
+            runCatching {
+                val dir = java.io.File(context.filesDir, "backup").apply { mkdirs() }
+                java.io.File(dir, "checkin_location_memory_v1_${System.currentTimeMillis()}.json")
+                    .writeText(old)
+            }.onFailure {
+                AppLogger.e("UserPreferences", "[v126] 位置记忆迁移备份失败（继续迁移）: ${it.message}")
+            }
+            val currentV2 = parseLocationMemory(preferences[KEY_CHECKIN_LOCATION_MEMORY_V2] ?: "")
+            preferences[KEY_CHECKIN_LOCATION_MEMORY_V2] =
+                serializeLocationMemory(currentV2 + migrated)
+            preferences.remove(KEY_CHECKIN_LOCATION_MEMORY)
+            AppLogger.i("UserPreferences", "[v126] 位置记忆迁移完成: ${oldMap.size} 条 → ${migrated.size} 条（课程名键）")
+        }
+    }
+
+    /**
+     * [v126] 读取某课程上次手动选择的位置 ID（记忆；键 = 课程名）
      * @param courseName 课程名（可空）
-     * @param roomName 教室名（可空）
      * @return 记忆的位置 ID，无则 null
      */
-    suspend fun getRememberedLocationId(courseName: String?, roomName: String?): Long? {
-        val key = buildMemoryKey(courseName, roomName) ?: return null
+    suspend fun getRememberedLocationId(courseName: String?): Long? {
+        ensureLocationMemoryMigratedOnce()
+        val key = courseName?.takeIf { it.isNotBlank() } ?: return null
         val map = parseLocationMemory(
-            context.dataStore.data.map { it[KEY_CHECKIN_LOCATION_MEMORY] ?: "" }.first()
+            context.dataStore.data.map { it[KEY_CHECKIN_LOCATION_MEMORY_V2] ?: "" }.first()
         )
         return map[key]
     }
 
     /**
-     * [v114] 记录某课程/教室选择的位置 ID
+     * [v126] 记录某课程选择的位置 ID（键 = 课程名）
      */
-    suspend fun rememberLocation(courseName: String?, roomName: String?, locationId: Long) {
-        val key = buildMemoryKey(courseName, roomName) ?: return
+    suspend fun rememberLocation(courseName: String?, locationId: Long) {
+        val key = courseName?.takeIf { it.isNotBlank() } ?: return
         context.dataStore.edit { preferences ->
-            val current = parseLocationMemory(preferences[KEY_CHECKIN_LOCATION_MEMORY] ?: "").toMutableMap()
+            val current = parseLocationMemory(preferences[KEY_CHECKIN_LOCATION_MEMORY_V2] ?: "").toMutableMap()
             current[key] = locationId
-            preferences[KEY_CHECKIN_LOCATION_MEMORY] = serializeLocationMemory(current)
+            preferences[KEY_CHECKIN_LOCATION_MEMORY_V2] = serializeLocationMemory(current)
         }
-        AppLogger.d("UserPreferences", "[v114] 记忆位置: $key -> $locationId")
-    }
-
-    /** [v114] 记忆键：优先 courseName|roomName，缺省降级 */
-    private fun buildMemoryKey(courseName: String?, roomName: String?): String? {
-        val c = courseName?.takeIf { it.isNotBlank() }
-        val r = roomName?.takeIf { it.isNotBlank() }
-        return when {
-            c != null && r != null -> "$c|$r"
-            c != null -> "$c|"
-            r != null -> "|$r"
-            else -> null
-        }
+        AppLogger.d("UserPreferences", "[v126] 记忆位置: $key -> $locationId")
     }
 
     /** [v114] 序列化位置记忆为 JSON：{"course|room":123,"course2|":456} */

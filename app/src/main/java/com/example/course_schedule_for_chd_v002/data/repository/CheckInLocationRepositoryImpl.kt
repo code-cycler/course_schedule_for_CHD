@@ -30,10 +30,4 @@ class CheckInLocationRepositoryImpl(
         dao.update(CheckInLocationEntity.fromDomainModel(location))
 
     override suspend fun deleteById(id: Long) = dao.deleteById(id)
-
-    override suspend fun getByLinkedCourseOrRoom(
-        courseName: String?,
-        roomName: String?
-    ): List<CheckInLocation> =
-        dao.getByLinkedCourseOrRoom(courseName, roomName).map { it.toDomainModel() }
 }
