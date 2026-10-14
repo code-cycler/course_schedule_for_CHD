@@ -21,7 +21,7 @@ import java.io.File
  */
 @Database(
     entities = [CourseEntity::class, CheckInLocationEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -107,7 +107,8 @@ abstract class AppDatabase : RoomDatabase() {
                             CheckInLocation(
                                 id = it.id, name = it.name, latitude = it.lat, longitude = it.lng,
                                 accuracyRadiusMeters = it.accuracy, note = it.note,
-                                linkedCourseId = it.courseId,
+                                // [v134] 域模型已集合化；v2 旧单值在此按单元素集合落备份（新格式）
+                                linkedCourseIds = listOfNotNull(it.courseId?.takeIf { c -> c.isNotBlank() }),
                                 linkedRoomNames = RoomsJson.decode(RoomsJson.fromSingleRoom(it.roomName)),
                                 createdAt = it.createdAt
                             )
@@ -156,12 +157,103 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * [v134] 3 → 4：linkedCourseId 单值列 → linkedCourseIds 集合列（TEXT 存 JSON 数组）。
+         *
+         * 步骤同 MIGRATION_2_3 范式（多课程关联 tag 化）：
+         * 1. 迁移前备份全部旧位置行为带时间戳 JSON（私有目录）。
+         * 2. 建新表 → 逐行搬（旧单值课程名 → 单元素 JSON 数组，null/空 → 空数组）→ 删旧表 → 改名。
+         *    minSdk 28 的 SQLite（3.22）无 DROP COLUMN，必须走建新表路径。
+         */
+        fun createMigration34(appContext: Context): Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                data class OldRow(
+                    val id: Long, val name: String, val lat: Double, val lng: Double,
+                    val accuracy: Float?, val note: String?, val courseId: String?,
+                    val roomsJson: String, val createdAt: Long
+                )
+                val oldRows = mutableListOf<OldRow>()
+                db.query("SELECT id, name, latitude, longitude, accuracyRadiusMeters, note, linkedCourseId, linkedRoomNames, createdAt FROM checkin_locations").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        oldRows.add(
+                            OldRow(
+                                id = cursor.getLong(0),
+                                name = cursor.getString(1),
+                                lat = cursor.getDouble(2),
+                                lng = cursor.getDouble(3),
+                                accuracy = if (cursor.isNull(4)) null else cursor.getFloat(4),
+                                note = if (cursor.isNull(5)) null else cursor.getString(5),
+                                courseId = if (cursor.isNull(6)) null else cursor.getString(6),
+                                roomsJson = cursor.getString(7) ?: "[]",
+                                createdAt = cursor.getLong(8)
+                            )
+                        )
+                    }
+                }
+
+                // 迁移前备份（与 MIGRATION_2_3 同兜底策略：用户标定数据零损失）
+                runCatching {
+                    val backup = CheckInLocationBackup.serialize(
+                        oldRows.map {
+                            CheckInLocation(
+                                id = it.id, name = it.name, latitude = it.lat, longitude = it.lng,
+                                accuracyRadiusMeters = it.accuracy, note = it.note,
+                                linkedCourseIds = listOfNotNull(it.courseId?.takeIf { c -> c.isNotBlank() }),
+                                linkedRoomNames = RoomsJson.decode(it.roomsJson),
+                                createdAt = it.createdAt
+                            )
+                        }
+                    )
+                    val file = File(
+                        File(appContext.filesDir, "backup").apply { mkdirs() },
+                        "checkin_locations_v3_${System.currentTimeMillis()}.json"
+                    )
+                    file.writeText(backup)
+                    AppLogger.i(TAG, "[v134] 迁移前备份完成: ${file.name}（${oldRows.size} 条）")
+                }.onFailure {
+                    AppLogger.e(TAG, "[v134] 迁移前备份失败（继续迁移，数据在 Room 事务内）: ${it.message}")
+                }
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS checkin_locations_new (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        latitude REAL NOT NULL,
+                        longitude REAL NOT NULL,
+                        accuracyRadiusMeters REAL,
+                        note TEXT,
+                        linkedCourseIds TEXT NOT NULL,
+                        linkedRoomNames TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("DELETE FROM checkin_locations_new")
+                oldRows.forEach { row ->
+                    val coursesJson = RoomsJson.encode(
+                        listOfNotNull(row.courseId?.takeIf { it.isNotBlank() })
+                    )
+                    db.execSQL(
+                        "INSERT INTO checkin_locations_new (id, name, latitude, longitude, accuracyRadiusMeters, note, linkedCourseIds, linkedRoomNames, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        arrayOf(
+                            row.id, row.name, row.lat, row.lng, row.accuracy, row.note,
+                            coursesJson, row.roomsJson, row.createdAt
+                        )
+                    )
+                }
+                db.execSQL("DROP TABLE checkin_locations")
+                db.execSQL("ALTER TABLE checkin_locations_new RENAME TO checkin_locations")
+            }
+        }
+
+        /**
          * [优化] 数据库 Migration 列表
          * 当 schema 变更时，在此添加正式 Migration 而非销毁数据
          */
         private fun buildMigrations(context: Context): Array<Migration> = arrayOf(
             MIGRATION_1_2,
-            createMigration23(context.applicationContext)
+            createMigration23(context.applicationContext),
+            createMigration34(context.applicationContext)
         )
 
         /**

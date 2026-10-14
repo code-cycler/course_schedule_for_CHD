@@ -8,6 +8,7 @@ import org.junit.Test
 /**
  * [v114] 触发时选位置规则单元测试
  * [v126] 教室 tag 集合语义重写：任一 tag 命中 + 活跃卡教室优先 + 无活跃卡回退全并集（ADR-0007 / S6）
+ * [v134] 课程集合语义：多门课共用同一位置，任一课程名命中即选中
  */
 class LocationSelectionTest {
 
@@ -15,8 +16,13 @@ class LocationSelectionTest {
         id: Long,
         name: String,
         course: String? = null,
+        courses: List<String> = emptyList(),
         rooms: List<String> = emptyList()
-    ) = CheckInLocation(id, name, 34.0, 108.0, linkedCourseId = course, linkedRoomNames = rooms)
+    ) = CheckInLocation(
+        id, name, 34.0, 108.0,
+        linkedCourseIds = if (courses.isNotEmpty()) courses else listOfNotNull(course),
+        linkedRoomNames = rooms
+    )
 
     private fun select(
         locations: List<CheckInLocation>,
@@ -138,5 +144,25 @@ class LocationSelectionTest {
         )
         assertTrue(result is LocationSelection.Result.Auto)
         assertEquals(1L, (result as LocationSelection.Result.Auto).location.id)
+    }
+
+    // ===== [v134] 课程集合语义：多门课共用同一位置 =====
+
+    @Test
+    fun `v134 any course in multi course list matches`() {
+        // 位置挂「高数/线代」两门课，触发课程名是其中任一 → 命中
+        val shared = loc(1, "共用位", courses = listOf("高等数学", "线性代数"))
+        val other = loc(2, "B", course = "大学英语")
+        val result = select(listOf(shared, other), "线性代数")
+        assertTrue(result is LocationSelection.Result.Auto)
+        assertEquals(1L, (result as LocationSelection.Result.Auto).location.id)
+    }
+
+    @Test
+    fun `v134 course not in list does not match`() {
+        val a = loc(1, "A", courses = listOf("高等数学", "线性代数"))
+        val b = loc(2, "B", course = "大学英语")
+        val result = select(listOf(a, b), "大学物理")
+        assertTrue(result is LocationSelection.Result.NeedManual)
     }
 }

@@ -695,7 +695,7 @@ private fun LocationCard(loc: CheckInLocation, viewModel: CheckInAssistViewModel
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 val assoc = listOfNotNull(
-                    loc.linkedCourseId?.takeIf { it.isNotBlank() },
+                    loc.linkedCourseIds.takeIf { it.isNotEmpty() }?.joinToString("/"),
                     loc.linkedRoomNames.takeIf { it.isNotEmpty() }?.joinToString("/")
                 ).joinToString(" · ")
                 if (assoc.isNotEmpty()) {

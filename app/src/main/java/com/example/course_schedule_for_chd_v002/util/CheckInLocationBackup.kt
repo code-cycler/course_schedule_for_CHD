@@ -4,11 +4,12 @@ import com.example.course_schedule_for_chd_v002.domain.model.CheckInLocation
 
 /**
  * [v126] 签到位置数据备份序列化器（grill W01 Q3：迁移前自动备份；F005 位置导出/导入共用）。
+ * [v134] linkedCourseId 单值 → linkedCourseIds JSON 数组；导入兼容旧字段（单值 → 单元素集合）。
  *
  * 格式（手写 JSON，项目范式）：
  * {"locations":[{"id":1,"name":"...","latitude":34.0,"longitude":108.0,"accuracyRadiusMeters":10.5,
- *   "note":"...","linkedCourseId":"...","linkedRoomNames":["WM2303"],"createdAt":1700000000000}],
- *  "locationMemoryV1":"<旧格式原文，可能为空>"}
+ *   "note":"...","linkedCourseIds":["数据库（英）"],"linkedRoomNames":["WM2303"],"createdAt":1700000000000}],
+ *  "locationMemoryV1":"<旧格式原文，可能为空>"（含旧版导出文件的 "linkedCourseId":"..." 单值字段，读取时回退兼容）}
  */
 object CheckInLocationBackup {
 
@@ -23,8 +24,7 @@ object CheckInLocationBackup {
                 append(loc.accuracyRadiusMeters?.toString() ?: "null")
                 append(",\"note\":")
                 append(loc.note?.let { "\"${escape(it)}\"" } ?: "null")
-                append(",\"linkedCourseId\":")
-                append(loc.linkedCourseId?.let { "\"${escape(it)}\"" } ?: "null")
+                append(",\"linkedCourseIds\":${RoomsJson.encode(loc.linkedCourseIds)}")
                 append(",\"linkedRoomNames\":${RoomsJson.encode(loc.linkedRoomNames)}")
                 append(",\"createdAt\":${loc.createdAt}")
                 append("}")
@@ -91,7 +91,11 @@ object CheckInLocationBackup {
             longitude = dbl("longitude"),
             accuracyRadiusMeters = flt("accuracyRadiusMeters"),
             note = str("note"),
-            linkedCourseId = str("linkedCourseId"),
+            // [v134] 优先新数组字段；旧导出文件（linkedCourseId 单值）回退为单元素集合。
+            // 注：extractField 按 "\"linkedCourseId\":" 整键匹配，不会误命中 "linkedCourseIds"。
+            linkedCourseIds = extractField(obj, "linkedCourseIds")
+                ?.let { RoomsJson.decode(it) }
+                ?: listOfNotNull(str("linkedCourseId")?.takeIf { it.isNotBlank() }),
             linkedRoomNames = extractField(obj, "linkedRoomNames")
                 ?.let { RoomsJson.decode(it) } ?: emptyList(),
             createdAt = lng("createdAt")

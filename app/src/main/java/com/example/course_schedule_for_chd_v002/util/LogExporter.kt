@@ -70,7 +70,9 @@ object LogExporter {
         "CheckInNotifListener.Companion",
         // [v129] B5 轮询通道 TAG
         "CheckIn_Polling",
-        "TronClassConnect"
+        "TronClassConnect",
+        // [v134] 位置编辑器操作面包屑（崩溃报告带出「点了什么才崩」）
+        "CheckInEditor"
     )
 
     // 日志文件名前缀

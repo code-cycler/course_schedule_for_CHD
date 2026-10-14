@@ -8,6 +8,7 @@ import com.example.course_schedule_for_chd_v002.domain.model.CheckInLocation
  * [v114] 签到位置数据库实体
  * 用于 Room 持久化存储。坐标统一为 WGS-84。
  * [v126] linkedRoomName 单值列 → linkedRoomNames 集合列（List<String> 经 TypeConverter 落 TEXT JSON 数组）。
+ * [v134] linkedCourseId 单值列 → linkedCourseIds 集合列（多课程关联 tag 化，同 TypeConverter 范式）。
  */
 @Entity(tableName = "checkin_locations")
 data class CheckInLocationEntity(
@@ -18,7 +19,7 @@ data class CheckInLocationEntity(
     val longitude: Double,
     val accuracyRadiusMeters: Float? = null,
     val note: String? = null,
-    val linkedCourseId: String? = null,
+    val linkedCourseIds: List<String> = emptyList(),
     val linkedRoomNames: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis()
 ) {
@@ -30,7 +31,7 @@ data class CheckInLocationEntity(
         longitude = longitude,
         accuracyRadiusMeters = accuracyRadiusMeters,
         note = note,
-        linkedCourseId = linkedCourseId,
+        linkedCourseIds = linkedCourseIds,
         linkedRoomNames = linkedRoomNames,
         createdAt = createdAt
     )
@@ -44,7 +45,7 @@ data class CheckInLocationEntity(
             longitude = location.longitude,
             accuracyRadiusMeters = location.accuracyRadiusMeters,
             note = location.note,
-            linkedCourseId = location.linkedCourseId,
+            linkedCourseIds = location.linkedCourseIds,
             linkedRoomNames = location.linkedRoomNames,
             createdAt = location.createdAt
         )

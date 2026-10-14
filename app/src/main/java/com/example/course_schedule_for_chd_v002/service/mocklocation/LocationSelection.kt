@@ -5,10 +5,11 @@ import com.example.course_schedule_for_chd_v002.domain.model.CheckInLocation
 /**
  * [v114] 触发签到辅助时，决定使用哪个已保存位置的规则。
  * [v126] 教室匹配升级为 tag 集合语义（checkin-assist-v2 B1 / ADR-0007）：
- * - 课程名命中：linkedCourseId == courseName（由调用方补全：通知提取 → 课表推断）
+ * - 课程名命中：linkedCourseIds 包含 courseName（由调用方补全：通知提取 → 课表推断）
  * - 教室命中：位置教室 tag 集合与「匹配教室集合」**任一交集即命中**
  * - 匹配教室集合 = 当前周活跃卡教室（activeRooms，调用方按 isWeekInRange 过滤出活跃卡解析）；
  *   本周无活跃卡时回退该课全教室并集（fallbackRooms，S6 分周换教室课）
+ * [v134] 课程也升级为集合语义：多门课共用同一位置时，任一课程名命中即选中。
  *
  * 顺序：仅 1 条 → 直接用；否则按课程/教室匹配；命中多条且记忆在其中 → 用记忆；
  * 仍无法唯一确定 → 交由用户手动选择。
@@ -48,7 +49,7 @@ object LocationSelection {
             .map { normalizeRoom(it) }.filter { it.isNotEmpty() }.toSet()
 
         val matched = locations.filter { loc ->
-            (courseName != null && loc.linkedCourseId == courseName) ||
+            (courseName != null && courseName in loc.linkedCourseIds) ||
                 (matchRooms.isNotEmpty() && loc.linkedRoomNames.any { normalizeRoom(it) in matchRooms })
         }
 
