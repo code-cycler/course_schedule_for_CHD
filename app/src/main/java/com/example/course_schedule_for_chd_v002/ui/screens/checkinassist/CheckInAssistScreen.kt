@@ -401,9 +401,9 @@ fun CheckInAssistScreen(
                 ok = state.settings.autoStartConfirmed,
                 label = "自启动/后台启动",
                 hint = if (state.settings.autoStartConfirmed) {
-                    "已记录开启；点击可再次进入系统设置核对"
+                    "已记录开启；系统更新可能重置该设置，建议点进来复查"
                 } else {
-                    "点击直达系统的自启动/应用启动管理 → 找到本应用 → 允许自启动（重启后监听自动恢复的前提）"
+                    "点击进入系统设置检查：本应用的自启动是否已允许（厂商私有设置，App 无法自动检测）"
                 },
                 onClick = {
                     val opened = com.example.course_schedule_for_chd_v002.util.AutoStartLauncher.openSettings(context)
