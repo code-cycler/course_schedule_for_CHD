@@ -43,7 +43,7 @@
 - `CourseHintExtractor`：通知标题/正文与当前学期课表课程名双向子串匹配（contains），命中取课程名；**提取为空的兜底**（grill W01 Q2 修订）：纯函数「当前时间（星期 + 节次）在课表中推断正在上的课」（多节并发取节次匹配者）作为 fallback courseHint，推断结果标「推断」来源；兜底仍空才退化为纯时间窗去重。
 - `CheckInTriggerCoordinator` 管线化：收事件 → Deduper → 既有响应序列（权限门禁 → LocationSelection → Mock → 引导通知 → 可选拉起畅课）；`TriggerResult` 新增 `DebouncedBySession`。
 - `CheckInNotificationMatcher`：测试通知白名单 = 本包名 **且** 私有 extras 标记 `checkin_test=true`（双条件，不按文案放行）。
-- 新 channel `checkin_assist_alert_high`（`IMPORTANCE_HIGH`）+ `postGuidance` 升级迁移至新 channel；旧 channel 保留不再使用。
+- ~~新 channel `checkin_assist_alert_high` + postGuidance 升级迁移~~ **实现期修正（2026-10-14）**：v114 现有 `checkin_assist_alert_channel` 创建时已是 `IMPORTANCE_HIGH`（原出题依据失实），保留现有 channel 不新建；A9 三步验证（防 MagicOS 降级）照常。
 
 **DoD**：Deduper 单测（同课程 2 分钟窗去重 / 跨课程不去重 / 无 courseHint 退化纯时间窗 / ID 优先）+ 提取器单测（命中/未命中/多课程歧义取最长名）+ Matcher 白名单用例扩展 + debug 测试通知端到端走通管线 + 通用 DoD。
 

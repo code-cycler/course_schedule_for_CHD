@@ -190,6 +190,8 @@ class CheckInAssistViewModel(
                 _uiState.update { it.copy(message = result.reason) }
             is TriggerResult.NeedsManualSelection ->
                 _uiState.update { it.copy(pendingManualSelection = result.candidates) }
+            is TriggerResult.DebouncedBySession ->
+                _uiState.update { it.copy(message = "同一签到刚已处理过，本次已跳过") }
         }
     }
 }

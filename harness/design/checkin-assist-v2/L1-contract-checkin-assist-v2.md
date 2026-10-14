@@ -46,7 +46,7 @@
    - repository 新增「当前学期 → `Map<课程名, Set<教室名>>`」查询，同课程名多卡（v121 拆卡）教室取并集；预填用全并集，当前周过滤只发生在触发匹配时；
    - 位置记忆迁移：旧「课程名|教室名 → locationId」按课程名分组、每组取最新一条 → 新「课程名 → locationId」；随 Room v2→v3 升级一次性执行，幂等（新格式已存在则跳过）；
    - 通知原文记录器：DataStore JSON 环形缓冲最近 50 条**全部**畅课通知（含未命中关键字的普通/营销推送——校准关键字的价值恰在看到「未命中」的真实文案；字段：渠道 id / 标题 / 正文 / 时间戳），不建新表。
-9. 通知 channel：新建 `checkin_assist_alert_high`（`IMPORTANCE_HIGH`，横幅 + 声音 + 振动）；旧 `checkin_assist_alert_channel` 保留不再使用（平台行为：已建 channel 程序化调高不可靠）。
+9. 通知 channel：~~新建 `checkin_assist_alert_high`（`IMPORTANCE_HIGH`）~~ **实现期修正（2026-10-14）**：读码发现 v114 的 `checkin_assist_alert_channel` 创建时**已是 `IMPORTANCE_HIGH`**（原出题依据「现状普通优先级」失实），「程序化调高不可靠」的动机不成立——**保留现有 channel 不新建**；A9 三步验证（防 MagicOS 智能分类降级 + 横幅目视 + 降级引导）针对现有 channel 照常执行。
 10. 测试通知：正式版以本 App 包名发「格式模拟畅课」通知（标题/正文含默认关键字），Matcher 增加受控白名单放行——走真实匹配 → 触发管线全路径，不绕过任何环节。
 11. 管线日志：复用现有日志导出体系，新增结构化事件行（触发源 / 去重命中与键 / LocationSelection 结果 / Mock 启停 / NLS 心跳），格式与现有日志行风格一致。
 

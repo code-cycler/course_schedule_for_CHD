@@ -26,6 +26,16 @@ object CheckInNotificationMatcher {
     /** 默认关键字的逗号分隔文本（设置页默认值，与 UserPreferences 默认保持一致） */
     const val DEFAULT_KEYWORDS_TEXT = "签到,考勤,点名"
 
+    /** [v126] 正式版自测通知的私有 extras 标记键（只有本 App 能写入；双条件之一） */
+    const val TEST_EXTRA_KEY = "checkin_test"
+
+    /**
+     * [v126] 正式版自测通知判定（grill W01 / L2 B2 契约）：本包名 **且** 带 `checkin_test=true`
+     * 私有 extras 标记——双条件缺一不放行，不按文案白名单（防真实畅课通知被误放行）。
+     */
+    fun isSelfTestNotification(packageName: String?, selfPackage: String, hasTestExtra: Boolean): Boolean =
+        hasTestExtra && packageName != null && packageName == selfPackage
+
     /** 包名是否为目标：畅课包，或（debug 放行时）adb shell 包 */
     fun isTargetPackage(packageName: String?, allowShell: Boolean): Boolean {
         if (packageName == TRONCLASS_PACKAGE) return true

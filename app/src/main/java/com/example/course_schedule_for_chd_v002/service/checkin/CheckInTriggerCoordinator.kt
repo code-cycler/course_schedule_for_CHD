@@ -51,11 +51,31 @@ class CheckInTriggerCoordinator(
 
         /** 多个候选位置，需用户手动选择 */
         data class NeedsManualSelection(val candidates: List<CheckInLocation>) : TriggerResult()
+
+        /** [v126] 会话级去重命中：同一签到（同课程/同 ID）近期已响应过，本次跳过 */
+        object DebouncedBySession : TriggerResult()
     }
 
-    /** 主入口：权限门禁 → 选位置 → 启动 Mock。供 UI 与后台服务复用。 */
-    suspend fun trigger(): TriggerResult {
-        // 权限门禁
+    /** 主入口：权限门禁 → 选位置 → 启动 Mock。供 UI 与后台服务复用（= 手动触发事件，不走去重）。 */
+    suspend fun trigger(): TriggerResult =
+        onEvent(CheckInTriggerEvent(source = CheckInTriggerSource.Manual))
+
+    /**
+     * [v126] 管线主入口（ADR-0006）：收事件 → courseHint 补全 → 会话级去重 → 响应动作序列。
+     * Manual 源跳过去重（用户主动动作）；去重只针对 Notification / Polling / ReservedAuto。
+     */
+    suspend fun onEvent(rawEvent: CheckInTriggerEvent): TriggerResult {
+        // ① courseHint 补全：事件未携带（通知不含课程名/未提取到）→ 用当前时段课推断（grill W01 Q2 兜底）
+        val course = computeCurrentCourse()
+        val effectiveHint = rawEvent.courseHint?.takeIf { it.isNotBlank() } ?: course?.name
+        val event = if (effectiveHint != rawEvent.courseHint) rawEvent.copy(courseHint = effectiveHint) else rawEvent
+
+        // ② 会话级去重（替换 v114 的 15s 纯时间防抖）
+        if (event.source != CheckInTriggerSource.Manual && CheckInDeduper.shouldSuppress(event)) {
+            return TriggerResult.DebouncedBySession
+        }
+
+        // ③ 权限门禁
         if (!MockLocationController.isMockLocationAppEnabled(app)) {
             return TriggerResult.PermissionMissing("请先在「开发者选项 → 模拟位置信息应用」中选择本应用")
         }
@@ -65,17 +85,15 @@ class CheckInTriggerCoordinator(
             return TriggerResult.PermissionMissing("请授予定位权限")
         }
 
+        // ④ 选位置 + 启动（课程名匹配用补全后的 courseHint；教室匹配用活跃卡/全并集）
         val locations = locationRepository.getAll()
-        val course = computeCurrentCourse()
-        // [v126] 教室 tag 匹配集合：活跃卡教室优先（course 即按 isWeekInRange 过滤出的活跃卡），
-        // 本周无活跃卡回退该课全教室并集（分周换教室课，S6）
         val semester = courseRepository.getCurrentSemester()
-        val fallbackRooms = if (course != null && semester != null) {
-            courseRepository.getCourseRoomUnion(semester)[course.name] ?: emptySet()
+        val fallbackRooms = if (effectiveHint != null && semester != null) {
+            courseRepository.getCourseRoomUnion(semester)[effectiveHint] ?: emptySet()
         } else emptySet()
         val activeRooms = course?.rooms ?: emptySet()
-        val remembered = course?.let { userPreferences.getRememberedLocationId(it.name) }
-        return when (val sel = LocationSelection.select(locations, course, activeRooms, fallbackRooms, remembered)) {
+        val remembered = effectiveHint?.let { userPreferences.getRememberedLocationId(it) }
+        return when (val sel = LocationSelection.select(locations, effectiveHint, activeRooms, fallbackRooms, remembered)) {
             is LocationSelection.Result.Empty -> TriggerResult.NoLocation
             is LocationSelection.Result.Auto -> startMock(sel.location)
             is LocationSelection.Result.NeedManual -> TriggerResult.NeedsManualSelection(sel.candidates)

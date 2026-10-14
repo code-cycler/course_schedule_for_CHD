@@ -37,10 +37,8 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
 
     private val triggerCoordinator: CheckInTriggerCoordinator by inject()
     private val userPreferences: UserPreferences by inject()
+    private val courseRepository: com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    @Volatile
-    private var lastTriggerAt = 0L
 
     /** 是否 debug 构建（放行 adb shell 测试通知，便于无真实签到时端到端测试） */
     private val isDebuggable: Boolean
@@ -49,10 +47,15 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val notification = sbn?.notification ?: return
         val pkg = sbn.packageName
-        // 廉价包名预检（不挂起）：非目标包直接忽略
-        if (!CheckInNotificationMatcher.isTargetPackage(pkg, isDebuggable)) return
+        // 廉价包名预检（不挂起）：非目标包直接忽略。
+        // [v126] 正式版自测通知白名单：本包名 + 私有 extras 标记双条件（走真实匹配→触发管线，不绕过环节）
+        val isSelfTest = CheckInNotificationMatcher.isSelfTestNotification(
+            pkg, packageName,
+            notification.extras?.getBoolean(CheckInNotificationMatcher.TEST_EXTRA_KEY) == true
+        )
+        if (!CheckInNotificationMatcher.isTargetPackage(pkg, isDebuggable) && !isSelfTest) return
 
-        AppLogger.d(TAG, "[v114] 收到目标通知: pkg=$pkg")
+        AppLogger.d(TAG, "[v126] 收到目标通知: pkg=$pkg, selfTest=$isSelfTest")
         val content = extractContent(notification)
         scope.launch {
             val keywords = userPreferences.getCheckInKeywordsOnce()
@@ -61,15 +64,25 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
                 AppLogger.d(TAG, "[v114] 畅课通知(非签到关键字)，忽略。原文: $content")
                 return@launch
             }
-            // 防抖：15s 内不重复触发
-            val now = System.currentTimeMillis()
-            if (now - lastTriggerAt < DEBOUNCE_MS) {
-                AppLogger.d(TAG, "[v114] 防抖跳过（距上次触发 ${now - lastTriggerAt}ms）")
-                return@launch
-            }
-            lastTriggerAt = now
-            AppLogger.i(TAG, "[v114] 识别到签到通知: $content")
-            handleTrigger()
+            // [v126] 构造触发事件（source=Notification，courseHint 通知子串提取，去重由管线内会话级 Deduper 接管）
+            val event = CheckInTriggerEvent(
+                source = CheckInTriggerSource.Notification,
+                courseHint = extractCourseHint(content),
+                rawText = content
+            )
+            AppLogger.i(TAG, "[v126] 识别到签到通知（courseHint=${event.courseHint}）: $content")
+            handleTrigger(event)
+        }
+    }
+
+    /** [v126] 通知文本与当前学期课表课程名子串匹配提取 courseHint；学期未设置返回 null（由管线推断兜底） */
+    private suspend fun extractCourseHint(content: String): String? {
+        return try {
+            val semester = courseRepository.getCurrentSemester() ?: return null
+            CourseHintExtractor.extract(content, courseRepository.getCourseRoomUnion(semester).keys)
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "[v126] courseHint 提取失败: ${e.message}")
+            null
         }
     }
 
@@ -82,8 +95,8 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
         return "$title $text $bigText"
     }
 
-    private suspend fun handleTrigger() {
-        when (val result = triggerCoordinator.trigger()) {
+    private suspend fun handleTrigger(event: CheckInTriggerEvent) {
+        when (val result = triggerCoordinator.onEvent(event)) {
             is CheckInTriggerCoordinator.TriggerResult.MockStarted -> {
                 // Mock 服务自身已显示持久通知，此处无需额外通知
                 AppLogger.i(TAG, "[v114] 已由签到通知触发 Mock: ${result.locationName}")
@@ -94,6 +107,10 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
                 postGuidance("检测到签到，但无法切换虚拟定位", result.reason)
             is CheckInTriggerCoordinator.TriggerResult.NeedsManualSelection ->
                 postGuidance("检测到签到，有多个候选位置", "打开 App，在「签到辅助」中选择要使用的位置")
+            is CheckInTriggerCoordinator.TriggerResult.DebouncedBySession -> {
+                // 会话级去重命中：同一签到近期已响应过，静默跳过不打扰
+                AppLogger.d(TAG, "[v126] 会话级去重命中，跳过本次触发")
+            }
         }
     }
 
@@ -134,6 +151,6 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
         private const val TAG = "CheckInNotifListener"
         private const val CHANNEL_ID = "checkin_assist_alert_channel"
         private const val GUIDANCE_NOTIFICATION_ID = 0x1142
-        private const val DEBOUNCE_MS = 15_000L
+        // [v126] 15s 纯时间防抖已由管线内会话级 CheckInDeduper（课程名/签到 ID + 2 分钟窗）取代
     }
 }
