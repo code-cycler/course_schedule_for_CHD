@@ -231,6 +231,20 @@ fun CheckInAssistScreen(
                     }
                 }
             )
+            // [v126] 电池优化白名单（荣耀省电管控杀后台风险；点击直申系统对话框，失败跳设置列表）
+            PermissionStatusRow(
+                ok = state.batteryWhitelisted,
+                label = "电池优化白名单",
+                hint = if (state.batteryWhitelisted) "已豁免，后台不易被杀" else "点击申请「忽略电池优化」，降低监听被系统杀掉的概率",
+                onClick = {
+                    if (context is android.app.Activity) {
+                        if (!com.example.course_schedule_for_chd_v002.util.PowerSaveWhitelist.request(context)) {
+                            com.example.course_schedule_for_chd_v002.util.PowerSaveWhitelist.openSettings(context)
+                        }
+                        // 回到前台后 refreshPermissions 会刷新状态
+                    }
+                }
+            )
 
             Spacer(Modifier.height(16.dp))
 

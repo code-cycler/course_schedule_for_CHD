@@ -16,6 +16,8 @@ data class CheckInAssistUiState(
     val notificationPermissionGranted: Boolean = false,
     /** 是否被授予「通知使用权」（能否监听畅课签到通知） */
     val notificationListenerEnabled: Boolean = false,
+    /** [v126] 是否已在电池优化白名单（荣耀省电管控杀后台风险） */
+    val batteryWhitelisted: Boolean = false,
     /** [v114] 当前是否有 Mock 定位会话在跑（控制「停止」按钮） */
     val mockLocationActive: Boolean = false,
     /** 编辑器是否打开；editing 非空表示编辑模式 */

@@ -8,6 +8,7 @@ import com.example.course_schedule_for_chd_v002.domain.repository.ICheckInLocati
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncService
 import com.example.course_schedule_for_chd_v002.service.checkin.CheckInTriggerCoordinator
+import com.example.course_schedule_for_chd_v002.service.checkin.NlsHealthMonitor
 import com.example.course_schedule_for_chd_v002.ui.screens.checkinassist.CheckInAssistViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleViewModel
@@ -54,6 +55,14 @@ val appModule = module {
 
     // [v114] 签到触发协调器（UI 模拟触发 + 后台通知监听共用）
     single { CheckInTriggerCoordinator(get(), get(), get(), get()) }
+
+    // [v126] NLS 健康监控（心跳 / 疑似未绑判定 / requestRebind / 冷启动检查）
+    single {
+        NlsHealthMonitor(
+            appContext = androidContext(),
+            userPreferences = get()
+        )
+    }
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }

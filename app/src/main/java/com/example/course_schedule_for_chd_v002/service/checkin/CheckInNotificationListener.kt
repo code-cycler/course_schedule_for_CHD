@@ -38,15 +38,37 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
     private val triggerCoordinator: CheckInTriggerCoordinator by inject()
     private val userPreferences: UserPreferences by inject()
     private val courseRepository: com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository by inject()
+    private val nlsHealth: NlsHealthMonitor by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** 是否 debug 构建（放行 adb shell 测试通知，便于无真实签到时端到端测试） */
     private val isDebuggable: Boolean
         get() = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        // [v126] 连接即心跳（必写）
+        scope.launch { nlsHealth.onListenerConnected() }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val notification = sbn?.notification ?: return
         val pkg = sbn.packageName
+        // [v126] 畅课通知原文记录（全量，含未命中关键字；假设 A 校准的手机端取证主入口）
+        if (pkg == CheckInNotificationMatcher.TRONCLASS_PACKAGE) {
+            val extras = notification.extras
+            scope.launch {
+                userPreferences.appendTronClassNotification(
+                    com.example.course_schedule_for_chd_v002.util.TronClassNotificationRecord(
+                        channelId = notification.channelId,
+                        title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+                        text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+                        timestamp = sbn.postTime
+                    )
+                )
+                nlsHealth.onNotificationPosted()
+            }
+        }
         // 廉价包名预检（不挂起）：非目标包直接忽略。
         // [v126] 正式版自测通知白名单：本包名 + 私有 extras 标记双条件（走真实匹配→触发管线，不绕过环节）
         val isSelfTest = CheckInNotificationMatcher.isSelfTestNotification(

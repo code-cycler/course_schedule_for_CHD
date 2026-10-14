@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.course_schedule_for_chd_v002.domain.model.CheckInAssistSettings
@@ -51,6 +52,11 @@ class UserPreferences(private val context: Context) {
         // [v126] 位置记忆 v2：Map<"courseName", locationId>（教室名退出记忆键，tag 化后课程名是唯一选择依据）
         private val KEY_CHECKIN_LOCATION_MEMORY_V2 = stringPreferencesKey("checkin_location_memory_v2")
         private val KEY_CHECKIN_KEYWORDS = stringPreferencesKey("checkin_keywords")
+        // [v126] NLS 健康监控：最后心跳时间戳 / 疑似未绑上次提醒时间
+        private val KEY_NLS_HEARTBEAT = longPreferencesKey("checkin_nls_heartbeat_at")
+        private val KEY_NLS_SUSPECT_NOTIFIED_AT = longPreferencesKey("checkin_nls_suspect_notified_at")
+        // [v126] 畅课通知原文记录（环形缓冲，全量含未命中关键字）
+        private val KEY_TRONCLASS_NOTIFICATION_LOG = stringPreferencesKey("checkin_tronclass_notification_log")
         // 默认签到关键字（与 CheckInNotificationMatcher.DEFAULT_KEYWORDS_TEXT 保持一致）
         private const val DEFAULT_CHECKIN_KEYWORDS = "签到,考勤,点名"
     }
@@ -770,6 +776,47 @@ class UserPreferences(private val context: Context) {
         }
         AppLogger.d("UserPreferences", "[v126] 记忆位置: $key -> $locationId")
     }
+
+    // ---- [v126] NLS 健康监控 ----
+
+    /** [v126] 写 NLS 最后心跳时间戳 */
+    suspend fun updateNlsHeartbeat(at: Long) {
+        context.dataStore.edit { it[KEY_NLS_HEARTBEAT] = at }
+    }
+
+    /** [v126] 读 NLS 最后心跳（null = 从未） */
+    suspend fun getNlsHeartbeatOnce(): Long? =
+        context.dataStore.data.map { it[KEY_NLS_HEARTBEAT] }.first()
+
+    /** [v126] 写/读「疑似未绑上次提醒时间」（低优通知 24h 去重） */
+    suspend fun updateNlsSuspectNotifiedAt(at: Long) {
+        context.dataStore.edit { it[KEY_NLS_SUSPECT_NOTIFIED_AT] = at }
+    }
+
+    suspend fun getNlsSuspectNotifiedAtOnce(): Long? =
+        context.dataStore.data.map { it[KEY_NLS_SUSPECT_NOTIFIED_AT] }.first()
+
+    // ---- [v126] 畅课通知原文记录（全量，环形缓冲） ----
+
+    /** [v126] 追加一条畅课通知记录（环形淘汰最旧；须在目标包预检通过后调用） */
+    suspend fun appendTronClassNotification(record: com.example.course_schedule_for_chd_v002.util.TronClassNotificationRecord) {
+        context.dataStore.edit { preferences ->
+            val current = com.example.course_schedule_for_chd_v002.util.NotificationLogJson.decode(
+                preferences[KEY_TRONCLASS_NOTIFICATION_LOG]
+            )
+            preferences[KEY_TRONCLASS_NOTIFICATION_LOG] = com.example.course_schedule_for_chd_v002.util.NotificationLogJson.serialize(
+                com.example.course_schedule_for_chd_v002.util.NotificationLogJson.append(current, record)
+            )
+        }
+    }
+
+    /** [v126] 通知记录流（页面查看用） */
+    val tronClassNotificationLog: Flow<List<com.example.course_schedule_for_chd_v002.util.TronClassNotificationRecord>> =
+        context.dataStore.data.map { preferences ->
+            com.example.course_schedule_for_chd_v002.util.NotificationLogJson.decode(
+                preferences[KEY_TRONCLASS_NOTIFICATION_LOG]
+            )
+        }
 
     /** [v114] 序列化位置记忆为 JSON：{"course|room":123,"course2|":456} */
     private fun serializeLocationMemory(map: Map<String, Long>): String {

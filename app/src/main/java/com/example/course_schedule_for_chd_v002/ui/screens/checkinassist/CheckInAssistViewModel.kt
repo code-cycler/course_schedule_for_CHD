@@ -16,6 +16,7 @@ import com.example.course_schedule_for_chd_v002.service.checkin.CheckInTriggerCo
 import com.example.course_schedule_for_chd_v002.service.checkin.CheckInTriggerCoordinator.TriggerResult
 import com.example.course_schedule_for_chd_v002.service.mocklocation.MockLocationController
 import com.example.course_schedule_for_chd_v002.service.mocklocation.MockLocationService
+import com.example.course_schedule_for_chd_v002.util.PowerSaveWhitelist
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,7 +70,7 @@ class CheckInAssistViewModel(
         }
     }
 
-    /** 刷新四项权限的实际状态（从系统查询） */
+    /** 刷新各项权限的实际状态（从系统查询） */
     fun refreshPermissions() {
         val ctx: Context = app
         _uiState.update {
@@ -80,6 +81,7 @@ class CheckInAssistViewModel(
                 ) == PackageManager.PERMISSION_GRANTED,
                 notificationPermissionGranted = notificationGranted(ctx),
                 notificationListenerEnabled = isNotificationListenerEnabled(ctx),
+                batteryWhitelisted = PowerSaveWhitelist.isIgnored(ctx),
                 mockLocationActive = MockLocationService.isRunning
             )
         }

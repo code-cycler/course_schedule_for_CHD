@@ -5,11 +5,17 @@ import android.util.Log
 import com.example.course_schedule_for_chd_v002.di.appModule
 import com.example.course_schedule_for_chd_v002.di.databaseModule
 import com.example.course_schedule_for_chd_v002.di.networkModule
+import com.example.course_schedule_for_chd_v002.service.checkin.NlsHealthMonitor
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import com.example.course_schedule_for_chd_v002.util.CrashHandler
 import com.example.course_schedule_for_chd_v002.util.HtmlCache
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
+import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.logger.Level
 
@@ -69,5 +75,15 @@ class CourseApplication : Application() {
 
         // 5. 初始化 HtmlCache（不能通过 Koin single 懒加载，必须在 App 启动时初始化）
         HtmlCache.init(this)
+
+        // 6. [v126] NLS 健康冷启动：无条件预防性 requestRebind（grill W01 Q4）+ 心跳超阈值低优提醒
+        appScope.launch {
+            runCatching {
+                GlobalContext.get().get<NlsHealthMonitor>().onAppColdStart()
+            }.onFailure { AppLogger.w(TAG, "[v126] NLS 健康冷启动失败: ${it.message}") }
+        }
     }
+
+    /** [v126] 应用级协程域（冷启动健康检查等一次性异步任务） */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 }
