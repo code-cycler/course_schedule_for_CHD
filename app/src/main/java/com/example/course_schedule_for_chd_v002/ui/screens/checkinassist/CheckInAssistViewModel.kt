@@ -238,25 +238,38 @@ class CheckInAssistViewModel(
     fun openNotificationLog() = _uiState.update { it.copy(notificationLogOpen = true) }
     fun closeNotificationLog() = _uiState.update { it.copy(notificationLogOpen = false) }
 
-    /** [v126] 导出全部位置数据（JSON，应用外部分享；含换机迁移用途） */
-    fun exportLocations(onReady: (android.net.Uri) -> Unit, onError: (String) -> Unit) {
+    /**
+     * [v127] 导出全部位置数据到用户选定位置（SAF 另存为；换机迁移用途）。
+     * 旧实现先写应用私有目录再弹分享面板，用户不选目标就找不到文件；改为 UI 端
+     * ACTION_CREATE_DOCUMENT 由用户亲自选保存位置，这里只负责把 JSON 写入返回的 Uri。
+     */
+    fun exportLocationsTo(uri: android.net.Uri) {
         viewModelScope.launch {
             runCatching {
-                val json = com.example.course_schedule_for_chd_v002.util.CheckInLocationBackup.serialize(
-                    locationRepository.getAll()
-                )
-                val dir = java.io.File(app.getExternalFilesDir(null), "exports").apply { mkdirs() }
-                val file = java.io.File(dir, "checkin_locations_${System.currentTimeMillis()}.json")
-                file.writeText(json)
-                androidx.core.content.FileProvider.getUriForFile(
-                    app, "${app.packageName}.fileprovider", file
-                )
-            }.onSuccess { uri ->
-                onReady(uri)
+                val locations = locationRepository.getAll()
+                val json = com.example.course_schedule_for_chd_v002.util.CheckInLocationBackup.serialize(locations)
+                app.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(json.toByteArray(Charsets.UTF_8))
+                    out.flush()
+                } ?: throw IllegalStateException("无法打开所选保存位置")
+                locations.size
+            }.onSuccess { n ->
+                _uiState.update {
+                    it.copy(message = "已导出 $n 个位置到：${queryDisplayName(uri)}")
+                }
             }.onFailure {
-                onError("导出失败：${it.message}")
+                _uiState.update { it.copy(message = "导出失败：${it.message}") }
             }
         }
+    }
+
+    /** [v127] 从 SAF Uri 查显示文件名（提示用户导出到哪了；查不到退化为通用名） */
+    private fun queryDisplayName(uri: android.net.Uri): String {
+        return runCatching {
+            app.contentResolver.query(
+                uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null
+            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull() ?: "所选位置"
     }
 
     /** [v126] 从 JSON 导入位置（合并插入，不覆盖已有；结果走 message 通道） */

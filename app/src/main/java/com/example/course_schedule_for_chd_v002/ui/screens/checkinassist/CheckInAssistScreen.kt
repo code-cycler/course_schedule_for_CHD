@@ -135,6 +135,11 @@ fun CheckInAssistScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(viewModel::importLocations) }
 
+    // [v127] 位置数据导出（SAF 另存为：用户亲自选保存位置，与导入对称；不再写私有目录+分享面板）
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> uri?.let(viewModel::exportLocationsTo) }
+
     // 编辑器
     if (state.editorOpen) {
         LocationEditorSheet(
@@ -456,22 +461,10 @@ fun CheckInAssistScreen(
                 ) { Text("畅课通知记录（${state.notificationLog.size}）") }
                 OutlinedButton(
                     onClick = {
-                        viewModel.exportLocations(
-                            onReady = { uri ->
-                                runCatching {
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/json"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(
-                                        Intent.createChooser(send, "分享位置数据")
-                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    )
-                                }
-                            },
-                            onError = { }
-                        )
+                        val ts = java.text.SimpleDateFormat(
+                            "yyyyMMdd_HHmmss", java.util.Locale.getDefault()
+                        ).format(java.util.Date())
+                        exportLauncher.launch("checkin_locations_$ts.json")
                     },
                     modifier = Modifier.weight(1f)
                 ) { Text("位置导出") }
