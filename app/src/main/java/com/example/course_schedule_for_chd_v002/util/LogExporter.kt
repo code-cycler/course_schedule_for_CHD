@@ -59,7 +59,16 @@ object LogExporter {
         "ScreenOnReceiver",
         "ChargingReceiver",
         "LogExporter",
-        "AppLogger"  // [v107] 添加 AppLogger TAG
+        "AppLogger",  // [v107] 添加 AppLogger TAG
+        // [v126] 签到辅助 v2 管线日志 TAG（logcat 回退方案采集范围）
+        "CheckInNotifListener",
+        "CheckInTrigger",
+        "CheckInDeduper",
+        "NlsHealth",
+        "BootRebindReceiver",
+        "CheckInTestTools",
+        "CheckInNotifListener.Companion",
+        "AppDatabase"
     )
 
     // 日志文件名前缀

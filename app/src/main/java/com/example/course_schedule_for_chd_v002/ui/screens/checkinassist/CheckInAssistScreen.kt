@@ -6,7 +6,9 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
@@ -60,6 +63,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.example.course_schedule_for_chd_v002.domain.model.CheckInLocation
 import com.example.course_schedule_for_chd_v002.util.AppLogger
 import org.koin.androidx.compose.koinViewModel
@@ -67,7 +71,7 @@ import org.koin.androidx.compose.koinViewModel
 /**
  * [v114] 签到辅助主界面：位置列表 + 设置区 + 权限状态 + 模拟触发
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun CheckInAssistScreen(
     onBack: () -> Unit,
@@ -76,6 +80,7 @@ fun CheckInAssistScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     // [v114] 跳转本应用详情页（权限被永久拒绝时，运行时申请器不弹窗，统一跳设置页）
     val openAppDetailsSettings = {
@@ -118,18 +123,89 @@ fun CheckInAssistScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshPermissions()
+                viewModel.checkNlsHealth()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // [v126] 位置数据导入（换机/重装迁移，ACTION_OPEN_DOCUMENT 选 JSON；结果走 message 提示）
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(viewModel::importLocations) }
+
     // 编辑器
     if (state.editorOpen) {
         LocationEditorSheet(
             editing = state.editing,
+            courseRoomMap = state.courseRoomMap,
             onSave = viewModel::saveLocation,
             onDismiss = viewModel::closeEditor
+        )
+    }
+
+    // [v126] 畅课通知原文记录查看（最近 50 条，长按可复制）
+    if (state.notificationLogOpen) {
+        AlertDialog(
+            onDismissRequest = viewModel::closeNotificationLog,
+            title = { Text("畅课通知记录（最近 ${state.notificationLog.size} 条）") },
+            text = {
+                Column {
+                    if (state.notificationLog.isEmpty()) {
+                        Text("还没有收到过畅课通知（含营销/普通推送都会记录在此）")
+                    } else {
+                        LazyColumn(modifier = Modifier.height(360.dp)) {
+                            items(state.notificationLog.reversed()) { record ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .combinedClickable(
+                                            onClick = {},
+                                            onLongClick = {
+                                                val cm = context.getSystemService(
+                                                    android.content.Context.CLIPBOARD_SERVICE
+                                                ) as android.content.ClipboardManager
+                                                cm.setPrimaryClip(
+                                                    android.content.ClipData.newPlainText(
+                                                        "畅课通知",
+                                                        "${record.title.orEmpty()} ${record.text.orEmpty()}"
+                                                    )
+                                                )
+                                            }
+                                        )
+                                        .padding(vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        record.title.orEmpty().ifBlank { "（无标题）" },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        record.text.orEmpty(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "${java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault())
+                                            .format(java.util.Date(record.timestamp))} · 渠道 ${record.channelId.orEmpty().ifBlank { "-" }}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            "长按单条复制原文（关键字校准用）",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::closeNotificationLog) { Text("关闭") }
+            }
         )
     }
 
@@ -181,6 +257,42 @@ fun CheckInAssistScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            // ===== [v126] NLS 疑似未绑定警示条（>24h 无心跳） =====
+            if (state.nlsSuspectUnbound) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "⚠ 通知监听可能未生效",
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            "超过 24 小时没有收到通知心跳。可尝试重连，或在「通知使用权」里关掉本应用再重新打开。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { viewModel.verifyNlsBinding() }) { Text("验证监听") }
+                            TextButton(onClick = {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                }
+                            }) { Text("去设置") }
+                        }
+                    }
+                }
+            }
+
             // ===== 权限状态区 =====
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -308,12 +420,81 @@ fun CheckInAssistScreen(
             if (state.mockLocationActive) {
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
-                    onClick = { viewModel.stopMock() },
+                    onClick = viewModel::stopMock,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("■  停止虚拟定位", color = MaterialTheme.colorScheme.error)
                 }
             }
+
+            Spacer(Modifier.height(20.dp))
+
+            // ===== [v126] 测试与调试（全部手机端自助，不依赖电脑） =====
+            Text("测试与调试", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = viewModel::sendTestNotification,
+                    modifier = Modifier.weight(1f)
+                ) { Text("端到端测试通知") }
+                OutlinedButton(
+                    onClick = viewModel::verifyNlsBinding,
+                    modifier = Modifier.weight(1f)
+                ) { Text("验证监听绑定") }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = viewModel::openNotificationLog,
+                    modifier = Modifier.weight(1f)
+                ) { Text("畅课通知记录（${state.notificationLog.size}）") }
+                OutlinedButton(
+                    onClick = {
+                        viewModel.exportLocations(
+                            onReady = { uri ->
+                                runCatching {
+                                    val send = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/json"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(
+                                        Intent.createChooser(send, "分享位置数据")
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                }
+                            },
+                            onError = { }
+                        )
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("位置导出") }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { importLauncher.launch(arrayOf("application/json")) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("位置导入（换机迁移）") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val result = com.example.course_schedule_for_chd_v002.util.LogExporter.exportLogs(context)
+                        if (result.success) {
+                            viewModel.notifyMessage("日志已导出：${result.file?.name}（${result.formattedSize}）")
+                        } else {
+                            viewModel.notifyMessage("日志导出失败：${result.error ?: "未知错误"}")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("导出日志（含触发管线事件）") }
 
             Spacer(Modifier.height(20.dp))
 
@@ -329,6 +510,58 @@ fun CheckInAssistScreen(
                 }
             }
             Spacer(Modifier.height(8.dp))
+
+            // [v126] 位置选用下拉（签到位置改下拉：选已有位置立即使用；新建走右上角 +）
+            if (state.locations.isNotEmpty()) {
+                var useMenuExpanded by remember { mutableStateOf(false) }
+                val selectedName = state.locations
+                    .firstOrNull { it.id == state.selectedLocationId }?.name ?: "选择要使用的位置"
+                androidx.compose.material3.ExposedDropdownMenuBox(
+                    expanded = useMenuExpanded,
+                    onExpandedChange = { useMenuExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = selectedName,
+                        onValueChange = { },
+                        readOnly = true,
+                        label = { Text("签到位置") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
+                        trailingIcon = {
+                            IconButton(onClick = { useMenuExpanded = !useMenuExpanded }) {
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = "选择位置")
+                            }
+                        }
+                    )
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = useMenuExpanded,
+                        onDismissRequest = { useMenuExpanded = false },
+                        modifier = Modifier.exposedDropdownSize()
+                    ) {
+                        state.locations.forEach { loc ->
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(loc.name) },
+                                onClick = {
+                                    viewModel.onSelectedLocationChanged(loc.id)
+                                    useMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = viewModel::useSelectedLocation,
+                    enabled = state.selectedLocationId != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.LocationOn, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("使用该位置（立即触发）")
+                }
+                Spacer(Modifier.height(8.dp))
+            }
 
             if (state.locations.isEmpty()) {
                 Text(

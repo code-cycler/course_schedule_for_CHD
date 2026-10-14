@@ -2,6 +2,8 @@ package com.example.course_schedule_for_chd_v002.ui.screens.checkinassist
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,9 +14,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -38,19 +45,24 @@ import kotlinx.coroutines.launch
 
 /**
  * [v114] 签到位置新增/编辑底部弹层
+ * [v126] B4 重构（checkin-assist-v2）：
+ * - 关联课程 = 可编辑下拉（当前学期课程；从菜单选中时自动预填该课**全部**教室为 tag，v120/v121 多教室课全带出）；
+ *   自由输入仍允许（历史学期关联原样保留显示编辑）。
+ * - 关联教室 = tag chip 增删（预填可删可加，手输自定义教室允许）。
  *
  * - 主要方式：点「采集当前位置」读取设备真实 GPS（WGS-84，零转换）。
  * - Fallback：手动输入经纬度（WGS-84）。
- * - 关联课程名/教室名可选。
  *
  * @param editing 编辑模式传入已有位置；新增传 null
+ * @param courseRoomMap 当前学期「课程名 → 教室并集」（下拉数据源 + 预填来源）
  * @param onSave 保存回调（WGS-84 坐标的 CheckInLocation）
  * @param onDismiss 关闭回调
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LocationEditorSheet(
     editing: CheckInLocation?,
+    courseRoomMap: Map<String, Set<String>>,
     onSave: (CheckInLocation) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -64,8 +76,10 @@ fun LocationEditorSheet(
     var lngText by remember { mutableStateOf(editing?.longitude?.let { "%.6f".format(it) } ?: "") }
     var note by remember { mutableStateOf(editing?.note ?: "") }
     var linkedCourse by remember { mutableStateOf(editing?.linkedCourseId ?: "") }
-    // [v126] 教室 tag 集合的最小适配：B1 阶段保持单输入框（逗号分隔多教室），tag chip UI 留 B4 重构
-    var linkedRoom by remember { mutableStateOf(editing?.linkedRoomNames?.joinToString(",") ?: "") }
+    // [v126] 教室 tag 集合（编辑模式带出已有 tag）
+    var roomTags by remember { mutableStateOf(editing?.linkedRoomNames ?: emptyList()) }
+    var newRoomInput by remember { mutableStateOf("") }
+    var courseMenuExpanded by remember { mutableStateOf(false) }
 
     var collecting by remember { mutableStateOf(false) }
     var collectedAccuracy by remember { mutableStateOf<Float?>(editing?.accuracyRadiusMeters) }
@@ -178,25 +192,104 @@ fun LocationEditorSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // ===== [v126] 关联课程：可编辑下拉（当前学期）=====
             Spacer(Modifier.height(8.dp))
+            androidx.compose.material3.ExposedDropdownMenuBox(
+                expanded = courseMenuExpanded && courseRoomMap.isNotEmpty(),
+                onExpandedChange = { if (courseRoomMap.isNotEmpty()) courseMenuExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = linkedCourse,
+                    onValueChange = { linkedCourse = it },
+                    label = { Text("关联课程（可选，下拉选当前学期课程）") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    trailingIcon = {
+                        androidx.compose.material3.IconButton(onClick = { courseMenuExpanded = !courseMenuExpanded }) {
+                            Icon(Icons.Filled.ArrowDropDown, contentDescription = "选择课程")
+                        }
+                    }
+                )
+                androidx.compose.material3.DropdownMenu(
+                    expanded = courseMenuExpanded && courseRoomMap.isNotEmpty(),
+                    onDismissRequest = { courseMenuExpanded = false },
+                    modifier = Modifier.exposedDropdownSize()
+                ) {
+                    courseRoomMap.keys.sorted().forEach { courseName ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(courseName) },
+                            onClick = {
+                                linkedCourse = courseName
+                                // 选课 → 预填该课全部教室为 tag（可删可改）
+                                courseRoomMap[courseName]?.let { rooms ->
+                                    roomTags = rooms.sorted()
+                                }
+                                courseMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // ===== [v126] 关联教室：tag chip 增删 =====
+            Spacer(Modifier.height(8.dp))
+            Text("关联教室 tag（选课后自动带出该课全部教室，可增删）", fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(4.dp))
+            if (roomTags.isEmpty()) {
+                Text(
+                    "未关联教室（触发时按课程名匹配）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    roomTags.forEach { room ->
+                        AssistChip(
+                            onClick = { roomTags = roomTags - room },
+                            label = { Text(room) },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "删除教室 $room",
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            },
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
+                }
+                Text(
+                    "点 tag 删除",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedTextField(
-                    value = linkedCourse,
-                    onValueChange = { linkedCourse = it },
-                    label = { Text("关联课程（可选）") },
+                    value = newRoomInput,
+                    onValueChange = { newRoomInput = it },
+                    label = { Text("添加教室 tag") },
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
-                OutlinedTextField(
-                    value = linkedRoom,
-                    onValueChange = { linkedRoom = it },
-                    label = { Text("关联教室（可选）") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
+                OutlinedButton(
+                    onClick = {
+                        val r = newRoomInput.trim()
+                        if (r.isNotEmpty() && roomTags.none { it.equals(r, ignoreCase = true) }) {
+                            roomTags = roomTags + r
+                        }
+                        newRoomInput = ""
+                    },
+                    enabled = newRoomInput.isNotBlank()
+                ) { Text("添加") }
             }
 
             Spacer(Modifier.height(8.dp))
@@ -231,8 +324,7 @@ fun LocationEditorSheet(
                                 accuracyRadiusMeters = collectedAccuracy,
                                 note = note.trim().ifBlank { null },
                                 linkedCourseId = linkedCourse.trim().ifBlank { null },
-                                linkedRoomNames = linkedRoom.split(',')
-                                    .map { it.trim() }.filter { it.isNotEmpty() },
+                                linkedRoomNames = roomTags,
                                 createdAt = editing?.createdAt ?: System.currentTimeMillis()
                             )
                         )

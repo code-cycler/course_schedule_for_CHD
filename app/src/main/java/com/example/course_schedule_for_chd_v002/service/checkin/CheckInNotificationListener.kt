@@ -77,6 +77,12 @@ class CheckInNotificationListener : NotificationListenerService(), KoinComponent
         )
         if (!CheckInNotificationMatcher.isTargetPackage(pkg, isDebuggable) && !isSelfTest) return
 
+        // [v126] 自测探针：Listener 收到自测通知即刷新（NLS 绑定验证按钮轮询此时间戳）
+        if (isSelfTest) {
+            com.example.course_schedule_for_chd_v002.service.checkin.CheckInTestTools.lastSelfTestReceivedAt =
+                System.currentTimeMillis()
+        }
+
         AppLogger.d(TAG, "[v126] 收到目标通知: pkg=$pkg, selfTest=$isSelfTest")
         val content = extractContent(notification)
         scope.launch {

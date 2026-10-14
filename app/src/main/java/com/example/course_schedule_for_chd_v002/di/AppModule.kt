@@ -78,5 +78,5 @@ val appModule = module {
     }
 
     // [v114] 签到辅助 ViewModel
-    viewModel { CheckInAssistViewModel(get(), get(), get(), get()) }
+    viewModel { CheckInAssistViewModel(get(), get(), get(), get(), get(), get()) }
 }

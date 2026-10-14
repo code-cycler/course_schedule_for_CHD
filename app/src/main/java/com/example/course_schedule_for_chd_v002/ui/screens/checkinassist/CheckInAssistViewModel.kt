@@ -33,7 +33,9 @@ class CheckInAssistViewModel(
     private val app: Application,
     private val locationRepository: ICheckInLocationRepository,
     private val userPreferences: UserPreferences,
-    private val triggerCoordinator: CheckInTriggerCoordinator
+    private val triggerCoordinator: CheckInTriggerCoordinator,
+    private val courseRepository: com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository,
+    private val nlsHealth: com.example.course_schedule_for_chd_v002.service.checkin.NlsHealthMonitor
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CheckInAssistUiState())
@@ -43,7 +45,10 @@ class CheckInAssistViewModel(
         observeLocations()
         observeSettings()
         observeKeywords()
+        observeNotificationLog()
         refreshPermissions()
+        loadCourseRoomMap()
+        checkNlsHealth()
     }
 
     private fun observeLocations() {
@@ -67,6 +72,34 @@ class CheckInAssistViewModel(
             userPreferences.checkInKeywordsRaw.collect { raw ->
                 _uiState.update { it.copy(keywordsText = raw) }
             }
+        }
+    }
+
+    /** [v126] 畅课通知原文记录（最近 50 条） */
+    private fun observeNotificationLog() {
+        viewModelScope.launch {
+            userPreferences.tronClassNotificationLog.collect { log ->
+                _uiState.update { it.copy(notificationLog = log) }
+            }
+        }
+    }
+
+    /** [v126] 课程 → 教室并集（当前学期；课程下拉数据源，选课预填教室 tag） */
+    private fun loadCourseRoomMap() {
+        viewModelScope.launch {
+            val map = runCatching {
+                courseRepository.getCurrentSemester()
+                    ?.let { courseRepository.getCourseRoomUnion(it) } ?: emptyMap()
+            }.getOrDefault(emptyMap())
+            _uiState.update { it.copy(courseRoomMap = map) }
+        }
+    }
+
+    /** [v126] NLS 健康检查（>24h 无心跳 → 警示条） */
+    fun checkNlsHealth() {
+        viewModelScope.launch {
+            val suspect = runCatching { nlsHealth.isSuspectUnbound() }.getOrDefault(false)
+            _uiState.update { it.copy(nlsSuspectUnbound = suspect) }
         }
     }
 
@@ -142,6 +175,9 @@ class CheckInAssistViewModel(
 
     fun consumeMessage() = _uiState.update { it.copy(message = null) }
 
+    /** [v126] 通用一次性提示（测试入口按钮结果反馈） */
+    fun notifyMessage(text: String) = _uiState.update { it.copy(message = text) }
+
     /** 保存签到通知识别关键字（逗号分隔原始串） */
     fun updateKeywords(raw: String) {
         viewModelScope.launch {
@@ -155,6 +191,89 @@ class CheckInAssistViewModel(
     fun triggerMock() {
         viewModelScope.launch {
             applyResult(triggerCoordinator.trigger())
+        }
+    }
+
+    /** [v126] 位置选用下拉：选中变化 */
+    fun onSelectedLocationChanged(id: Long?) {
+        _uiState.update { it.copy(selectedLocationId = id) }
+    }
+
+    /** [v126] 使用下拉选中的位置立即触发（走 startForLocation：记忆 + Mock） */
+    fun useSelectedLocation() {
+        val id = _uiState.value.selectedLocationId ?: return
+        val loc = _uiState.value.locations.firstOrNull { it.id == id } ?: return
+        viewModelScope.launch {
+            applyResult(triggerCoordinator.startForLocation(loc))
+        }
+    }
+
+    /** [v126] 端到端测试通知（走真实「通知 → 匹配 → 触发」管线） */
+    fun sendTestNotification() {
+        com.example.course_schedule_for_chd_v002.service.checkin.CheckInTestTools
+            .sendSelfTestNotification(app)
+        _uiState.update { it.copy(message = "已发送测试通知（走真实管线），观察触发结果与通知") }
+    }
+
+    /** [v126] NLS 绑定实时验证：发探针通知 → 3 秒后查 Listener 是否收到（探测荣耀「授权但未绑定」） */
+    fun verifyNlsBinding() {
+        viewModelScope.launch {
+            val before = com.example.course_schedule_for_chd_v002.service.checkin.CheckInTestTools.lastSelfTestReceivedAt
+            com.example.course_schedule_for_chd_v002.service.checkin.CheckInTestTools
+                .sendSelfTestNotification(app, title = "【绑定验证】签到探针")
+            kotlinx.coroutines.delay(3000)
+            val after = com.example.course_schedule_for_chd_v002.service.checkin.CheckInTestTools.lastSelfTestReceivedAt
+            val received = after > before
+            _uiState.update {
+                it.copy(
+                    message = if (received) "监听回调正常（探针已收到）"
+                    else "3 秒内未收到探针回调——通知使用权可能被授权但未绑定，尝试重开开关"
+                )
+            }
+            checkNlsHealth()
+        }
+    }
+
+    /** [v126] 通知记录查看对话框 */
+    fun openNotificationLog() = _uiState.update { it.copy(notificationLogOpen = true) }
+    fun closeNotificationLog() = _uiState.update { it.copy(notificationLogOpen = false) }
+
+    /** [v126] 导出全部位置数据（JSON，应用外部分享；含换机迁移用途） */
+    fun exportLocations(onReady: (android.net.Uri) -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                val json = com.example.course_schedule_for_chd_v002.util.CheckInLocationBackup.serialize(
+                    locationRepository.getAll()
+                )
+                val dir = java.io.File(app.getExternalFilesDir(null), "exports").apply { mkdirs() }
+                val file = java.io.File(dir, "checkin_locations_${System.currentTimeMillis()}.json")
+                file.writeText(json)
+                androidx.core.content.FileProvider.getUriForFile(
+                    app, "${app.packageName}.fileprovider", file
+                )
+            }.onSuccess { uri ->
+                onReady(uri)
+            }.onFailure {
+                onError("导出失败：${it.message}")
+            }
+        }
+    }
+
+    /** [v126] 从 JSON 导入位置（合并插入，不覆盖已有；结果走 message 通道） */
+    fun importLocations(uri: android.net.Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val json = app.contentResolver.openInputStream(uri)
+                    ?.bufferedReader()?.use { it.readText() }
+                    ?: throw IllegalStateException("无法读取所选文件")
+                val (locations, _) = com.example.course_schedule_for_chd_v002.util.CheckInLocationBackup.deserialize(json)
+                locations.forEach { locationRepository.insert(it.copy(id = 0)) }
+                locations.size
+            }.onSuccess { n ->
+                _uiState.update { it.copy(message = "已导入 $n 个位置") }
+            }.onFailure {
+                _uiState.update { it.copy(message = "导入失败：${it.message}") }
+            }
         }
     }
 
