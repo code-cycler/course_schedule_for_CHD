@@ -52,3 +52,46 @@
 
 本调研仅为只读静态分析；「提交签到」端点记录在案但按 ADR-0001 与单向门三条件悬置，
 本期轮询通道只做「发现 + 提醒 + Mock 定位」，不代点签到。
+
+## 6. 二轮深挖：签到提交机制与雷达可行性（2026-10-15，仍只记录不实现）
+
+方法：同批解包材料，聚焦学生端提交链路的 chunk 级分析（雷达 2230 / 数字 386 / 自主 4413 /
+二维码 1384 chunk + 主 bundle 服务层模块 65655 与拦截器模块 20699）。
+
+### 6.1 四类提交全部是明文 PUT（无签名/无设备指纹）
+
+| 类型 | 端点（PUT） | 请求体 |
+|---|---|---|
+| 雷达 | `/api/rollcall/{id}/answer?api_version=1.76` | `{deviceId, latitude, longitude, speed, accuracy, altitude, altitudeAccuracy, heading}`（GCJ02，客户端上报并已做 WGS84→GCJ02 转换） |
+| 数字 | `/api/rollcall/{id}/answer_number_rollcall` | `{deviceId, numberCode}`（4 位码） |
+| 自主 | `/api/rollcall/{id}/answer_self_registration_rollcall` | `{deviceId}` |
+| 二维码 | `/api/rollcall/{id}/answer_qr_rollcall` | `{data: 二维码 JSON 内的 data, deviceId}`（服务端校验时效+hash） |
+
+deviceId = Capacitor Device UUID（应用级明文字段，客户端可任意填）；`rollcall_device_already_in_use`
+要求一台设备只绑一个账号。
+
+### 6.2 雷达的 useBeacon 分叉（自动化可行性的分水岭）
+
+先 `GET /api/rollcall/{id}/lite`（学生端仅返回 `{id, useBeacon}` 两字段）：
+
+- **useBeacon=false（纯 GPS 雷达）**：技术可自动化——body 仅上表定位字段，坐标信任客户端，
+  服务端算距离（响应含 `distance`；超范围错误 `radar_out_of_rollcall_scope` 可换坐标重试）。
+- **useBeacon=true（蓝牙雷达）**：**纯软件不可行**——教师端开始点名时服务端下发 `beacon_nonce`
+  （学生端 /lite 拿不到），教师手机原生 BLE 广播 `{rollcallId, nonce}`；学生必须原生 BLE 收到
+  message 后本地算 `radarSignal = md5(message + deviceId + userId + timestamp) + "," + timestamp`，
+  无 beacon 则客户端拒发。Web 层 BLE 是空 stub。注：签到成功后会用原 message 复播（「同学转发」
+  机制），message 是静态串——但获取它需要物理在场收一次广播。
+
+### 6.3 鉴权头实锤（修正一轮推断）
+
+主 bundle 拦截器（模块 20699）：所有 `/api` 请求统一带 `X-Requested-With: XMLHttpRequest`、
+`x-session-id: <登录 session>`、`Accept-Language`；`Authorization: Bearer` 仅 RMS 子系统使用。
+→ B5 轮询已按此加固请求头（x-session-id 主 + Bearer 双发，[v130]），待首次真实登录后按日志收敛。
+
+### 6.4 结论
+
+- 单向门条件①（提交接口存在且可复用登录态）**完全满足**（含全参数）。
+- 可自动化范围：**GPS 雷达 / 自主 / 数字 / 二维码（拿到码内容后）**；不可自动化：**蓝牙雷达**。
+- 无请求签名、无设备指纹、无原生加密参数；防作弊实质 = beacon 带外分发（仅蓝牙）+
+  服务端信任客户端坐标 + deviceId 一致性。
+- ②用户显式二次确认、③新 ADR 修订 ADR-0001 维持未动（2026-10-15 用户裁决：暂不实现，只落本报告）。

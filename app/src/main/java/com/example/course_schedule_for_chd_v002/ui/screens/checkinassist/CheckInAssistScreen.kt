@@ -229,8 +229,8 @@ fun CheckInAssistScreen(
             title = { Text("自启动开启了吗？") },
             text = {
                 Text(
-                    "在系统「应用启动管理」里找到本应用，关闭「自动管理」并允许自启动。" +
-                        "开启后手机重启时监听才能自动恢复（荣耀会扣留开机广播，这是唯一解法）。"
+                    "在系统的自启动/应用启动管理里找到本应用，允许自启动（部分厂商需关闭「自动管理」改手动管理）。" +
+                        "开启后手机重启时监听才能自动恢复。"
                 )
             },
             confirmButton = {
@@ -396,17 +396,17 @@ fun CheckInAssistScreen(
                     }
                 }
             )
-            // [v128] 荣耀自启动（厂商私有设置无查询 API：深链直达「应用启动管理」，回前台回报确认）
+            // [v128→v130] 自启动/后台启动（各厂商私有设置无查询 API：深链直达，回前台回报确认）
             PermissionStatusRow(
                 ok = state.settings.autoStartConfirmed,
-                label = "自启动（荣耀专属）",
+                label = "自启动/后台启动",
                 hint = if (state.settings.autoStartConfirmed) {
                     "已记录开启；点击可再次进入系统设置核对"
                 } else {
-                    "点击直达系统「应用启动管理」→ 找到本应用 → 关闭自动管理并允许自启动（重启后监听自动恢复的前提）"
+                    "点击直达系统的自启动/应用启动管理 → 找到本应用 → 允许自启动（重启后监听自动恢复的前提）"
                 },
                 onClick = {
-                    val opened = com.example.course_schedule_for_chd_v002.util.HonorAutoStart.openSettings(context)
+                    val opened = com.example.course_schedule_for_chd_v002.util.AutoStartLauncher.openSettings(context)
                     if (opened) viewModel.onAutoStartSettingVisited()
                     else viewModel.notifyMessage("无法直达自启动设置，请在应用详情页手动查找")
                 }

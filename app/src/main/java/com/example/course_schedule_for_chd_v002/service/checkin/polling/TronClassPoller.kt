@@ -46,14 +46,22 @@ class TronClassPoller(
             ?: return TronClassPollResult.SessionExpired
         val request = Request.Builder()
             .url("$base/api/radar/rollcalls?api_version=1.1.0")
+            // [v130] 鉴权头按二轮逆向实锤加固：畅课 /api 主链路用 x-session-id（Authorization
+            // 仅 RMS 子系统）——双发并存，待首次真实登录后按日志校准收敛
+            .header("x-session-id", tok)
             .header("Authorization", "Bearer $tok")
+            .header("X-Requested-With", "XMLHttpRequest")
             .get()
             .build()
         return try {
             client.newCall(request).execute().use { resp ->
                 when {
                     resp.code == 401 || resp.code == 403 -> TronClassPollResult.SessionExpired
-                    !resp.isSuccessful -> TronClassPollResult.NetworkError("HTTP ${resp.code}")
+                    !resp.isSuccessful -> {
+                        // [v130] 非 2xx 留 body 前 200 字符（校准期排错：鉴权头形态/参数形态）
+                        val body = runCatching { resp.body?.string()?.take(200) }.getOrNull().orEmpty()
+                        TronClassPollResult.NetworkError("HTTP ${resp.code} $body")
+                    }
                     else -> parseOngoingRollcalls(resp.body?.string().orEmpty())
                 }
             }

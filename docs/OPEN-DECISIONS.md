@@ -59,10 +59,10 @@
 
 ---
 
-## 签到辅助 v2 轮询通道做不做 — 等待假设 B/C 抓包验证
+## 签到辅助 v2 轮询通道做不做 — 已解决（闸门通过，B5 已实现）
 
-**Status:** deferred（双向门推迟；checkin-assist-v2 L0 W00 要点 3 采纳，2026-10-13）
-**Why deferred:** 知识缺口——畅课签到 API（假设 B）与登录态来源（假设 C）均未抓包验证；TronClass 社区通用逆向资料与 CHD 实际部署（畅课 v2.16.0）可能不一致。
+**Status:** resolved（2026-10-15 关闭：假设 B verified-通过、C verified-有条件通过——静态分析替代抓包，见 [B5-trpc-api-research.md](../harness/design/checkin-assist-v2/B5-trpc-api-research.md)；B5 轮询通道已随 [v129] 实现装机。C 的运行时校准点（token 有效期、鉴权头形态收敛）由 B5 文档 §6.3 跟踪。）
+**Why deferred（历史）:** 知识缺口——畅课签到 API（假设 B）与登录态来源（假设 C）均未抓包验证；TronClass 社区通用逆向资料与 CHD 实际部署（畅课 v2.16.0）可能不一致。
 **Current placeholder:** NLS 通知监听为主通道（现有 `CheckInNotificationListener` 加固）；轮询通道在 L1/L2 中以「验证闸通过」为前提条件性存在，闸门不过则整通道不做（触发源管线抽象保留，未来可插）。若闸门通过后实现，**执行载体已定**：课时有窗前台服务（`dataSync` 型），WorkManager（15 分钟粒度不足）与 AlarmManager 链（复杂易杀）已否决——见 [L1-contract-checkin-assist-v2.md](../harness/design/checkin-assist-v2/L1-contract-checkin-assist-v2.md) 选型表。验证行动项见 TODO.md「验证假设 B/C」。
 **Reversibility:** 高——双向门；不做轮询 = 退化为纯通知监听（现状加固版），随时可重启该方向零沉没成本。
 **Trigger — revisit when:** 假设 B/C 抓包/调研完成——接口存在且登录态可复用 → 重启轮询设计；确认不存在/不可复用 → 本条移入「已解决」记录结论。
@@ -76,3 +76,6 @@
 **Current placeholder:** 本期仅做触发源架构预留（触发管线留自动签到回调位）；不写任何签到提交代码；实验方向默认关。
 **Reversibility:** 低——单向门；自动提交一旦发生不可撤回（已发出的签到请求无法收回），故闸门后置。
 **Trigger — revisit when:** 三条件**同时**满足才开工：① 假设 B 抓包验证通过（存在可复用登录态的签到提交接口）；② 用户显式二次确认接受学术诚信与封号风险；③ 落新 ADR 修订 ADR-0001 对应条款并明示风险。强校验签到（二维码/手势/人脸/验证码）**永久排除**在自动完成之外（L0 范围硬约束）。
+
+> **2026-10-15 二轮深挖留痕**（[B5-trpc-api-research.md](../harness/design/checkin-assist-v2/B5-trpc-api-research.md) §6）：
+> ① 已完全满足——四类提交端点全参数明文（PUT，无签名/无设备指纹）；可行性结论：**GPS 雷达/自主/数字可自动化，蓝牙雷达不可行**（须物理 BLE 收包算 radarSignal）。同日用户裁决「暂不实现，只落报告」——② ③ 未动，本条维持悬置；重启时从 §6 直接取实现参数。

@@ -197,6 +197,11 @@ fun TronClassConnectScreen(
                 ConnectStage.Connected -> {
                     val timeText = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
                         .format(java.util.Date(state.connectedAt))
+                    // [v130] 捕获成功停留 1.5 秒展示结果后自动返回（提示文案「自动捕获并返回」自此与行为一致）
+                    LaunchedEffect(Unit) {
+                        kotlinx.coroutines.delay(1500)
+                        onBack()
+                    }
                     Text(
                         "✅ 畅课已连接（$timeText）。\n轮询通道可用：开关在「签到辅助」页的「轮询通道」区。",
                         style = MaterialTheme.typography.bodyMedium
