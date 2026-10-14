@@ -68,8 +68,8 @@
 | 假设 | 内容 | 状态 | 裁决方式 |
 |---|---|---|---|
 | A | 教师发起签到且畅课进程已死时，系统仍弹通知（厂商通道对签到类推送兜底） | pending（旁证：普通/营销推送走 `com.hihonor.android.pushagent`，`opPkg` 已实测） | 验收 A1 真机实测，手机端可自助 |
-| B | 存在可复用登录态的畅课「进行中签到列表 / 提交签到」HTTP 接口 | pending（未抓包未调研；TronClass 社区有通用资料，CHD 部署未验证） | 抓包/调研，轮询与自动签到的共同前置闸 |
-| C | 畅课登录态来源（复用学校 CAS 还是独立账号）与 Web 端域名 | pending | 随假设 B 一并验证 |
+| B | 存在可复用登录态的畅课「进行中签到列表 / 提交签到」HTTP 接口 | **verified-通过（2026-10-15 静态分析，见 [B5-trpc-api-research.md](B5-trpc-api-research.md)）**：`GET /api/radar/rollcalls?api_version=1.1.0` 返回进行中列表（`rollcalls[].courseId`），端点/参数/响应结构在 Web bundle 明文 | 无需抓包——畅课为 Capacitor 混合应用，业务逻辑全在 JS 明文，APK 解包即得 |
+| C | 畅课登录态来源（复用学校 CAS 还是独立账号）与 Web 端域名 | **verified-有条件通过（2026-10-15 静态分析）**：登录走学校 CAS（`org.casApi`，与教务同源）；鉴权 = `Authorization: Bearer <token>`，token 存畅课 Web `localStorage["token"]` | 运行时校准点：token 有效期/刷新、CHD 租户域名实际值（org 接口一次性查询）；B5 实现按 SessionExpired → 引导重连设计 |
 | D | `requestRebind()` 程序化重绑在荣耀 MagicOS 上有效（grill W01 Q1 揪出：v1 坑的处置是手动重开开关，程序化路径从未验证；javap 仅验证方法存在不验证行为） | **verified-无效（2026-10-14 真机裁决）**：冷启动调用返回 true 但未触发重绑（onListenerConnected 不出现）；`cmd notification allow_listener`（= 手动重开开关）有效 | **按设计降级纯引导**：警示条 +「去设置」已实现且装机场景实证有效（装机后警示条正确出现）；requestRebind 代码保留（无害，其他机型可能有效） |
 | E | 开机 BOOT_COMPLETED 能到达 BootRebindReceiver | **verified-受控（2026-10-14 真机）**：荣耀 `HwMtmBroadcastResourceManager` BootProxy 以「don't meet cpuload」扣留广播（自启动管控），进程未拉起；receiver 注册与代码路径正确 | 用户在荣耀设置开启「自启动」白名单后预期生效；未开则依赖冷启动警示条引导路径（假设 D 降级后的兜底链） |
 

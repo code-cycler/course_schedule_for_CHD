@@ -8,7 +8,9 @@ package com.example.course_schedule_for_chd_v002.domain.model
  */
 data class CheckInAssistSettings(
     val autoOpenChaoqing: Boolean = false,
-    val mockDurationMinutes: Int = DEFAULT_MOCK_DURATION_MINUTES
+    val mockDurationMinutes: Int = DEFAULT_MOCK_DURATION_MINUTES,
+    /** [v128] 用户回报已在荣耀设置允许自启动（无标准 API 可查，仅作引导记忆） */
+    val autoStartConfirmed: Boolean = false
 ) {
     companion object {
         const val DEFAULT_MOCK_DURATION_MINUTES = 10

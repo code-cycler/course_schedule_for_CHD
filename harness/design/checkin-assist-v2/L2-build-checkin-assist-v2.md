@@ -71,7 +71,7 @@
 
 **前置闸门**：TODO「验证假设 B/C」抓包/调研通过（OD 条目三条件另含用户确认与新 ADR——那是自动签到；轮询仅需假设 B/C 通过）。
 - `ClassWindowScheduler`：纯函数（课表 + now → 是否窗口内），默认窗口课前 10 分钟至课后 5 分钟、间隔 60 秒；**当前学期无课表数据 → 轮询保持关闭 + 签到辅助页显示原因**（「当前学期无课表数据，轮询通道未启用」，grill W01 Q6 修订，静默失效变可见状态）。
-- `TronClassPoller`：`pollOnce(): PollResult`（`NoActiveCheckIn` / `FoundCheckIn(checkInId, courseName, rawPayload)` / `SessionExpired` / `NetworkError`）；端点/鉴权/请求体 pending 抓包校准。
+- `TronClassPoller`：`pollOnce(): PollResult`（`NoActiveCheckIn` / `FoundCheckIn(checkInId, courseName, rawPayload)` / `SessionExpired` / `NetworkError`）；端点/鉴权已由静态分析裁决（2026-10-15，见 [B5-trpc-api-research.md](B5-trpc-api-research.md)）：轮询 = `GET /api/radar/rollcalls?api_version=1.1.0` + `Authorization: Bearer <token>`，token 经内嵌 WebView 登录畅课 Web（学校 CAS，与教务同构）读 `localStorage["token"]` 获取，`SessionExpired` → 引导重连。
 - `TronClassSessionProvider`：登录态供给占位接口。
 - `PollingForegroundService`：`foregroundServiceType="dataSync"`（+ `FOREGROUND_SERVICE_DATA_SYNC` 权限），窗口结束/无课自停；错误处理——`NetworkError` 指数退避 1 → 2 → 4 分钟（上限 5 分钟，成功重置）；`SessionExpired` 一次性引导通知（不自动重登）。
 - 轮询手动触发按钮（UI，随本阶段加）。

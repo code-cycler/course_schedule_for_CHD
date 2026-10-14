@@ -37,5 +37,7 @@ data class CheckInAssistUiState(
     /** 一次性提示消息（显示后由 UI 置空） */
     val message: String? = null,
     /** [v126] 位置选用下拉当前选中项（null = 未选） */
-    val selectedLocationId: Long? = null
+    val selectedLocationId: Long? = null,
+    /** [v128] 自启动回前台确认对话框（从系统自启动设置页返回且尚未确认过时弹） */
+    val autoStartConfirmPending: Boolean = false
 )

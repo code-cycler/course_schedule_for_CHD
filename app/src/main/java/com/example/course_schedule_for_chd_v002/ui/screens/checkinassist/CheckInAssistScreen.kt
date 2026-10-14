@@ -81,6 +81,8 @@ fun CheckInAssistScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // [v128] 自启动回报确认框的 UI 侧开关（ON_RESUME 时若 ViewModel 标记待确认则弹）
+    var showAutoStartConfirm by remember { mutableStateOf(false) }
 
     // [v114] 跳转本应用详情页（权限被永久拒绝时，运行时申请器不弹窗，统一跳设置页）
     val openAppDetailsSettings = {
@@ -124,6 +126,8 @@ fun CheckInAssistScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshPermissions()
                 viewModel.checkNlsHealth()
+                // [v128] 刚从自启动设置页回来 → 弹回报确认框（无 API 可查，只能问用户）
+                if (viewModel.uiState.value.autoStartConfirmPending) showAutoStartConfirm = true
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -210,6 +214,35 @@ fun CheckInAssistScreen(
             },
             confirmButton = {
                 TextButton(onClick = viewModel::closeNotificationLog) { Text("关闭") }
+            }
+        )
+    }
+
+    // [v128] 自启动回报确认（从系统「应用启动管理」回来后弹；无标准 API 可查，只能问用户）
+    if (showAutoStartConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showAutoStartConfirm = false
+                viewModel.dismissAutoStartConfirm()
+            },
+            title = { Text("自启动开启了吗？") },
+            text = {
+                Text(
+                    "在系统「应用启动管理」里找到本应用，关闭「自动管理」并允许自启动。" +
+                        "开启后手机重启时监听才能自动恢复（荣耀会扣留开机广播，这是唯一解法）。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showAutoStartConfirm = false
+                    viewModel.answerAutoStartConfirm(true)
+                }) { Text("已开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showAutoStartConfirm = false
+                    viewModel.answerAutoStartConfirm(false)
+                }) { Text("还没开启") }
             }
         )
     }
@@ -360,6 +393,21 @@ fun CheckInAssistScreen(
                         }
                         // 回到前台后 refreshPermissions 会刷新状态
                     }
+                }
+            )
+            // [v128] 荣耀自启动（厂商私有设置无查询 API：深链直达「应用启动管理」，回前台回报确认）
+            PermissionStatusRow(
+                ok = state.settings.autoStartConfirmed,
+                label = "自启动（荣耀专属）",
+                hint = if (state.settings.autoStartConfirmed) {
+                    "已记录开启；点击可再次进入系统设置核对"
+                } else {
+                    "点击直达系统「应用启动管理」→ 找到本应用 → 关闭自动管理并允许自启动（重启后监听自动恢复的前提）"
+                },
+                onClick = {
+                    val opened = com.example.course_schedule_for_chd_v002.util.HonorAutoStart.openSettings(context)
+                    if (opened) viewModel.onAutoStartSettingVisited()
+                    else viewModel.notifyMessage("无法直达自启动设置，请在应用详情页手动查找")
                 }
             )
 

@@ -43,7 +43,7 @@
 
 - [x] **App 内加「停止虚拟定位」入口**（2026-07-28 实现）：签到辅助页「模拟签到触发」下方加了「停止虚拟定位」按钮，`MockLocationService.isRunning` 标志控制其仅在会话激活时显示，点击调 `MockLocationController.stop`。代码已编译通过，待真机重连验证。
 - [ ] **验证假设 A：签到通知可达性 + 关键字校准**（checkin-assist-v2 L0 W00 要点 16，合并原「开学后校准签到关键字」遗留项）：下次真实签到时，先强杀畅课进程（最近任务划掉或应用信息里强停），观察系统通知是否仍到达——裁决荣耀厂商通道对签到类推送是否兜底（L0 验收 A1）；同时记录通知实际标题/正文，校准默认关键字「签到/考勤/点名」（L0 验收 A2）。——触发：下次课堂签到。手机端可自助完成，不依赖电脑。
-- [ ] **验证假设 B/C：畅课签到 API 与登录态来源**（checkin-assist-v2 L0 W00 要点 3）：抓包或调研畅课「进行中签到列表 / 提交签到」HTTP 接口是否存在、可否复用登录态，以及畅课登录是复用学校 CAS 还是独立账号——轮询通道与自动签到方向的共同前置闸门，闸门不过则轮询通道不做。——触发：L1 契约层设计轮询通道前。
+- [x] **验证假设 B/C：畅课签到 API 与登录态来源**（checkin-assist-v2 L0 W00 要点 3；2026-10-15 完成，静态分析替代抓包——畅课为 Capacitor 混合应用业务逻辑全在 JS 明文，见 [B5-trpc-api-research.md](harness/design/checkin-assist-v2/B5-trpc-api-research.md)）：B 通过（`GET /api/radar/rollcalls` 进行中列表）；C 有条件通过（学校 CAS 登录 + Bearer token 存畅课 Web localStorage）。**B5 轮询闸门已过**，运行时校准点（token 有效期/CHD 域名）由 B5 实现消化。
 
 ## 跨学期自动检测与切换（design 2026-08-31，见 [harness/design/cross-semester/L0-cross-semester.md](../harness/design/cross-semester/L0-cross-semester.md)）
 

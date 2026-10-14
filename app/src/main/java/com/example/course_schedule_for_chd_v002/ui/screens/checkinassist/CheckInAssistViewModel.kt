@@ -175,8 +175,29 @@ class CheckInAssistViewModel(
 
     fun consumeMessage() = _uiState.update { it.copy(message = null) }
 
-    /** [v126] 通用一次性提示（测试入口按钮结果反馈） */
+    /** [v128] 通用一次性提示（测试入口按钮结果反馈） */
     fun notifyMessage(text: String) = _uiState.update { it.copy(message = text) }
+
+    /** [v128] 已跳去系统自启动设置页（回前台时弹回报确认；无标准 API 可查，仅记忆） */
+    fun onAutoStartSettingVisited() = _uiState.update { it.copy(autoStartConfirmPending = true) }
+
+    /** [v128] 回前台确认对话框：用户回报自启动是否已开启 */
+    fun answerAutoStartConfirm(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferences.saveCheckInAssistSettings(
+                _uiState.value.settings.copy(autoStartConfirmed = enabled)
+            )
+            _uiState.update {
+                it.copy(
+                    autoStartConfirmPending = false,
+                    message = if (enabled) "已记录：自启动已开启" else "未开启自启动（开机后需手动打开本应用一次恢复监听）"
+                )
+            }
+        }
+    }
+
+    /** [v128] 确认对话框取消：不落盘，仅清待确认标记 */
+    fun dismissAutoStartConfirm() = _uiState.update { it.copy(autoStartConfirmPending = false) }
 
     /** 保存签到通知识别关键字（逗号分隔原始串） */
     fun updateKeywords(raw: String) {

@@ -48,6 +48,7 @@ class UserPreferences(private val context: Context) {
         // ================ [v114] 签到辅助相关 ================
         private val KEY_CHECKIN_AUTO_OPEN = booleanPreferencesKey("checkin_auto_open")
         private val KEY_CHECKIN_MOCK_DURATION = intPreferencesKey("checkin_mock_duration_min")
+        private val KEY_CHECKIN_AUTOSTART_CONFIRMED = booleanPreferencesKey("checkin_autostart_confirmed") // [v128]
         private val KEY_CHECKIN_LOCATION_MEMORY = stringPreferencesKey("checkin_location_memory")
         // [v126] 位置记忆 v2：Map<"courseName", locationId>（教室名退出记忆键，tag 化后课程名是唯一选择依据）
         private val KEY_CHECKIN_LOCATION_MEMORY_V2 = stringPreferencesKey("checkin_location_memory_v2")
@@ -673,6 +674,7 @@ class UserPreferences(private val context: Context) {
     val checkInAssistSettings: Flow<CheckInAssistSettings> = context.dataStore.data.map { preferences ->
         CheckInAssistSettings(
             autoOpenChaoqing = preferences[KEY_CHECKIN_AUTO_OPEN] ?: false,
+            autoStartConfirmed = preferences[KEY_CHECKIN_AUTOSTART_CONFIRMED] ?: false, // [v128]
             mockDurationMinutes = (preferences[KEY_CHECKIN_MOCK_DURATION]
                 ?: CheckInAssistSettings.DEFAULT_MOCK_DURATION_MINUTES)
                 .coerceIn(
@@ -689,6 +691,7 @@ class UserPreferences(private val context: Context) {
     suspend fun saveCheckInAssistSettings(settings: CheckInAssistSettings) {
         context.dataStore.edit { preferences ->
             preferences[KEY_CHECKIN_AUTO_OPEN] = settings.autoOpenChaoqing
+            preferences[KEY_CHECKIN_AUTOSTART_CONFIRMED] = settings.autoStartConfirmed // [v128]
             preferences[KEY_CHECKIN_MOCK_DURATION] = settings.mockDurationMinutes.coerceIn(
                 CheckInAssistSettings.MIN_MOCK_DURATION_MINUTES,
                 CheckInAssistSettings.MAX_MOCK_DURATION_MINUTES
