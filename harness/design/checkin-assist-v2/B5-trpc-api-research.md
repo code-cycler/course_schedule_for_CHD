@@ -30,14 +30,14 @@
   查学校 → `POST {org.casApi}/cas/v1/tickets`（TGT）→ `POST .../tickets/{TGT}`（ST）→
   `GET /api/cas-login?ticket=<ST>` 换会话。**与教务系统同一套学校 CAS**。
   另有 `/api/login`（账密）、identity 服务 `access_token` 换登录等旁路。
-- **API host**：各校租户域名（org 对象下发），CHD 的具体域名待运行时从 org 接口取（一次性查询可缓存）。
+- **API host**（2026-10-15 实测校准）：CHD = `https://course-online.chd.edu.cn`（orgs 接口 `apiUrl` 字段，学校自有域名）；orgs 查询需客户端固定头 `X-LC-Id`/`X-LC-Key`（APK 公开硬编码），响应结构 `{results:[{orgName, apiUrl, identityConfig:{auth-server-url, realm}}]}`。**CHD 登录走 identity 服务**（`identity.chd.edu.cn/auth`，OAuth 风格 realm=chd），非 CAS、无 webUrl/casApi 字段——静态分析阶段的 CAS 判断在此校准修正。
 
 ## 3. 假设判定
 
 | 假设 | 判定 | 依据 |
 |---|---|---|
 | B：存在可复用登录态的「进行中签到列表」HTTP 接口 | **verified-通过** | `GET /api/radar/rollcalls` 端点、参数、响应结构（`rollcalls[].courseId`）全明文 |
-| C：登录态来源（复用学校 CAS 还是独立账号）与 Web 域名 | **verified-有条件通过** | 登录走学校 CAS（`org.casApi`，与教务同源）；token = `localStorage["token"]` 的 Bearer。**运行时校准点**：token 有效期/刷新机制、CHD 租户域名与 casApi 实际值 |
+| C：登录态来源与 Web 域名 | **verified-有条件通过** | 实测：CHD 走 identity 服务（identity.chd.edu.cn/auth，OAuth 风格）；token = `localStorage["token"]` 的 Bearer。剩余运行时校准点：token 有效期/刷新 |
 
 ## 4. 对 B5 实现的指引
 

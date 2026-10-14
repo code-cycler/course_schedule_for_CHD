@@ -25,6 +25,7 @@ import com.example.course_schedule_for_chd_v002.data.local.preferences.UserPrefe
 import com.example.course_schedule_for_chd_v002.domain.repository.ICourseRepository
 import com.example.course_schedule_for_chd_v002.ui.components.CrashReportDialog
 import com.example.course_schedule_for_chd_v002.ui.screens.checkinassist.CheckInAssistScreen
+import com.example.course_schedule_for_chd_v002.ui.screens.checkinassist.TronClassConnectScreen
 import com.example.course_schedule_for_chd_v002.util.LogExporter
 import com.example.course_schedule_for_chd_v002.util.LogExporter.CrashLogSummary
 import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
@@ -129,7 +130,15 @@ fun AppNavigation(
 
         // [v114] 签到辅助界面
         composable(Screen.CheckInAssist.route) {
-            CheckInAssistScreen(onBack = { navController.popBackStack() })
+            CheckInAssistScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToConnect = { navController.navigate(Screen.TronClassConnect.route) }
+            )
+        }
+
+        // [v129] B5 畅课连接页（登录捕获 token 供轮询）
+        composable(Screen.TronClassConnect.route) {
+            TronClassConnectScreen(onBack = { navController.popBackStack() })
         }
 
         // 登录界面

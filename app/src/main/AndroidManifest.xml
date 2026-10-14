@@ -17,6 +17,8 @@
         tools:ignore="MockLocation,ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- [v129] B5 轮询通道前台服务（dataSync：课时有窗轮询畅课签到） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- [v126] 签到辅助 v2 B3：开机重绑 NLS + 电池优化白名单直申 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -64,6 +66,11 @@
             android:name=".service.mocklocation.MockLocationService"
             android:exported="false"
             android:foregroundServiceType="location" />
+        <!-- [v129] B5 轮询前台服务（dataSync；与 Mock 定位服务解耦） -->
+        <service
+            android:name=".service.checkin.polling.PollingService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- [v114] 签到辅助：畅课签到通知监听服务（需用户在「通知使用权」中授权本应用） -->
         <service

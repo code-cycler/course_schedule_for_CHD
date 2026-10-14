@@ -75,6 +75,7 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun CheckInAssistScreen(
     onBack: () -> Unit,
+    onNavigateToConnect: () -> Unit = {},
     viewModel: CheckInAssistViewModel = koinViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -454,6 +455,50 @@ fun CheckInAssistScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            Spacer(Modifier.height(16.dp))
+
+            // ===== [v129] 轮询通道（B5 第二监听：课时有窗时主动查畅课签到）=====
+            Text("轮询通道（第二监听）", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            if (!state.tronClassConnected) {
+                OutlinedButton(
+                    onClick = onNavigateToConnect,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("连接畅课账号（轮询前置）") }
+                Text(
+                    "畅课通知被吞/文案不命中时的兜底通道：登录一次畅课，上课时段自动查询签到状态",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("畅课已连接")
+                    TextButton(onClick = viewModel::disconnectTronClass) { Text("断开") }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("课时有窗轮询畅课签到")
+                        Text(
+                            "课前 10 分钟至课后 5 分钟，每 60 秒查一次；无课时段不请求",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = state.pollingEnabled,
+                        onCheckedChange = viewModel::setPollingEnabled
+                    )
+                }
+            }
 
             Spacer(Modifier.height(16.dp))
 

@@ -39,4 +39,6 @@ sealed class Screen(val route: String) {
      * [v114] 签到辅助界面
      */
     object CheckInAssist : Screen("checkin_assist")
+    // [v129] B5 畅课连接页（WebView 登录捕获 token）
+    object TronClassConnect : Screen("tronclass_connect")
 }

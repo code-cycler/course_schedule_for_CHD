@@ -9,10 +9,14 @@ import com.example.course_schedule_for_chd_v002.domain.repository.ICourseReposit
 import com.example.course_schedule_for_chd_v002.service.calendar.CalendarSyncService
 import com.example.course_schedule_for_chd_v002.service.checkin.CheckInTriggerCoordinator
 import com.example.course_schedule_for_chd_v002.service.checkin.NlsHealthMonitor
+import com.example.course_schedule_for_chd_v002.service.checkin.polling.TronClassPoller
 import com.example.course_schedule_for_chd_v002.ui.screens.checkinassist.CheckInAssistViewModel
+import com.example.course_schedule_for_chd_v002.ui.screens.checkinassist.TronClassConnectViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.login.LoginViewModel
 import com.example.course_schedule_for_chd_v002.ui.screens.schedule.ScheduleViewModel
 import org.koin.android.ext.koin.androidContext
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.runBlocking
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
@@ -64,8 +68,19 @@ val appModule = module {
         )
     }
 
+    // [v129] B5 轮询器（baseUrl/token 从 DataStore 惰性读取，连接页更新后即生效）
+    single {
+        val prefs = get<com.example.course_schedule_for_chd_v002.data.local.preferences.UserPreferences>()
+        TronClassPoller(
+            baseUrl = { runBlocking { prefs.tronClassBaseUrl.firstOrNull() } },
+            token = { runBlocking { prefs.tronClassToken.firstOrNull() } }
+        )
+    }
+
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
+    // [v129] B5 畅课连接页
+    viewModel { TronClassConnectViewModel(get()) }
     viewModel { params ->
         ScheduleViewModel(
             repository = get(),

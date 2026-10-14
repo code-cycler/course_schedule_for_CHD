@@ -20,6 +20,7 @@ import com.example.course_schedule_for_chd_v002.util.PowerSaveWhitelist
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -49,6 +50,63 @@ class CheckInAssistViewModel(
         refreshPermissions()
         loadCourseRoomMap()
         checkNlsHealth()
+        observeTronClassConnection()
+    }
+
+    /** [v129] 畅课连接与轮询开关状态（B5 轮询通道） */
+    private fun observeTronClassConnection() {
+        viewModelScope.launch {
+            userPreferences.tronClassToken.collect { token ->
+                _uiState.update { it.copy(tronClassConnected = !token.isNullOrBlank()) }
+            }
+        }
+        viewModelScope.launch {
+            userPreferences.pollingEnabled.collect { enabled ->
+                _uiState.update { it.copy(pollingEnabled = enabled) }
+            }
+        }
+    }
+
+    /**
+     * [v129] 轮询开关（B5）：开 = 前置校验（token + 当前学期课表非空，grill W01 Q6 静默失效变可见）
+     * 后启动 dataSync 前台服务；关 = 先落库再停服务。
+     */
+    fun setPollingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            if (enabled) {
+                val token = userPreferences.tronClassToken.firstOrNull().orEmpty()
+                if (token.isBlank()) {
+                    _uiState.update { it.copy(message = "请先连接畅课账号，再开启轮询") }
+                    return@launch
+                }
+                val semester = courseRepository.getCurrentSemester()
+                val hasCourses = semester != null &&
+                    courseRepository.getLocalSchedule(semester).isNotEmpty()
+                if (!hasCourses) {
+                    _uiState.update { it.copy(message = "当前学期无课表数据，轮询通道未启用") }
+                    return@launch
+                }
+                userPreferences.savePollingEnabled(true)
+                runCatching {
+                    com.example.course_schedule_for_chd_v002.service.checkin.polling.PollingService.start(app)
+                }.onFailure {
+                    _uiState.update { it.copy(message = "轮询服务启动失败：${it.message}") }
+                }
+            } else {
+                userPreferences.savePollingEnabled(false)
+                com.example.course_schedule_for_chd_v002.service.checkin.polling.PollingService.stop(app)
+            }
+        }
+    }
+
+    /** [v129] 断开畅课连接（连带停轮询） */
+    fun disconnectTronClass() {
+        viewModelScope.launch {
+            userPreferences.savePollingEnabled(false)
+            com.example.course_schedule_for_chd_v002.service.checkin.polling.PollingService.stop(app)
+            userPreferences.clearTronClassConnection()
+            _uiState.update { it.copy(message = "已断开畅课连接") }
+        }
     }
 
     private fun observeLocations() {

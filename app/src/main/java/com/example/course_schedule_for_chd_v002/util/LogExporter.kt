@@ -68,7 +68,9 @@ object LogExporter {
         "BootRebindReceiver",
         "CheckInTestTools",
         "CheckInNotifListener.Companion",
-        "AppDatabase"
+        // [v129] B5 轮询通道 TAG
+        "CheckIn_Polling",
+        "TronClassConnect"
     )
 
     // 日志文件名前缀

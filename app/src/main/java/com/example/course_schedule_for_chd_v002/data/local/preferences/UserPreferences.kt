@@ -58,6 +58,11 @@ class UserPreferences(private val context: Context) {
         private val KEY_NLS_SUSPECT_NOTIFIED_AT = longPreferencesKey("checkin_nls_suspect_notified_at")
         // [v126] 畅课通知原文记录（环形缓冲，全量含未命中关键字）
         private val KEY_TRONCLASS_NOTIFICATION_LOG = stringPreferencesKey("checkin_tronclass_notification_log")
+        // [v129] B5 轮询通道：畅课连接（token/域名/连接时间）与轮询开关
+        private val KEY_TRONCLASS_TOKEN = stringPreferencesKey("checkin_tronclass_token")
+        private val KEY_TRONCLASS_BASE_URL = stringPreferencesKey("checkin_tronclass_base_url")
+        private val KEY_TRONCLASS_CONNECTED_AT = longPreferencesKey("checkin_tronclass_connected_at")
+        private val KEY_POLLING_ENABLED = booleanPreferencesKey("checkin_polling_enabled")
         // 默认签到关键字（与 CheckInNotificationMatcher.DEFAULT_KEYWORDS_TEXT 保持一致）
         private const val DEFAULT_CHECKIN_KEYWORDS = "签到,考勤,点名"
     }
@@ -820,6 +825,36 @@ class UserPreferences(private val context: Context) {
                 preferences[KEY_TRONCLASS_NOTIFICATION_LOG]
             )
         }
+
+    /** [v129] 畅课连接状态（token 等同畅课登录态，仅本机 DataStore 存储，不上传） */
+    val tronClassToken: Flow<String?> = context.dataStore.data.map { it[KEY_TRONCLASS_TOKEN] }
+    val tronClassBaseUrl: Flow<String?> = context.dataStore.data.map { it[KEY_TRONCLASS_BASE_URL] }
+    val tronClassConnectedAt: Flow<Long> = context.dataStore.data.map { it[KEY_TRONCLASS_CONNECTED_AT] ?: 0L }
+
+    /** [v129] 轮询通道开关（服务存活由 UI 与服务共同遵守：关即 stopSelf） */
+    val pollingEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_POLLING_ENABLED] ?: false }
+
+    /** [v129] 连接页捕获 token 后写入（baseUrl 为 WebView 实际加载的 origin） */
+    suspend fun saveTronClassConnection(token: String, baseUrl: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_TRONCLASS_TOKEN] = token
+            preferences[KEY_TRONCLASS_BASE_URL] = baseUrl.trimEnd('/')
+            preferences[KEY_TRONCLASS_CONNECTED_AT] = System.currentTimeMillis()
+        }
+    }
+
+    /** [v129] 断开畅课连接（清 token，轮询随之失效→服务自停） */
+    suspend fun clearTronClassConnection() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(KEY_TRONCLASS_TOKEN)
+            preferences.remove(KEY_TRONCLASS_BASE_URL)
+            preferences.remove(KEY_TRONCLASS_CONNECTED_AT)
+        }
+    }
+
+    suspend fun savePollingEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_POLLING_ENABLED] = enabled }
+    }
 
     /** [v114] 序列化位置记忆为 JSON：{"course|room":123,"course2|":456} */
     private fun serializeLocationMemory(map: Map<String, Long>): String {

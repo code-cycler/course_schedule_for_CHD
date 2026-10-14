@@ -39,5 +39,8 @@ data class CheckInAssistUiState(
     /** [v126] 位置选用下拉当前选中项（null = 未选） */
     val selectedLocationId: Long? = null,
     /** [v128] 自启动回前台确认对话框（从系统自启动设置页返回且尚未确认过时弹） */
-    val autoStartConfirmPending: Boolean = false
+    val autoStartConfirmPending: Boolean = false,
+    /** [v129] 畅课已连接（token 在库）与轮询开关（B5） */
+    val tronClassConnected: Boolean = false,
+    val pollingEnabled: Boolean = false
 )
