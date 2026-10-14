@@ -433,10 +433,17 @@ fun CheckInAssistScreen(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Text("虚拟定位保持时长：${state.settings.mockDurationMinutes} 分钟")
+            // [v133] 拖动过程只改内存 state、松手 onValueChangeFinished 才落盘一次
+            // （此前每 tick 写一次 DataStore，实测拖一下 1.4 秒约 40 次写盘）
+            var durationInput by remember { mutableStateOf<Float?>(null) }
+            Text("虚拟定位保持时长：${(durationInput?.toInt()) ?: state.settings.mockDurationMinutes} 分钟")
             Slider(
-                value = state.settings.mockDurationMinutes.toFloat(),
-                onValueChange = { viewModel.updateSettings(mockDurationMinutes = it.toInt()) },
+                value = durationInput ?: state.settings.mockDurationMinutes.toFloat(),
+                onValueChange = { durationInput = it },
+                onValueChangeFinished = {
+                    durationInput?.let { viewModel.updateSettings(mockDurationMinutes = it.toInt()) }
+                    durationInput = null
+                },
                 valueRange = 1f..10f,
                 steps = 8
             )

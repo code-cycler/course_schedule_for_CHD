@@ -5,7 +5,10 @@ junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
 lifecycleRuntimeKtx = "2.6.1"
-activityCompose = "1.12.3"
+# [v133] 必须与 composeBom 同代（1.9.x ↔ BOM 2024.09）。升到 1.12.x 会经 activity→navigationevent→ui:1.9.2
+# 把运行期 compose 家族整体拖到 1.9.2，而编译期仍按 BOM 解析 1.7.0 —— Kotlin 按 1.7 ABI 编译、
+# APK 打包 1.9.2 的类，FlowRow 等签名变更的 API 直接 NoSuchMethodError（真机崩溃实例见 OD/AGENTS 记录）
+activityCompose = "1.9.3"
 kotlin = "2.2.10"
 composeBom = "2024.09.00"
 

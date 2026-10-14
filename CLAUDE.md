@@ -43,6 +43,7 @@ util/      ScriptInjector / TimeUtils / JsonUtils / Constants / WebViewLogger ..
 2. **登录只走 WebView**。`AppNavigation` 的 Login 路由直接渲染 `WebViewScreen`；账号密码表单登录（`LoginScreen` / `CasApi`）已作为死代码移除。别重新引入表单登录分支。
 3. **网络全是 OkHttp**（`EamsClient` 封装，绑 `CookieManager` 作 CookieJar）。没有 Retrofit——别找 Retrofit 接口（曾经有 `EamsService` 空壳和 Retrofit 依赖，已删除）。
 4. **两套版本号**：发布版（git tag `v2.x`）≠ 代码注释里的内部迭代号 `[v97]`。后者只追踪开发改动。
+5. **compose 依赖必须与 BOM 同代，否则编译/打包劈叉直接崩**（v133 真机实例）。`activityCompose` 曾升到 1.12.3，它经 activity→navigationevent→ui:1.9.2 把**运行期** compose 家族整体拖到 1.9.2（atomic group 对齐），而**编译期**仍按 BOM 2024.09.00 解析 1.7.0——Kotlin 按 1.7 ABI 编译调用点、APK 却打包 1.9.2 的类，FlowRow 签名在 1.9 加了 `Alignment$Vertical` 参数 → 真机 `NoSuchMethodError` 崩溃（位置编辑页教室 tag 区，且 clean 构建也 100% 复现）。**改 `libs.versions.toml` 任何 compose 相关版本后**：跑 `./gradlew :app:dependencyInsight --dependency androidx.compose.foundation:foundation-layout --configuration debugRuntimeClasspath` 确认与 compileClasspath 一致，再 `bash scripts/verify_apk.sh` 过三查后才装机。另：本项目多次出现 Gradle daemon 输入快照过期（源码改了 compileDebugKotlin 仍 UP-TO-DATE、增量产出残包），**装机用 `./gradlew --stop && ./gradlew clean assembleDebug`，装机前必跑 `scripts/verify_apk.sh`**。
 ## 文档导航
 
 | 文档 | 内容 |
